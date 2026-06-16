@@ -1,0 +1,49 @@
+# Claude Code local settings (machine-specific permission overrides)
+.claude/
+
+# Build output
+target/
+build/
+out/
+bin/
+.gradle/
+
+# Compiled class files
+*.class
+
+# Packaged artifacts
+*.jar
+*.war
+*.ear
+*.nar
+
+# Test and coverage output
+[Tt]est[Rr]esult*/
+.jacoco/
+*.exec
+
+# IDE - IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# IDE - Eclipse
+.classpath
+.project
+.settings/
+
+# IDE - VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# graphify knowledge graph artifacts (local; rebuilt by graphify)
+graphify-out/
+supersets-out/
