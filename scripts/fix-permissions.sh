@@ -1,37 +1,22 @@
 #!/usr/bin/env bash
-# Re-stages +x on tracked files that must be executable in this repo and
-# would otherwise land mode 0644 when authored on Windows: every *.sh (the
-# family-wide rule), the gradlew wrappers, and the .githooks/ scripts (the
-# pre-commit hook must be executable to fire on a fresh Linux clone). The
-# shared .sh-only engine and the CI gate cover only *.sh, so this repo widens
-# the set - gradlew has no .sh extension and the hooks live outside any
-# scanned glob.
+# Java/Gradle repos need everything the base Common-Automation runner heals
+# (tracked *.sh and .githooks/ scripts) plus the gradlew wrappers, which carry
+# no .sh extension and so fall outside the shared default set. This runner adds
+# only that Java-specific extra and otherwise defers entirely to the base
+# runner - the single source of the shared pathspec set, the target-repo
+# indirection, and the keep-window-open behaviour.
 #
-# Reuses Common-Automation's fix engine for the actual detection and fix
-# (git index mode 100644 -> git update-index --chmod=+x) so this repo cannot
-# drift from the canonical +x rule; it only passes a wider pathspec set. The
-# engine is .sh-specific only in its no-arg / gate modes - given explicit
-# pathspecs it checks exactly those, regardless of extension. Common-Automation
-# is expected as a sibling checkout under the same parent directory.
+# A consuming Java repo exports COMMON_JAVA_TARGET_REPO so this heals THAT repo
+# instead of Common-Java; it is translated to the base runner's
+# COMMON_AUTOMATION_TARGET_REPO here. Both Common-Java and Common-Automation are
+# expected as sibling checkouts under the same parent directory.
 
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "${script_dir}/.." && pwd)"
-common_automation_root="$(cd "${repo_root}/../Common-Automation" && pwd)"
+common_java_root="$(cd "${script_dir}/.." && pwd)"
+common_automation_root="$(cd "${common_java_root}/../Common-Automation" && pwd)"
+target_repo="${COMMON_JAVA_TARGET_REPO:-${common_java_root}}"
 
-# shellcheck source=/dev/null
-source "${common_automation_root}/scripts/_hold-window.sh"
-trap hold_window_open EXIT
-
-# shellcheck source=/dev/null
-source "${common_automation_root}/.github/lib/fix-sh-executable.sh"
-
-echo "=== fixing +x on tracked .sh, gradlew, and .githooks files in ${repo_root} ==="
-fixed="$(cd "${repo_root}" && fix_sh_executable '*.sh' 'gradlew' '*/gradlew' '.githooks/*')"
-if [[ -n "${fixed}" ]]; then
-    echo "${fixed}"
-    echo "Done. Review staged mode changes with: git status"
-else
-    echo "Nothing to fix - all tracked .sh, gradlew, and .githooks files already have +x."
-fi
+COMMON_AUTOMATION_TARGET_REPO="${target_repo}" \
+    exec "${common_automation_root}/scripts/fix-permissions.sh" 'gradlew' '*/gradlew'
