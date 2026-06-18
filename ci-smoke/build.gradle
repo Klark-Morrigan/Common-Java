@@ -1,0 +1,10 @@
+// Applies the shared generic JVM conventions exactly as a real consumer
+// would, by relative path. The conventions live one directory up, in
+// Common-Java/gradle/. If java-conventions.gradle fails to evaluate, stops
+// wiring up the JUnit 5 + AssertJ test stack, or changes the Java target so
+// the smoke test no longer compiles/runs, this build goes red - giving the
+// conventions direct CI coverage in their own repo rather than letting a
+// regression surface first in a downstream mod.
+apply from: "${rootDir}/../gradle/java-conventions.gradle"
+
+group = 'commonjava.smoke'
