@@ -1,0 +1,155 @@
+# Reusable Gradle build/test engine for JVM projects.
+#
+# The leading underscore marks this as the reusable ENGINE - the building
+# block other workflows invoke via `uses:`, never a direct entry. Each repo
+# (including Common-Java itself) has a plain `ci-gradle.yml` that triggers on
+# PRs and calls this. Keeping the two names distinct is deliberate: when the
+# engine and the per-repo caller shared the name `ci-gradle.yml`, it was easy
+# to mistake one for the other.
+#
+# Deliberately language-agnostic: `./gradlew <tasks>` is identical whether
+# the project applies the `java` or `kotlin.jvm` plugin, so one workflow
+# serves both - there is no need for separate ci-java / ci-kotlin variants.
+# All variance is expressed as inputs, so the workflow itself holds no
+# knowledge of any particular caller.
+#
+# Callers invoke it as a job-level reusable workflow:
+#
+#   jobs:
+#     gradle:
+#       uses: Klark-Morrigan/Common-Java/.github/workflows/_ci-gradle.yml@master
+#       with:
+#         gradle-tasks: test jar
+#
+# A caller whose build needs prerequisites that only exist on a specific
+# machine (extra jars, env vars, a pre-provisioned JDK) selects a matching
+# runner via `runs-on` and leaves `setup-java` off; a caller that can build
+# on a stock hosted runner passes setup-java: true.
+#
+# Sibling checkouts: a build that applies shared Gradle scripts from a
+# neighbouring repo by relative path (e.g. `apply from
+# "${rootDir}/../Other-Repo/gradle/foo.gradle"`) needs those repos present
+# as siblings of its own checkout. Such a caller sets `checkout-path` (so
+# its repo lands in a named subdirectory rather than the workspace root)
+# and lists the neighbours in `sibling-checkouts`; both are cloned as
+# siblings inside the workspace so the relative paths resolve. Public
+# neighbours clone with the default token; private ones need a token with
+# read access passed as the `sibling_checkout_token` secret.
+name: _ci-gradle
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        # JSON so a caller can pass either a single label ('"ubuntu-latest"')
+        # or a label set ('["self-hosted", "some-label"]'). The job decodes
+        # it with fromJSON below.
+        description: >
+          runs-on value as a JSON string: a single label or a label array.
+        type: string
+        required: false
+        default: '"ubuntu-latest"'
+      gradle-tasks:
+        description: Gradle tasks to run.
+        type: string
+        required: false
+        default: test jar
+      checkout-path:
+        # Where the caller repo is checked out, relative to the workspace.
+        # Default '.' (workspace root). Set to a subdirectory name when
+        # sibling-checkouts is used, so the neighbours can sit beside it.
+        description: Path to check out the caller repo into.
+        type: string
+        required: false
+        default: '.'
+      working-directory:
+        # Where ./gradlew runs, relative to the workspace. Usually equals
+        # checkout-path; differs only when the Gradle project is in a
+        # subdirectory of the checkout (e.g. a CI smoke project).
+        description: Directory to run gradlew in.
+        type: string
+        required: false
+        default: '.'
+      sibling-checkouts:
+        # JSON array of { repo, ref?, path } cloned beside the caller repo
+        # before the build, so relative `apply from` paths resolve. ref is
+        # optional (defaults to the repo's default branch).
+        description: >
+          JSON array of sibling repos to clone, e.g.
+          '[{"repo":"owner/name","path":"name"}]'.
+        type: string
+        required: false
+        default: '[]'
+      setup-java:
+        # Leave false when the chosen runner already provides a JDK on PATH;
+        # set true to provision one on a stock hosted runner.
+        description: Provision a Temurin JDK with actions/setup-java.
+        type: boolean
+        required: false
+        default: false
+      java-version:
+        description: JDK version to provision when setup-java is true.
+        type: string
+        required: false
+        default: '17'
+    secrets:
+      sibling_checkout_token:
+        # Token with read access to private sibling repos. Optional: when
+        # absent the clone step falls back to the job's github.token, which
+        # can read public repos but not other private ones.
+        description: Token for cloning private sibling repos.
+        required: false
+
+jobs:
+  gradle:
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+
+    steps:
+      - name: Check out source
+        # SHA-pinned for supply-chain hardening: a mutable tag (@v5) can be
+        # repointed at malicious code, a commit SHA cannot. v5 line runs on
+        # Node 24. This engine runs on whatever runner the caller picks,
+        # including self-hosted ones, so those runners must provide Node 24
+        # (provisioning tracked separately); pinned to v5 ahead of that, so
+        # a not-yet-provisioned self-hosted caller fails here by design.
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          path: ${{ inputs.checkout-path }}
+
+      - name: Check out sibling repos
+        if: ${{ inputs.sibling-checkouts != '[]' }}
+        env:
+          # Assigned to env (not interpolated into the script body) so the
+          # JSON cannot break out of the shell command.
+          SIBLINGS: ${{ inputs.sibling-checkouts }}
+          GH_TOKEN: ${{ secrets.sibling_checkout_token || github.token }}
+        run: |
+          set -euo pipefail
+          echo "$SIBLINGS" | jq -c '.[]' | while read -r entry; do
+            repo=$(jq -rn --argjson e "$entry" '$e.repo')
+            ref=$(jq -rn --argjson e "$entry" '$e.ref // ""')
+            path=$(jq -rn --argjson e "$entry" '$e.path')
+            echo "::group::clone ${repo}${ref:+@${ref}} -> ${path}"
+            git clone --depth 1 ${ref:+--branch "${ref}"} \
+              "https://x-access-token:${GH_TOKEN}@github.com/${repo}.git" "${path}"
+            echo "::endgroup::"
+          done
+
+      - name: Set up Java
+        if: ${{ inputs.setup-java }}
+        # SHA-pinned; v5 line (Node 24), same runner requirement as the
+        # checkout step above.
+        uses: actions/setup-java@ad2b38190b15e4d6bdf0c97fb4fca8412226d287 # v5.3.0
+        with:
+          java-version: ${{ inputs.java-version }}
+          distribution: temurin
+
+      # gradlew can land mode 0644 when authored on Windows; restore +x so
+      # the invocation below works regardless of how the file was committed.
+      - name: Make Gradle wrapper executable
+        working-directory: ${{ inputs.working-directory }}
+        run: chmod +x gradlew
+
+      - name: Build and test
+        working-directory: ${{ inputs.working-directory }}
+        run: ./gradlew ${{ inputs.gradle-tasks }} --no-daemon --console=plain
