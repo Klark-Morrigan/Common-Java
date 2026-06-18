@@ -17,6 +17,11 @@ bin/
 *.ear
 *.nar
 
+# ...except the Gradle wrapper jar: it is part of the committed wrapper, not
+# a build artifact, and must be tracked so ./gradlew works on a fresh clone
+# and in CI.
+!**/gradle/wrapper/gradle-wrapper.jar
+
 # Test and coverage output
 [Tt]est[Rr]esult*/
 .jacoco/

@@ -1,0 +1,6 @@
+// Standalone Gradle project that exists solely to exercise the shared
+// gradle/java-conventions.gradle in Common-Java's own CI (see
+// .github/workflows/ci-gradle.yml). Kept in a subdirectory so Common-Java's root
+// stays scaffolding-only; the build applies the conventions by the same
+// relative-path mechanism real consumers use.
+rootProject.name = 'common-java-ci-smoke'
