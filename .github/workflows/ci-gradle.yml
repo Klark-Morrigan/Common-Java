@@ -1,0 +1,30 @@
+# Common-Java's own Gradle CI gate - the per-repo entry that invokes the
+# reusable _ci-gradle engine, exactly as a consumer repo's ci-gradle.yml
+# does, just pointed at the local engine by `./` path.
+#
+# Its job here is to give the shared gradle/java-conventions.gradle direct
+# coverage by building the ci-smoke project (which applies the conventions
+# by relative path). A regression in the conventions fails here, in their
+# own repo, instead of first surfacing in a downstream consumer's build.
+#
+# Runs on a stock hosted runner: the smoke project has no Starsector
+# dependency, so it needs only a provisioned JDK (setup-java), no
+# STARSECTOR_HOME and no self-hosted runner.
+#
+# The bash/YAML linting of this repo is handled separately by ci-bash.yml
+# and ci-yaml.yml (which delegate to Common-Automation).
+name: ci-gradle
+
+on:
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    uses: ./.github/workflows/_ci-gradle.yml
+    with:
+      runs-on: '"ubuntu-latest"'
+      working-directory: ci-smoke
+      gradle-tasks: build
+      setup-java: true
