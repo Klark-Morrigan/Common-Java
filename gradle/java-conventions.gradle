@@ -1,0 +1,68 @@
+// Generic JVM build conventions shared by Java/Kotlin projects. Holds no
+// knowledge of any consumer - it only standardises the language target, the
+// test stack, and coverage so each consumer does not re-declare them.
+// Applied by path (apply from:) rather than as a published plugin, on the
+// assumption that consumers are checked out as siblings under the same
+// parent directory, so a relative path is the lowest-ceremony single source
+// of truth.
+//
+// A consumer that needs more (extra classpath, version derivation, custom
+// artifact location) applies this script first and then adds its own layer
+// on top; this file never reaches downward to know what that layer is.
+
+apply plugin: 'java'
+apply plugin: 'jacoco'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // One decision for the whole family: the JUnit 5 + AssertJ + Mockito
+    // stack. Pinned here so a version bump happens in exactly one place.
+    testImplementation platform('org.junit:junit-bom:5.13.1')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'org.assertj:assertj-core:3.27.7'
+    // Mockito 5+ defaults to the inline mock-maker, which can stub static
+    // and final methods - the common case when isolating code from
+    // hard-to-construct framework types.
+    testImplementation 'org.mockito:mockito-core:5.18.0'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    // Java 17 is the baseline target. A consumer that wants a newer release
+    // can override this in its own build script.
+    options.release = 17
+}
+
+test {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+    }
+    finalizedBy jacocoTestReport
+}
+
+jacoco {
+    toolVersion = '0.8.13'
+}
+
+jacocoTestReport {
+    dependsOn test
+
+    reports {
+        html.required = true
+        xml.required = true
+        csv.required = true
+    }
+}
+
+// Single entry point for "run tests and produce coverage", so CI and local
+// runs invoke the same task name across every repo.
+tasks.register('coverage') {
+    group = 'verification'
+    description = 'Runs tests and generates JaCoCo coverage reports.'
+    dependsOn test, jacocoTestReport
+}
