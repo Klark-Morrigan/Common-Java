@@ -7,11 +7,10 @@
 # run-lint-yaml-and-bash.sh, run-tests-bash.sh, fix-permissions.sh) -
 # the workflow shellchecks those so the shims stay held to the same
 # strict bar as every other repo.
-name: ci-bash
+name: Common-Automation
 
 on:
   pull_request:
-    branches: [ master ]
   workflow_dispatch:
 
 jobs:
