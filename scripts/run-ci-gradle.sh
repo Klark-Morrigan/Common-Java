@@ -30,10 +30,11 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 common_java_root="$(cd "${script_dir}/.." && pwd)"
 
 # Reuse Common-Automation's hold-window helper so a double-clicked launch
-# behaves like every other runner in the family.
-# shellcheck source=/dev/null
-source "${common_java_root}/../Common-Automation/scripts/_hold-window.sh"
-trap hold_window_open EXIT
+# behaves like every other runner in the family. The imports/ adapter owns
+# the cross-repo resolution, the EXIT trap, and a soft-dependency guard (a
+# missing Common-Automation degrades to "no pause" rather than failing).
+# shellcheck source=scripts/imports/_hold-window.sh
+source "${script_dir}/imports/_hold-window.sh"
 
 if [[ -n "${COMMON_JAVA_TARGET_REPO:-}" ]]; then
     # Consumer build: the Gradle project is at the target repo's root.
