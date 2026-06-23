@@ -17,13 +17,29 @@ name: ci-gradle
 
 on:
   pull_request:
+  # Manual runs let a maintainer override the runner for a one-off; this is
+  # the only override path for this repo's own runs, since pull_request
+  # cannot carry inputs. Mirrors the `runner` dispatch override in
+  # Common-Automation's ci-bash / ci-yaml and Common-PowerShell's
+  # ci-powershell.
   workflow_dispatch:
+    inputs:
+      runner:
+        description: >-
+          Optional runs-on override for this run, as a JSON label array
+          (e.g. '["ubuntu-latest"]' or '["self-hosted","some-label"]').
+          Leave empty to use the ubuntu-latest hosted default.
+        required: false
+        type: string
+        default: ''
 
 jobs:
   smoke:
     uses: ./.github/workflows/_ci-gradle.yml
     with:
-      runs-on: '"ubuntu-latest"'
+      # Empty on pull_request, so the engine falls through to its
+      # ubuntu-latest default; a workflow_dispatch run can override it.
+      runner: ${{ inputs.runner }}
       working-directory: ci-smoke
       gradle-tasks: build
       setup-java: true

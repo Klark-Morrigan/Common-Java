@@ -39,7 +39,7 @@ a relative path is the lowest-ceremony single source of truth. No
 `.github/workflows/_ci-gradle.yml` runs `./gradlew <tasks>` on a chosen
 runner. It is language-agnostic (Java and Kotlin both build through
 `gradlew`, so there is no separate ci-java / ci-kotlin), with all variance
-expressed as inputs: `runs-on`, `gradle-tasks`, `setup-java`,
+expressed as inputs: `runner`, `gradle-tasks`, `setup-java`,
 `java-version`.
 
 ```yaml
