@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+    "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+    "https://checkstyle.org/dtds/configuration_1_3.dtd">
+
+<!--
+  Single source of truth for the Java family's import hygiene. Deliberately
+  scoped to imports only: it exists to catch the cruft a plain `javac` build
+  silently tolerates (unused imports, redundant imports, wildcard imports),
+  not to impose a broad style regime that would flood consumers with noise.
+  Applied by Common-Java/gradle/java-conventions.gradle, so every Java
+  consumer inherits it from one place.
+
+  Severity is error: a violation fails the build's `check` task, which is the
+  whole point - silent accumulation is what let import cruft survive before.
+-->
+<module name="Checker">
+    <property name="severity" value="error"/>
+
+    <!-- Checkstyle reads sources as UTF-8 to match the compiler's encoding. -->
+    <property name="charset" value="UTF-8"/>
+
+    <module name="TreeWalker">
+        <!-- An import no symbol in the file references. processJavadoc keeps a
+             type used only in a {@link} from being flagged. -->
+        <module name="UnusedImports">
+            <property name="processJavadoc" value="true"/>
+        </module>
+
+        <!-- Duplicate imports, imports from java.lang, or same-package imports. -->
+        <module name="RedundantImport"/>
+
+        <!-- Wildcard imports hide exactly which types a file depends on, and
+             defeat UnusedImports. None exist in the family today; this keeps
+             it that way. -->
+        <module name="AvoidStarImport"/>
+
+        <!-- Imports grouped, blank-line separated, alphabetical within group,
+             in the family's origin order: Starsector framework, the kmlib
+             sibling library, the consumer's own code, third-party (org.*,
+             lunalib.*, ...), then the JDK; static imports last. A new
+             third-party root not listed here sorts after java and so trips
+             this check - the prompt to add it to the group regex. -->
+        <module name="ImportOrder">
+            <property name="groups"
+                      value="com.fs.starfarer,kmlib,kmu,/^(org|lunalib)\./,java"/>
+            <property name="ordered" value="true"/>
+            <property name="separated" value="true"/>
+            <property name="option" value="bottom"/>
+            <property name="sortStaticImportsAlphabetically" value="true"/>
+        </module>
+    </module>
+</module>

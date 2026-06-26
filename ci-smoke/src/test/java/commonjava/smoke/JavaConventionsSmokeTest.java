@@ -1,8 +1,8 @@
 package commonjava.smoke;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Smoke test that exists only to exercise java-conventions.gradle end to
