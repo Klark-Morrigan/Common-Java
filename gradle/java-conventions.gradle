@@ -12,9 +12,22 @@
 
 apply plugin: 'java'
 apply plugin: 'jacoco'
+apply plugin: 'checkstyle'
 
 repositories {
     mavenCentral()
+}
+
+checkstyle {
+    toolVersion = '10.20.1'
+    // Resolve the shared config relative to THIS script's own location, not the
+    // consumer's rootDir: that holds for sibling mods and for the in-repo
+    // ci-smoke child alike, since checkstyle.xml is always this file's sibling.
+    configFile = new File(buildscript.sourceFile.parentFile, 'checkstyle.xml')
+    // The config marks violations as errors; surface them as build failures
+    // rather than a tolerated warning count.
+    ignoreFailures = false
+    maxWarnings = 0
 }
 
 dependencies {
