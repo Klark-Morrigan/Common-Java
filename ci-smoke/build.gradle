@@ -8,3 +8,59 @@
 apply from: "${rootDir}/../gradle/java-conventions.gradle"
 
 group = 'commonjava.smoke'
+
+// The shared lint gates are build logic, so each carries its own TestKit
+// integration test that drives a real Gradle build. They live here, in
+// Common-Java's own proving ground, beside the conventions they verify - in a
+// dedicated 'test-gradle' tree, not the unit-test one, because gradleTestKit()
+// drags a log4j-over-slf4j bridge onto the runtime classpath that can shadow a
+// real log4j a consumer's unit tests assert against.
+sourceSets {
+    testGradle {
+        // Each gate's test + its .txt fixtures sit in one folder named for the
+        // script under test, fixtures split into java/ and kotlin/ subfolders.
+        // Each folder is a source root, so the test sits in the default package
+        // (a Java package cannot carry the folder's hyphens) and the fixtures
+        // resolve under the shared classpath root - the java//kotlin/ prefix
+        // plus distinct names keep them from colliding there.
+        def gateTestDirs = [
+                'src/test-gradle/tasks/lint/formatting/tests/enforce-single-blank-lines',
+        ]
+        java.srcDirs = gateTestDirs
+        resources.srcDirs = gateTestDirs
+        resources.exclude '**/*.java'
+    }
+}
+
+configurations {
+    // Reuse the unit-test stack (JUnit, AssertJ) without re-declaring it, while
+    // keeping gradleTestKit scoped to this source set alone.
+    testGradleImplementation.extendsFrom testImplementation
+    testGradleRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+dependencies {
+    testGradleImplementation gradleTestKit()
+}
+
+def testGradle = tasks.register('testGradle', Test) {
+    description = 'Runs TestKit integration tests for the shared Gradle gates.'
+    group = 'verification'
+    testClassesDirs = sourceSets.testGradle.output.classesDirs
+    classpath = sourceSets.testGradle.runtimeClasspath
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+    }
+
+    def singleBlankGateScript = file(
+            '../gradle/tasks/lint/formatting/enforce-single-blank-lines.gradle')
+    inputs.file(singleBlankGateScript).withPropertyName('singleBlankGateScript')
+    systemProperty 'single.blank.gate.script.path', singleBlankGateScript.absolutePath
+}
+
+// Run with the rest of verification: 'check' covers a local 'build', and
+// 'coverage' is the task CI invokes.
+tasks.matching { it.name in ['check', 'coverage'] }.configureEach {
+    dependsOn testGradle
+}

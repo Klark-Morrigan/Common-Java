@@ -1,0 +1,67 @@
+// Blank-line formatting gate, applied by java-conventions.gradle into every KM
+// mod. Kept in its own script so the mod conventions file stays about
+// classpath, version, and jar output, while this owns one concern: the
+// verification rule.
+//
+// The convention: at most one consecutive blank line anywhere in a source
+// file. A single blank line is the unit of vertical separation (between
+// import blocks, between members, ...); two or more in a row are visual
+// noise with no meaning, so they are rejected. No bytecode-level tool can see
+// this - blank lines are erased by compilation - so it is enforced as a
+// source-text pass over both main and test trees, reading Kotlin (KMO) as
+// well as Java.
+def enforceSingleBlankLines = tasks.register('enforceSingleBlankLines') {
+    description = 'Fails the build when a source file has two or more ' +
+            'consecutive blank lines.'
+    group = 'verification'
+
+    // Scan production and test sources alike: the rule is about how the code
+    // reads, which is independent of which tree a file lives in.
+    def sourceRoots = [file('src/main'), file('src/test')]
+    // Declare an input only when it exists: Gradle validates a declared input
+    // directory is present, so an absent tree (a mod with no tests, say) would
+    // otherwise fail configuration rather than skip. The doLast guards the
+    // same absence at execution time.
+    sourceRoots.findAll { it.exists() }.eachWithIndex { root, index ->
+        inputs.dir(root).withPropertyName("sourceRoot${index}")
+    }
+
+    doLast {
+        def violations = []
+        sourceRoots.findAll { it.exists() }.each { root ->
+            fileTree(root).matching { include '**/*.java', '**/*.kt' }.each { sourceFile ->
+                // Track the length of the current run of blank lines. A line is
+                // "blank" when it holds only whitespace. The second blank line
+                // in a row (and every further one) is the violation; reporting
+                // each gives a precise click-through location per offending gap.
+                def blankRun = 0
+                sourceFile.eachLine { line, lineNumber ->
+                    if (line.trim().isEmpty()) {
+                        blankRun++
+                        if (blankRun >= 2) {
+                            violations << "${sourceFile}:${lineNumber}: " +
+                                    "consecutive blank line; only one is allowed"
+                        }
+                    } else {
+                        blankRun = 0
+                    }
+                }
+            }
+        }
+        if (!violations.isEmpty()) {
+            // GradleException is the idiomatic build-failure signal; its clean
+            // message reads as the gate's verdict. The editor flags it as an
+            // unresolved class because an applied script has no Gradle API on
+            // its classpath - a known tooling false positive, not a defect, so
+            // do not "fix" it by swapping in a java.lang exception.
+            throw new GradleException("Blank-line convention violated:\n  " +
+                    violations.join('\n  '))
+        }
+    }
+}
+
+// Run the gate as part of the standard verification lifecycle so both a
+// local 'build'/'check' and CI's 'test jar' trip it before tests execute.
+tasks.matching { it.name in ['test', 'check'] }.configureEach {
+    dependsOn enforceSingleBlankLines
+}

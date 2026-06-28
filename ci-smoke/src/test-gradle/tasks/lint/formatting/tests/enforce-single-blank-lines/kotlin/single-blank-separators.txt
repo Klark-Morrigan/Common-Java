@@ -1,0 +1,7 @@
+class Probe {
+    fun first() {
+    }
+
+    fun second() {
+    }
+}
