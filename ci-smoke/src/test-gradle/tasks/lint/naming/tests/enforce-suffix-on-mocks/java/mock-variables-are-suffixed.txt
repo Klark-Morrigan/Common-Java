@@ -1,0 +1,6 @@
+class Sample {
+    void make() {
+        var sectorMock = mock(SectorAPI.class);
+        var globalMock = mockStatic(Global.class);
+    }
+}

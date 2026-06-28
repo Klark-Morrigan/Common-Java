@@ -1,0 +1,141 @@
+// Mock naming gate, applied by java-conventions.gradle into every consumer. Sits
+// beside the fake gate (enforce-suffix-on-fakes.gradle) as the same kind of
+// concern - test-double naming - but keyed on Mockito rather than hand-written
+// fakes, so it lives in its own script to keep each rule readable on its own.
+//
+// Mockito generates a double's TYPE at runtime, so there is no source type to
+// suffix the way a fake's class is; the only thing a reader sees is the
+// variable that holds the double. The convention is therefore variable-only: a
+// holder built from a Mockito double factory is suffixed 'Mock' (sectorMock,
+// globalMock - never sector or globalStatic). It is enforced as a source-text
+// pass because local-variable names are erased after compilation and the scan
+// must read Kotlin (KMO) as well as Java.
+//
+// Keying on the factory call ('mock(', 'mockStatic(', 'mockConstruction(')
+// rather than a declared type lets one rule cover both languages and both a
+// MockedStatic field and a plain mock local, since every double is born from
+// one of those calls. It is a heuristic: a double obtained some other way (a
+// helper that returns a mock, an @Mock-annotated field) names neither, so it is
+// invisible to the gate. 'spy' is deliberately out of scope - a spy is a
+// partial real object, not a mock, so forcing a 'Mock' suffix on it would read
+// wrong; add it here only if that convention is ever adopted.
+//
+// 'name = mock(...)' alone is too broad in Kotlin, where the same shape is a
+// named argument ('dialog = mock(...)' in a constructor call) or a property set
+// on a domain object inside an apply block ('intel = mock(...)'). The value is a
+// mock, but the name is a parameter or a production property the test cannot
+// rename - neither is a holder. So a bare assignment counts only when the name
+// is a binding the test itself declares (a local 'val'/'var', or a typed Java
+// field); a 'val'/'var'/typed declaration with a mock initialiser always counts.
+// Java has neither named arguments nor apply blocks, so this only narrows
+// Kotlin - the Java behaviour is unchanged.
+//
+// A Kotlin declaration may annotate the type before the initialiser
+// ('val sector: SectorAPI = mock()'); there the token before '=' is the type,
+// not the holder, so a second pattern reads the name from after 'val'/'var' and
+// skips the ': Type' annotation. That also covers the mockito-kotlin reified
+// forms ('mock()', 'mock<T>()') when written with an explicit type; the untyped
+// 'val x = mock<T>()' is already caught, since the name sits before '='.
+def enforceSuffixOnMocks = tasks.register('enforceSuffixOnMocks') {
+    description = 'Fails the build when a variable holding a Mockito mock is ' +
+            'not suffixed Mock.'
+    group = 'verification'
+
+    def testRoot = file('src/test')
+    // Declare the input only when it exists: Gradle validates a declared input
+    // directory is present, so an absent src/test (a mod with no tests) would
+    // otherwise fail configuration rather than skip. The doLast guards the
+    // same absence at execution time.
+    if (testRoot.exists()) {
+        inputs.dir(testRoot).withPropertyName('testSources')
+    }
+
+    doLast {
+        // Mods without a test tree have nothing to check.
+        if (!testRoot.exists()) {
+            return
+        }
+        // The identifier assigned from a Mockito double factory, with or
+        // without a qualifier ('Mockito.mock'). The trailing '[(<]' anchors on
+        // the call itself: it admits 'mock(', 'mockStatic(' and mockito-kotlin's
+        // 'mock<T>()', while keeping a same-prefixed method like 'mockMap(' out
+        // of scope, since 'Map' is neither the optional 'Static'/'Construction'
+        // nor the opening bracket.
+        def mockVarPattern =
+                ~/(\w+)\s*=\s*(?:\w+\.)?mock(?:Static|Construction)?\s*[(<]/
+        // The names the test itself declares: a Kotlin/Java 'val'/'var' (covers
+        // lateinit fields and locals) and a typed Java field or local
+        // ('MemoryAPI sectorMemory;', 'MockedStatic<Global> globalMock;'). Only
+        // these are rename targets - see the header note on named arguments and
+        // apply-block property sets.
+        def kotlinOrVarDeclPattern = ~/\b(?:val|var)\s+(\w+)/
+        def javaTypedDeclPattern = ~/\b[A-Za-z_]\w*(?:\s*<[^>]*>)?(?:\[\])?\s+(\w+)\s*[=;]/
+        // A Kotlin 'val'/'var' whose declared type is annotated before a mock
+        // initialiser ('val sector: SectorAPI = mock(...)'). Reading the name
+        // from after 'val'/'var' and skipping ': Type' (which holds no '=') is
+        // what the bare-assignment pattern cannot do, since there the token
+        // before '=' is the type. A declaration is inherently a holder, so this
+        // is checked directly rather than through declaredNames.
+        def kotlinTypedMockDeclPattern =
+                ~/\b(?:val|var)\s+(\w+)\s*:\s*[^=]+?=\s*(?:\w+\.)?mock(?:Static|Construction)?\s*[(<]/
+        def violations = []
+        fileTree(testRoot).matching { include '**/*.java', '**/*.kt' }.each { sourceFile ->
+            // First pass: every binding the file declares, so the second pass
+            // can tell a holder ('sectorMock = mock(...)', a declared field)
+            // from a Kotlin named argument or apply-block property set whose
+            // name the file never declares.
+            def declaredNames = [] as Set
+            sourceFile.eachLine { line, lineNumber ->
+                def kotlinDecl = kotlinOrVarDeclPattern.matcher(line)
+                while (kotlinDecl.find()) {
+                    declaredNames << kotlinDecl.group(1)
+                }
+                def javaDecl = javaTypedDeclPattern.matcher(line)
+                while (javaDecl.find()) {
+                    declaredNames << javaDecl.group(1)
+                }
+            }
+            sourceFile.eachLine { line, lineNumber ->
+                // A line ending in ',' is a multi-line call argument, never a
+                // holder declaration - guards the rare named argument whose
+                // parameter name collides with a binding declared elsewhere in
+                // the same file.
+                if (line.trim().endsWith(',')) {
+                    return
+                }
+                def varMatcher = mockVarPattern.matcher(line)
+                while (varMatcher.find()) {
+                    def variableName = varMatcher.group(1)
+                    if (declaredNames.contains(variableName)
+                            && !variableName.endsWith('Mock')) {
+                        violations << "${sourceFile}:${lineNumber}: variable " +
+                                "'${variableName}' holds a mock and must be suffixed 'Mock'"
+                    }
+                }
+                def typedDeclMatcher = kotlinTypedMockDeclPattern.matcher(line)
+                while (typedDeclMatcher.find()) {
+                    def variableName = typedDeclMatcher.group(1)
+                    if (!variableName.endsWith('Mock')) {
+                        violations << "${sourceFile}:${lineNumber}: variable " +
+                                "'${variableName}' holds a mock and must be suffixed 'Mock'"
+                    }
+                }
+            }
+        }
+        if (!violations.isEmpty()) {
+            // GradleException is the idiomatic build-failure signal; its clean
+            // message reads as the gate's verdict. The editor flags it as an
+            // unresolved class because an applied script has no Gradle API on
+            // its classpath - a known tooling false positive, not a defect, so
+            // do not "fix" it by swapping in a java.lang exception.
+            throw new GradleException("Mock naming convention violated:\n  " +
+                    violations.join('\n  '))
+        }
+    }
+}
+
+// Run the gate as part of the standard verification lifecycle so both a
+// local 'build'/'check' and CI's 'test jar' trip it before tests execute.
+tasks.matching { it.name in ['test', 'check'] }.configureEach {
+    dependsOn enforceSuffixOnMocks
+}

@@ -27,6 +27,7 @@ sourceSets {
                 'src/test-gradle/tasks/lint/formatting/tests/enforce-single-blank-lines',
                 'src/test-gradle/tasks/lint/literals/tests/enforce-no-magic-literals-kotlin',
                 'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes',
+                'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks',
         ]
         java.srcDirs = gateTestDirs
         resources.srcDirs = gateTestDirs
@@ -64,6 +65,11 @@ def testGradle = tasks.register('testGradle', Test) {
             '../gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes.gradle')
     inputs.file(fakeGateScript).withPropertyName('fakeGateScript')
     systemProperty 'gate.script.path', fakeGateScript.absolutePath
+
+    def mockGateScript = file(
+            '../gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks.gradle')
+    inputs.file(mockGateScript).withPropertyName('mockGateScript')
+    systemProperty 'mock.gate.script.path', mockGateScript.absolutePath
 
     def singleBlankGateScript = file(
             '../gradle/tasks/lint/formatting/enforce-single-blank-lines.gradle')

@@ -1,0 +1,6 @@
+class Probe {
+    fun make() {
+        val sectorMock = mock(SectorAPI::class.java)
+        val globalMock = mockStatic(Global::class.java)
+    }
+}

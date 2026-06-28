@@ -1,0 +1,7 @@
+class Probe {
+    private lateinit var sector: SectorAPI
+
+    fun setUp() {
+        sector = mock(SectorAPI::class.java)
+    }
+}
