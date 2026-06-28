@@ -25,6 +25,7 @@ sourceSets {
         // plus distinct names keep them from colliding there.
         def gateTestDirs = [
                 'src/test-gradle/tasks/lint/formatting/tests/enforce-single-blank-lines',
+                'src/test-gradle/tasks/lint/literals/tests/enforce-no-magic-literals-kotlin',
         ]
         java.srcDirs = gateTestDirs
         resources.srcDirs = gateTestDirs
@@ -57,6 +58,14 @@ def testGradle = tasks.register('testGradle', Test) {
             '../gradle/tasks/lint/formatting/enforce-single-blank-lines.gradle')
     inputs.file(singleBlankGateScript).withPropertyName('singleBlankGateScript')
     systemProperty 'single.blank.gate.script.path', singleBlankGateScript.absolutePath
+
+    // The Kotlin literal gate also reads its detekt.yml by path, so that is an
+    // input too: editing the rule must re-run the test, not leave it UP-TO-DATE.
+    def kotlinLiteralsGateScript = file(
+            '../gradle/tasks/lint/literals/enforce-no-magic-literals-kotlin.gradle')
+    inputs.file(kotlinLiteralsGateScript).withPropertyName('kotlinLiteralsGateScript')
+    inputs.file(file('../gradle/detekt.yml')).withPropertyName('detektConfig')
+    systemProperty 'kotlin.literals.gate.script.path', kotlinLiteralsGateScript.absolutePath
 }
 
 // Run with the rest of verification: 'check' covers a local 'build', and

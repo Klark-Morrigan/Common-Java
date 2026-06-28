@@ -1,0 +1,5 @@
+object Sample {
+    private const val SCALE_FACTOR = 7
+
+    fun scale(value: Int): Int = value * SCALE_FACTOR
+}

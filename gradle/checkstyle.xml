@@ -4,21 +4,30 @@
     "https://checkstyle.org/dtds/configuration_1_3.dtd">
 
 <!--
-  Single source of truth for the Java family's import hygiene. Deliberately
-  scoped to imports only: it exists to catch the cruft a plain `javac` build
-  silently tolerates (unused imports, redundant imports, wildcard imports),
-  not to impose a broad style regime that would flood consumers with noise.
-  Applied by Common-Java/gradle/java-conventions.gradle, so every Java
-  consumer inherits it from one place.
+  Single source of truth for the Java family's import hygiene and the
+  "named constants good, loose literals bad" rule for numbers. Two concerns,
+  both the kind a plain `javac` build silently tolerates: import cruft (unused,
+  redundant, wildcard imports) and magic numbers buried in logic. Applied by
+  Common-Java/gradle/java-conventions.gradle, so every Java consumer inherits
+  it from one place; the Kotlin counterpart of the magic-number rule is the
+  detekt gate (gradle/tasks/lint/literals), kept in step with this one.
 
   Severity is error: a violation fails the build's `check` task, which is the
-  whole point - silent accumulation is what let import cruft survive before.
+  whole point - silent accumulation is what let this cruft survive before.
 -->
 <module name="Checker">
     <property name="severity" value="error"/>
 
     <!-- Checkstyle reads sources as UTF-8 to match the compiler's encoding. -->
     <property name="charset" value="UTF-8"/>
+
+    <!-- Magic numbers are not checked in test sources: test data and fixtures
+         are legitimately literal-heavy, the same reason the Kotlin detekt gate
+         scans only src/main. Import hygiene still applies to tests. -->
+    <module name="SuppressionSingleFilter">
+        <property name="checks" value="MagicNumberCheck"/>
+        <property name="files" value="[\\/]src[\\/]test[\\/]"/>
+    </module>
 
     <module name="TreeWalker">
         <!-- An import no symbol in the file references. processJavadoc keeps a
@@ -48,6 +57,20 @@
             <property name="separated" value="true"/>
             <property name="option" value="bottom"/>
             <property name="sortStaticImportsAlphabetically" value="true"/>
+        </module>
+
+        <!-- A numeric literal used inline in logic. -1/0/1/2 and 0.5 are
+             structural (identity, indices, increments, doubling, and halving /
+             the midpoint of two values) and waived. A literal that defines a
+             field is the named home for the value, so field declarations are
+             exempt - the same stance the Kotlin detekt rule takes with
+             ignorePropertyDeclaration. hashCode boilerplate and annotation
+             arguments are waived for the same reasons as the Kotlin config. -->
+        <module name="MagicNumber">
+            <property name="ignoreNumbers" value="-1, 0, 1, 2, 0.5"/>
+            <property name="ignoreHashCodeMethod" value="true"/>
+            <property name="ignoreAnnotation" value="true"/>
+            <property name="ignoreFieldDeclaration" value="true"/>
         </module>
     </module>
 </module>

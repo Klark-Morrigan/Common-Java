@@ -88,3 +88,4 @@ tasks.register('coverage') {
 // ride in checkstyle.xml above rather than as a separate gate.
 def lintTasksDir = new File(buildscript.sourceFile.parentFile, 'tasks/lint')
 apply from: new File(lintTasksDir, 'formatting/enforce-single-blank-lines.gradle')
+apply from: new File(lintTasksDir, 'literals/enforce-no-magic-literals-kotlin.gradle')
