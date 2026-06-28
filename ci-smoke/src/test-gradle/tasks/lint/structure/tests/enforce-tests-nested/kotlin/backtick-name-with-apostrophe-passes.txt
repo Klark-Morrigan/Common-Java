@@ -1,0 +1,16 @@
+import org.junit.jupiter.api.Nested
+import org.junit.jupiter.api.Test
+
+class Sample {
+
+    @Nested
+    inner class ChargeFee {
+        @Test
+        fun `charges the calculator's demolition fee`() {
+        }
+
+        @Test
+        fun `is a no-op for a free facility`() {
+        }
+    }
+}

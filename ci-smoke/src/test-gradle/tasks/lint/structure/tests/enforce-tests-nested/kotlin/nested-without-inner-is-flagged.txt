@@ -1,0 +1,12 @@
+import org.junit.jupiter.api.Nested
+import org.junit.jupiter.api.Test
+
+class Sample {
+
+    @Nested
+    class DoesThing {
+        @Test
+        fun `does the thing`() {
+        }
+    }
+}

@@ -1,0 +1,19 @@
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+
+class Sample {
+    @Nested
+    class DoesTheThing {
+        @Test
+        void does_the_thing() {
+        }
+    }
+
+    // A helper on the top-level class. Its string carries a stray close brace,
+    // the word class, and the text @Test. Without literal stripping the brace
+    // would mispop the class stack and the in-string @Test would read as a
+    // top-level test - so a passing build here proves the scan ignores both.
+    private String helper() {
+        return "json } and @Test and class Foo {";
+    }
+}

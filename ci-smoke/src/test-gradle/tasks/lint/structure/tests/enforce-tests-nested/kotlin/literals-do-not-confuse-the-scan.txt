@@ -1,0 +1,22 @@
+import org.junit.jupiter.api.Nested
+import org.junit.jupiter.api.Test
+
+class Sample {
+    @Nested
+    inner class DoesTheThing {
+        @Test
+        fun does_the_thing() {
+        }
+    }
+
+    // A helper whose triple-quoted string spans lines and carries a stray close
+    // brace, the word class, and the text @Test. Block comments and raw strings
+    // thread their open state across lines, so without that threading the brace
+    // would mispop the class stack and the in-string @Test would read as a
+    // top-level test - a passing build proves the scan ignores a """...""" body.
+    fun helper(): String {
+        return """
+            json } and @Test and class Foo {
+        """
+    }
+}

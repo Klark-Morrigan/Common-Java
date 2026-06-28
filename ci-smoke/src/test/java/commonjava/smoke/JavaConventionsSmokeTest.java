@@ -1,5 +1,6 @@
 package commonjava.smoke;
 
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -14,8 +15,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class JavaConventionsSmokeTest {
 
-    @Test
-    void appliesTheSharedTestStack() {
-        assertThat(1 + 1).isEqualTo(2);
+    @Nested
+    class TestStack {
+
+        @Test
+        void resolvesJUnitAndAssertJ() {
+            assertThat(1 + 1).isEqualTo(2);
+        }
     }
 }
