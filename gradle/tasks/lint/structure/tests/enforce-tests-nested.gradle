@@ -1,0 +1,229 @@
+// Nested-test structure gate, applied by java-conventions.gradle into every KM
+// mod. Kept in its own script so the mod conventions file stays about
+// classpath, version, and jar output, while this owns one concern: the
+// verification rule.
+//
+// The convention: every test method lives inside a @Nested class named for the
+// method under test, so a suite reports as a per-method tree rather than a flat
+// list. The outermost test class holds only shared setup (@BeforeEach /
+// @AfterEach), helpers, and the @Nested groups - never a @Test directly. This
+// gate enforces the structural half of that rule: a @Test-family method must be
+// enclosed in a @Nested class. The naming half (the group is named for the
+// method under test) needs the production symbol to compare against and so
+// stays a convention, not a gate.
+//
+// It also enforces the one Kotlin twist this would otherwise hide: a @Nested
+// class must be 'inner'. A plain Kotlin nested 'class' compiles but is
+// static-equivalent, so JUnit5 silently skips its tests - they never run and
+// the build still goes green. Catching it at build time turns a silent gap
+// into a loud failure.
+//
+// No bytecode-level tool can see this cleanly across both languages, so it is a
+// source-text pass over the test tree reading Kotlin (KMO) as well as Java.
+// Unlike the line-local naming gates, telling a top-level @Test from a nested
+// one needs each annotation's enclosing class, so the scan tracks brace depth
+// and keeps a stack of open class scopes.
+def enforceTestsNested = tasks.register('enforceTestsNested') {
+    description = 'Fails the build when a @Test method is not enclosed in a ' +
+            '@Nested class.'
+    group = 'verification'
+
+    def testRoot = file('src/test')
+    // Declare the input only when it exists: Gradle validates a declared input
+    // directory is present, so an absent src/test (a mod with no tests) would
+    // otherwise fail configuration rather than skip. The doLast guards the
+    // same absence at execution time.
+    if (testRoot.exists()) {
+        inputs.dir(testRoot).withPropertyName('testSources')
+    }
+
+    doLast {
+        // Mods without a test tree have nothing to check.
+        if (!testRoot.exists()) {
+            return
+        }
+        // @Test and its siblings each declare a test method; every one must sit
+        // inside a @Nested group. The trailing \b stops the alternation from
+        // also catching @Testable or @TestInstance.
+        def testAnnotation =
+                ~/@(?:Test|ParameterizedTest|RepeatedTest|TestFactory)\b/
+        def nestedAnnotation = ~/@Nested\b/
+        // A class-like declaration that opens a scope. The lookbehind rejects a
+        // Kotlin reference such as 'Foo::class' or 'x.object', which are uses,
+        // not declarations. 'object' covers Kotlin singletons; 'record' covers
+        // Java records.
+        def classDecl =
+                ~/(?<![:.\w])(?:class|interface|enum|record|object)\s+\w+/
+        // The Kotlin 'inner' modifier on a class. A @Nested class must be a
+        // non-static inner class; in Kotlin a plain nested 'class' is
+        // static-equivalent, so this distinguishes a runnable @Nested group
+        // from one JUnit5 silently skips.
+        def innerModifier = ~/\binner\s+class\b/
+
+        // Removes comment and string/char-literal bodies from one line before
+        // any token or brace is read, so a '{' or the word 'class' living in a
+        // string or comment never moves the depth or opens a class frame. Block
+        // comments and Kotlin triple-quoted strings span lines, so their open
+        // state is threaded back in by the caller. Known heuristic limit: a
+        // quote embedded in Kotlin '${...}' interpolation can end a literal
+        // early - tolerated, as the existing source-text gates are.
+        def stripLine = { String raw, boolean inBlock, boolean inRaw ->
+            def out = new StringBuilder()
+            def i = 0
+            def n = raw.length()
+            def block = inBlock
+            def rawString = inRaw
+            while (i < n) {
+                if (block) {
+                    if (i + 1 < n && raw[i] == '*' && raw[i + 1] == '/') {
+                        block = false; i += 2
+                    } else {
+                        i++
+                    }
+                    continue
+                }
+                if (rawString) {
+                    if (i + 3 <= n && raw.substring(i, i + 3) == '"""') {
+                        rawString = false; i += 3
+                    } else {
+                        i++
+                    }
+                    continue
+                }
+                def two = (i + 1 < n) ? raw.substring(i, i + 2) : ''
+                if (two == '//') {
+                    break
+                }
+                if (two == '/*') {
+                    block = true; i += 2; continue
+                }
+                if (i + 3 <= n && raw.substring(i, i + 3) == '"""') {
+                    rawString = true; i += 3; continue
+                }
+                def c = raw[i]
+                // Kotlin backtick-escaped identifier (e.g. a test name like
+                // `does not bill a null facility`). Its body can hold quotes,
+                // apostrophes, and braces that are not code, so skip to the
+                // closing backtick. Kotlin processes no escapes inside, and the
+                // identifier cannot span lines, so no cross-line state is kept.
+                if (c == '`') {
+                    i++
+                    while (i < n && raw[i] != '`') {
+                        i++
+                    }
+                    if (i < n) {
+                        i++
+                    }
+                    continue
+                }
+                if (c == '"' || c == '\'') {
+                    def quote = c
+                    i++
+                    while (i < n) {
+                        if (raw[i] == '\\') {
+                            i += 2; continue
+                        }
+                        if (raw[i] == quote) {
+                            i++; break
+                        }
+                        i++
+                    }
+                    continue
+                }
+                out.append(c)
+                i++
+            }
+            [text: out.toString(), inBlock: block, inRaw: rawString]
+        }
+
+        def violations = []
+        fileTree(testRoot).matching { include '**/*.java', '**/*.kt' }.each { sourceFile ->
+            // The 'inner class' rule below is Kotlin-only: a Java @Nested class
+            // is already a non-static inner class unless marked 'static', so
+            // the keyword check would mis-fire on every correct Java group.
+            def isKotlin = sourceFile.name.endsWith('.kt')
+            def braceDepth = 0
+            // One frame per open class scope: the brace depth its body opened at,
+            // and whether the declaration carried @Nested. The nearest frame is
+            // the class a @Test belongs to.
+            def classStack = []
+            def isNestedPending = false      // a @Nested seen, awaiting its class
+            def isPendingClassNested = false
+            def hasPendingClass = false      // a class decl seen, awaiting its '{'
+            def isInBlockComment = false
+            def isInRawString = false
+            sourceFile.eachLine { rawLine, lineNumber ->
+                def stripped = stripLine(rawLine, isInBlockComment, isInRawString)
+                def line = stripped.text
+                isInBlockComment = stripped.inBlock
+                isInRawString = stripped.inRaw
+
+                // A @Test binds to the method that follows it, but that method's
+                // enclosing class is already the top frame, so the verdict reads
+                // here without waiting for the method body.
+                if (testAnnotation.matcher(line).find()) {
+                    def enclosing = classStack.isEmpty() ? null : classStack.last()
+                    if (enclosing == null || !enclosing.isNested) {
+                        violations << "${sourceFile}:${lineNumber}: @Test method " +
+                                "must live inside a @Nested class"
+                    }
+                }
+                if (nestedAnnotation.matcher(line).find()) {
+                    isNestedPending = true
+                }
+                if (classDecl.matcher(line).find()) {
+                    hasPendingClass = true
+                    isPendingClassNested = isNestedPending
+                    isNestedPending = false
+                    // A Kotlin @Nested class must be 'inner'. A plain nested
+                    // 'class' compiles but is static-equivalent, so JUnit5
+                    // silently skips its tests - they never run yet the build
+                    // stays green. Flag it here, where the declaration line
+                    // (carrying any 'inner' modifier) and its @Nested marker
+                    // are both known.
+                    if (isKotlin && isPendingClassNested
+                            && !innerModifier.matcher(line).find()) {
+                        violations << "${sourceFile}:${lineNumber}: Kotlin " +
+                                "@Nested class must be declared `inner class` " +
+                                "(a plain nested class is skipped by JUnit5)"
+                    }
+                }
+                // Walk braces left to right so a class frame is pushed at its own
+                // opening brace and popped at the matching close. A frame is
+                // popped only when a '}' lands at the exact depth its body opened
+                // at, so lambda and method braces deeper inside never disturb it.
+                line.each { ch ->
+                    if (ch == '{') {
+                        braceDepth++
+                        if (hasPendingClass) {
+                            classStack << [openDepth: braceDepth,
+                                           isNested: isPendingClassNested]
+                            hasPendingClass = false
+                        }
+                    } else if (ch == '}') {
+                        if (!classStack.isEmpty()
+                                && classStack.last().openDepth == braceDepth) {
+                            classStack.removeAt(classStack.size() - 1)
+                        }
+                        braceDepth--
+                    }
+                }
+            }
+        }
+        if (!violations.isEmpty()) {
+            // GradleException is the idiomatic build-failure signal; its clean
+            // message reads as the gate's verdict. The editor flags it as an
+            // unresolved class because an applied script has no Gradle API on
+            // its classpath - a known tooling false positive, not a defect, so
+            // do not "fix" it by swapping in a java.lang exception.
+            throw new GradleException("Nested-test convention violated:\n  " +
+                    violations.join('\n  '))
+        }
+    }
+}
+
+// Run the gate as part of the standard verification lifecycle so both a
+// local 'build'/'check' and CI's 'test jar' trip it before tests execute.
+tasks.matching { it.name in ['test', 'check'] }.configureEach {
+    dependsOn enforceTestsNested
+}

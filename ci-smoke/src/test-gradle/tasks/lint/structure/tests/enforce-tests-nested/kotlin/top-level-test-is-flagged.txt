@@ -1,0 +1,7 @@
+import org.junit.jupiter.api.Test
+
+class Sample {
+    @Test
+    fun runs_at_the_top_level() {
+    }
+}

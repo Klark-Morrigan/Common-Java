@@ -1,0 +1,7 @@
+class Probe {
+    fun make() {
+        settlementData().apply {
+            intel = EditableMarketFake()
+        }
+    }
+}

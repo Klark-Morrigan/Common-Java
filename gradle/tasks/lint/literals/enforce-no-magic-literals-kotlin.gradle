@@ -1,0 +1,64 @@
+// Magic-literal gate for Kotlin sources, applied by java-conventions.gradle into
+// every consumer that applies these conventions. Kept in its own script so the
+// conventions file stays about classpath, version, and jar output while this
+// owns one concern: the verification rule.
+//
+// The convention: "named constants good, loose literals bad" on Kotlin (magic
+// numbers). It is enforced with the detekt CLI
+// - resolved as a dependency and run as a JavaExec task - rather than the
+// detekt Gradle plugin, because the plugin's stable line tops out at Gradle 8
+// while this build runs Gradle 9; the CLI is a plain jar and so is immune to
+// that. The shared rule config lives at gradle/detekt.yml, three levels up.
+//
+// Scope: Kotlin main sources of any mod taking these conventions. A Java-only
+// mod has no src/main/kotlin and so no-ops; test sources, inherently
+// literal-heavy, are left out by scanning only src/main. No owner-based
+// exclusion is wired in - covering an extra owned mod is harmless, the rule is
+// simply not enforced as fix-up work on mods we do not own. mavenCentral,
+// needed to resolve the CLI, is provided by java-conventions, applied earlier.
+
+// The detekt CLI and its transitive deps, kept in their own configuration so
+// the lint tool never leaks onto a compile classpath or into the mod jar.
+configurations {
+    detektCli
+}
+
+dependencies {
+    detektCli 'io.gitlab.arturbosch.detekt:detekt-cli:1.23.8'
+}
+
+def enforceNoMagicLiteralsKotlin = tasks.register('enforceNoMagicLiteralsKotlin', JavaExec) {
+    description = 'Fails the build when a Kotlin source uses a magic number ' +
+            'instead of a named constant.'
+    group = 'verification'
+
+    def kotlinMainDir = file('src/main/kotlin')
+    // Resolve the shared rule config relative to THIS script, not the
+    // consumer's rootDir, so it holds for every consumer alike.
+    def detektConfig = new File(buildscript.sourceFile.parentFile, '../../../detekt.yml')
+
+    // Run only when there are Kotlin sources to scan, so a Java-only mod
+    // a Java-only consumer skips the JVM launch entirely.
+    onlyIf {
+        kotlinMainDir.exists()
+    }
+    // Declare inputs so an unchanged tree lets Gradle skip the JVM launch.
+    inputs.files(detektConfig).withPropertyName('detektConfig')
+    if (kotlinMainDir.exists()) {
+        inputs.dir(kotlinMainDir).withPropertyName('kotlinMain')
+    }
+
+    classpath = configurations.detektCli
+    mainClass = 'io.gitlab.arturbosch.detekt.cli.Main'
+    // --config alone (no --build-upon-default-config) runs only the rules the
+    // config names. detekt exits non-zero on any finding, which fails the
+    // JavaExec - the gate's verdict.
+    args = ['--config', detektConfig.absolutePath,
+            '--input', kotlinMainDir.absolutePath]
+}
+
+// Run the gate as part of the standard verification lifecycle so both a local
+// 'build'/'check' and CI's 'test jar' trip it before tests execute.
+tasks.matching { it.name in ['test', 'check'] }.configureEach {
+    dependsOn enforceNoMagicLiteralsKotlin
+}

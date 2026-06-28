@@ -1,0 +1,41 @@
+# Single source of truth for the KM family's "named constants good, loose
+# literals bad" rule on Kotlin sources (magic numbers). Run via the detekt CLI
+# by the enforce-no-magic-literals-kotlin gate (gradle/tasks/lint/literals), not
+# the detekt Gradle plugin: the plugin's stable line tops out at Gradle 8, and
+# the KM build runs Gradle 9, so the version-independent CLI is used instead.
+#
+# Passed to the CLI WITHOUT --build-upon-default-config, so only the rule named
+# here runs; every other detekt rule stays inactive. Deliberately scoped to
+# MagicNumber, the same narrow stance as the Java family's checkstyle.
+
+config:
+  # This file is intentionally a curated subset rather than the full default
+  # schema, so do not fail on rulesets it omits.
+  validation: false
+
+style:
+  MagicNumber:
+    active: true
+    # Structural values, not "magic": -1/0/1 are identity, indices, and
+    # increments; 2 is doubling and pairs; 0.5 is halving and the midpoint of
+    # two values (sum * 0.5). Naming these would add noise, not meaning.
+    ignoreNumbers: ['-1', '0', '1', '2', '0.5']
+    # The 31-style multiplier in a hashCode() is boilerplate, not a domain
+    # constant.
+    ignoreHashCodeFunction: true
+    # An annotation argument (e.g. @Size(64)) is a declaration, not inline use.
+    ignoreAnnotation: true
+    # An enum entry's numeric argument reads as the definition of that value,
+    # not a loose literal buried in logic.
+    ignoreEnums: true
+    # A literal passed as a named argument names itself at the call site.
+    ignoreNamedArgument: true
+    # The whole point of the rule: a literal that initialises a named constant
+    # is exactly where numbers are supposed to live. A property initialiser is
+    # the same case - the property name IS the name - so a settings field or a
+    # keyed data table reads as named values, not loose literals. Local
+    # variables are deliberately NOT exempted: a literal buried in a computed
+    # local (val x = a * 3.0) is still loose and must be named.
+    ignoreConstantDeclaration: true
+    ignorePropertyDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true

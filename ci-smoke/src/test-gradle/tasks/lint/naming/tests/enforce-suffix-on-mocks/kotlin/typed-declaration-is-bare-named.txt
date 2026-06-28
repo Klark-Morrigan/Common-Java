@@ -1,0 +1,3 @@
+class Probe {
+    private val sector: SectorAPI = mock(SectorAPI::class.java)
+}

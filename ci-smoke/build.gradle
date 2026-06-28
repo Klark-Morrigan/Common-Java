@@ -8,3 +8,91 @@
 apply from: "${rootDir}/../gradle/java-conventions.gradle"
 
 group = 'commonjava.smoke'
+
+// The shared lint gates are build logic, so each carries its own TestKit
+// integration test that drives a real Gradle build. They live here, in
+// Common-Java's own proving ground, beside the conventions they verify - in a
+// dedicated 'test-gradle' tree, not the unit-test one, because gradleTestKit()
+// drags a log4j-over-slf4j bridge onto the runtime classpath that can shadow a
+// real log4j a consumer's unit tests assert against.
+sourceSets {
+    testGradle {
+        // Each gate's test + its .txt fixtures sit in one folder named for the
+        // script under test, fixtures split into java/ and kotlin/ subfolders.
+        // Each folder is a source root, so the test sits in the default package
+        // (a Java package cannot carry the folder's hyphens) and the fixtures
+        // resolve under the shared classpath root - the java//kotlin/ prefix
+        // plus distinct names keep them from colliding there.
+        def gateTestDirs = [
+                'src/test-gradle/tasks/lint/formatting/tests/enforce-single-blank-lines',
+                'src/test-gradle/tasks/lint/literals/tests/enforce-no-magic-literals-kotlin',
+                'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes',
+                'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks',
+                'src/test-gradle/tasks/lint/structure/tests/enforce-tests-nested',
+        ]
+        java.srcDirs = gateTestDirs
+        resources.srcDirs = gateTestDirs
+        resources.exclude '**/*.java'
+    }
+}
+
+configurations {
+    // Reuse the unit-test stack (JUnit, AssertJ) without re-declaring it, while
+    // keeping gradleTestKit scoped to this source set alone.
+    testGradleImplementation.extendsFrom testImplementation
+    testGradleRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+dependencies {
+    testGradleImplementation gradleTestKit()
+}
+
+def testGradle = tasks.register('testGradle', Test) {
+    description = 'Runs TestKit integration tests for the shared Gradle gates.'
+    group = 'verification'
+    testClassesDirs = sourceSets.testGradle.output.classesDirs
+    classpath = sourceSets.testGradle.runtimeClasspath
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+    }
+
+    // Each gate script under test is a runtime input the matching test reads by
+    // path, so declare it as a task input: editing a gate must re-run these
+    // tests rather than leave them UP-TO-DATE against a stale version. The path
+    // is also handed to the test so it does not assume a working directory. The
+    // gates live one directory up, in Common-Java/gradle/tasks/lint.
+    def fakeGateScript = file(
+            '../gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes.gradle')
+    inputs.file(fakeGateScript).withPropertyName('fakeGateScript')
+    systemProperty 'gate.script.path', fakeGateScript.absolutePath
+
+    def mockGateScript = file(
+            '../gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks.gradle')
+    inputs.file(mockGateScript).withPropertyName('mockGateScript')
+    systemProperty 'mock.gate.script.path', mockGateScript.absolutePath
+
+    def nestedGateScript = file(
+            '../gradle/tasks/lint/structure/tests/enforce-tests-nested.gradle')
+    inputs.file(nestedGateScript).withPropertyName('nestedGateScript')
+    systemProperty 'nested.gate.script.path', nestedGateScript.absolutePath
+
+    def singleBlankGateScript = file(
+            '../gradle/tasks/lint/formatting/enforce-single-blank-lines.gradle')
+    inputs.file(singleBlankGateScript).withPropertyName('singleBlankGateScript')
+    systemProperty 'single.blank.gate.script.path', singleBlankGateScript.absolutePath
+
+    // The Kotlin literal gate also reads its detekt.yml by path, so that is an
+    // input too: editing the rule must re-run the test, not leave it UP-TO-DATE.
+    def kotlinLiteralsGateScript = file(
+            '../gradle/tasks/lint/literals/enforce-no-magic-literals-kotlin.gradle')
+    inputs.file(kotlinLiteralsGateScript).withPropertyName('kotlinLiteralsGateScript')
+    inputs.file(file('../gradle/detekt.yml')).withPropertyName('detektConfig')
+    systemProperty 'kotlin.literals.gate.script.path', kotlinLiteralsGateScript.absolutePath
+}
+
+// Run with the rest of verification: 'check' covers a local 'build', and
+// 'coverage' is the task CI invokes.
+tasks.matching { it.name in ['check', 'coverage'] }.configureEach {
+    dependsOn testGradle
+}

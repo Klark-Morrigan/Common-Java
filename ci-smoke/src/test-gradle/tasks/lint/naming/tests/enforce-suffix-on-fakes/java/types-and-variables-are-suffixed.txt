@@ -1,0 +1,8 @@
+class ConditionRepositoryFake {
+}
+
+class Sample {
+    void make() {
+        var marketFake = new EditableMarketFake();
+    }
+}

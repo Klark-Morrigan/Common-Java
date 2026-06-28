@@ -1,0 +1,5 @@
+class Probe {
+    fun make() {
+        val global = Mockito.mockStatic(Global::class.java)
+    }
+}

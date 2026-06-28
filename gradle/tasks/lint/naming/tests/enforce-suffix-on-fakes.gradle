@@ -1,0 +1,144 @@
+// Test-double naming gate, applied by java-conventions.gradle into every KM
+// mod. Kept in its own script so the mod conventions file stays about
+// classpath, version, and jar output, while this owns one concern: the
+// verification rule. Sits beside the mock gate (enforce-suffix-on-mocks.gradle),
+// the same kind of concern keyed on Mockito rather than hand-written fakes.
+//
+// Two conventions hold across every consumer, and neither is visible to a
+// bytecode-level tool: local-variable names are erased after compilation, and
+// the scan must read Kotlin (KMO) as well as Java. So they are enforced as a
+// source-text pass over the test tree:
+//   1. a test-double TYPE is suffixed 'Fake' (EditableMarketFake, never
+//      FakeEditableMarket). Flagged when a declared type name contains
+//      'Fake' but does not end with it.
+//   2. a variable built from a '*Fake(...)' constructor or factory is
+//      suffixed 'Fake' (marketFake, never market). Flagged when such an
+//      assignment targets a name that does not end with 'Fake'.
+// It is a heuristic: it keys off the literal 'Fake' token, so a double that
+// names neither its type nor its constructor/factory with 'Fake' (e.g. an
+// anonymous 'new SomeInterface() { ... }', or a 'makeMarket()' returning a
+// fake) is invisible to it.
+//
+// 'name = XFake(...)' alone is too broad in Kotlin, where the same shape is a
+// named argument ('dialog = XFake(...)' in a constructor call) or a property
+// set on a domain object inside an apply block ('intel = XFake(...)'). The
+// value is a fake, but the name is a parameter or a production property the
+// test cannot rename - neither is a holder. So a bare assignment counts only
+// when the name is a binding the test itself declares (a local 'val'/'var', or
+// a typed Java field). Java has neither named arguments nor apply blocks, so
+// this only narrows Kotlin; the Java behaviour is unchanged.
+//
+// A Kotlin declaration may annotate the type before the initialiser
+// ('val market: EditableMarket = EditableMarketFake()'); there the token before
+// '=' is the type, not the holder, so a second pattern reads the name from
+// after 'val'/'var' and skips the ': Type' annotation. The untyped
+// 'val x = XFake()' is already caught, since the name sits before '='.
+def enforceSuffixOnFakes = tasks.register('enforceSuffixOnFakes') {
+    description = 'Fails the build when test-double types or fake-holding ' +
+            'variables are not suffixed Fake.'
+    group = 'verification'
+
+    def testRoot = file('src/test')
+    // Declare the input only when it exists: Gradle validates a declared input
+    // directory is present, so an absent src/test (a mod with no tests) would
+    // otherwise fail configuration rather than skip. The doLast guards the
+    // same absence at execution time.
+    if (testRoot.exists()) {
+        inputs.dir(testRoot).withPropertyName('testSources')
+    }
+
+    doLast {
+        // Mods without a test tree have nothing to check.
+        if (!testRoot.exists()) {
+            return
+        }
+        // 'Fake' anywhere in a declared type name; the endsWith check below
+        // separates a compliant suffix from a non-compliant prefix or infix.
+        def typePattern = ~/\b(?:class|interface|enum|record|object)\s+(\w*Fake\w*)/
+        // The identifier assigned from a '*Fake(' or '*Fake<' constructor or
+        // factory, with or without Java's 'new'. Anchoring on the call keeps
+        // real-typed fixtures (MarketAPI helpers, mocks) out of scope.
+        def fakeVarPattern = ~/(\w+)\s*=\s*(?:new\s+)?\w*Fake\w*\s*[(<]/
+        // The names the test itself declares: a Kotlin/Java 'val'/'var' (covers
+        // locals and lateinit fields) and a typed Java field or local. Only
+        // these are rename targets - see the header note on named arguments and
+        // apply-block property sets.
+        def kotlinOrVarDeclPattern = ~/\b(?:val|var)\s+(\w+)/
+        def javaTypedDeclPattern = ~/\b[A-Za-z_]\w*(?:\s*<[^>]*>)?(?:\[\])?\s+(\w+)\s*[=;]/
+        // A Kotlin 'val'/'var' whose declared type is annotated before a fake
+        // initialiser ('val market: EditableMarket = EditableMarketFake()').
+        // Reading the name from after 'val'/'var' and skipping ': Type' (which
+        // holds no '=') is what the bare-assignment pattern cannot do, since
+        // there the token before '=' is the type. A declaration is inherently a
+        // holder, so this is checked directly rather than through declaredNames.
+        def kotlinTypedFakeDeclPattern =
+                ~/\b(?:val|var)\s+(\w+)\s*:\s*[^=]+?=\s*(?:new\s+)?\w*Fake\w*\s*[(<]/
+        def violations = []
+        fileTree(testRoot).matching { include '**/*.java', '**/*.kt' }.each { sourceFile ->
+            // First pass: every binding the file declares, so the second pass
+            // can tell a holder ('market = XFake(...)', a declared field) from a
+            // Kotlin named argument or apply-block property set whose name the
+            // file never declares.
+            def declaredNames = [] as Set
+            sourceFile.eachLine { line, lineNumber ->
+                def kotlinDecl = kotlinOrVarDeclPattern.matcher(line)
+                while (kotlinDecl.find()) {
+                    declaredNames << kotlinDecl.group(1)
+                }
+                def javaDecl = javaTypedDeclPattern.matcher(line)
+                while (javaDecl.find()) {
+                    declaredNames << javaDecl.group(1)
+                }
+            }
+            sourceFile.eachLine { line, lineNumber ->
+                def typeMatcher = typePattern.matcher(line)
+                while (typeMatcher.find()) {
+                    def typeName = typeMatcher.group(1)
+                    if (!typeName.endsWith('Fake')) {
+                        violations << "${sourceFile}:${lineNumber}: test-double type " +
+                                "'${typeName}' must be suffixed 'Fake'"
+                    }
+                }
+                // A line ending in ',' is a multi-line call argument, never a
+                // holder declaration - guards the rare named argument whose
+                // parameter name collides with a binding declared elsewhere in
+                // the same file.
+                if (line.trim().endsWith(',')) {
+                    return
+                }
+                def varMatcher = fakeVarPattern.matcher(line)
+                while (varMatcher.find()) {
+                    def variableName = varMatcher.group(1)
+                    if (declaredNames.contains(variableName)
+                            && !variableName.endsWith('Fake')) {
+                        violations << "${sourceFile}:${lineNumber}: variable " +
+                                "'${variableName}' holds a fake and must be suffixed 'Fake'"
+                    }
+                }
+                def typedDeclMatcher = kotlinTypedFakeDeclPattern.matcher(line)
+                while (typedDeclMatcher.find()) {
+                    def variableName = typedDeclMatcher.group(1)
+                    if (!variableName.endsWith('Fake')) {
+                        violations << "${sourceFile}:${lineNumber}: variable " +
+                                "'${variableName}' holds a fake and must be suffixed 'Fake'"
+                    }
+                }
+            }
+        }
+        if (!violations.isEmpty()) {
+            // GradleException is the idiomatic build-failure signal; its clean
+            // message reads as the gate's verdict. The editor flags it as an
+            // unresolved class because an applied script has no Gradle API on
+            // its classpath - a known tooling false positive, not a defect, so
+            // do not "fix" it by swapping in a java.lang exception.
+            throw new GradleException("Fake naming convention violated:\n  " +
+                    violations.join('\n  '))
+        }
+    }
+}
+
+// Run the gate as part of the standard verification lifecycle so both a
+// local 'build'/'check' and CI's 'test jar' trip it before tests execute.
+tasks.matching { it.name in ['test', 'check'] }.configureEach {
+    dependsOn enforceSuffixOnFakes
+}
