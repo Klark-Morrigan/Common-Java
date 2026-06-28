@@ -89,3 +89,4 @@ tasks.register('coverage') {
 def lintTasksDir = new File(buildscript.sourceFile.parentFile, 'tasks/lint')
 apply from: new File(lintTasksDir, 'formatting/enforce-single-blank-lines.gradle')
 apply from: new File(lintTasksDir, 'literals/enforce-no-magic-literals-kotlin.gradle')
+apply from: new File(lintTasksDir, 'naming/tests/enforce-suffix-on-fakes.gradle')

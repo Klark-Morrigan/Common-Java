@@ -26,6 +26,7 @@ sourceSets {
         def gateTestDirs = [
                 'src/test-gradle/tasks/lint/formatting/tests/enforce-single-blank-lines',
                 'src/test-gradle/tasks/lint/literals/tests/enforce-no-magic-literals-kotlin',
+                'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes',
         ]
         java.srcDirs = gateTestDirs
         resources.srcDirs = gateTestDirs
@@ -53,6 +54,16 @@ def testGradle = tasks.register('testGradle', Test) {
     testLogging {
         events 'passed', 'skipped', 'failed'
     }
+
+    // Each gate script under test is a runtime input the matching test reads by
+    // path, so declare it as a task input: editing a gate must re-run these
+    // tests rather than leave them UP-TO-DATE against a stale version. The path
+    // is also handed to the test so it does not assume a working directory. The
+    // gates live one directory up, in Common-Java/gradle/tasks/lint.
+    def fakeGateScript = file(
+            '../gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes.gradle')
+    inputs.file(fakeGateScript).withPropertyName('fakeGateScript')
+    systemProperty 'gate.script.path', fakeGateScript.absolutePath
 
     def singleBlankGateScript = file(
             '../gradle/tasks/lint/formatting/enforce-single-blank-lines.gradle')

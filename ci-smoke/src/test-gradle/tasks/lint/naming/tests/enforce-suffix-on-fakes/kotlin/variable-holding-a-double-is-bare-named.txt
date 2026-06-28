@@ -1,0 +1,5 @@
+class Probe {
+    fun make() {
+        val market = EditableMarketFake()
+    }
+}
