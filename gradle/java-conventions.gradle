@@ -55,6 +55,43 @@ test {
     testLogging {
         events 'passed', 'skipped', 'failed'
     }
+
+    // Surface the slowest tests on every run so a creeping suite runtime is
+    // visible instead of hiding in the aggregate. Each test's wall-clock time
+    // is recorded as it finishes; forks may run in parallel, so the store must
+    // be thread-safe. The two hooks live on a TestListener - the task's own
+    // afterTest/afterSuite closures are removed in Gradle 10.
+    def recordedTestDurations = java.util.Collections.synchronizedList(new ArrayList())
+    addTestListener(new TestListener() {
+        void beforeSuite(TestDescriptor suite) {}
+
+        void beforeTest(TestDescriptor test) {}
+
+        void afterTest(TestDescriptor descriptor, TestResult result) {
+            recordedTestDurations << [
+                    name: "${descriptor.className}.${descriptor.name}",
+                    durationMillis: result.endTime - result.startTime]
+        }
+
+        // Report at the root suite (the one with no parent), which fires once
+        // the entire run completes - including failing runs, unlike a doLast
+        // action a test failure would skip.
+        void afterSuite(TestDescriptor descriptor, TestResult result) {
+            if (descriptor.parent != null || recordedTestDurations.isEmpty()) {
+                return
+            }
+            logger.lifecycle('Top 10 longest tests:')
+            recordedTestDurations
+                    .sort { -it.durationMillis }
+                    .take(10)
+                    .eachWithIndex { entry, index ->
+                        logger.lifecycle(String.format(
+                                '%2d. %6d ms  %s',
+                                index + 1, entry.durationMillis, entry.name))
+                    }
+        }
+    })
+
     finalizedBy jacocoTestReport
 }
 
