@@ -1,0 +1,13 @@
+class Sample {
+    fun alpha() {
+    }
+
+    internal fun beta() {
+    }
+
+    protected fun gamma() {
+    }
+
+    private fun delta() {
+    }
+}

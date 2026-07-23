@@ -1,0 +1,6 @@
+interface Sample {
+    private void helper() {
+    }
+
+    void alpha();
+}

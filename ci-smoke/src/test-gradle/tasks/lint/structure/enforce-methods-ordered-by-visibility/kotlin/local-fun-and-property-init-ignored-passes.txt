@@ -1,0 +1,13 @@
+class Sample {
+    fun alpha() {
+        fun localHelper() {
+        }
+        localHelper()
+    }
+
+    private fun realHelper() {
+    }
+
+    val handler = fun() {
+    }
+}

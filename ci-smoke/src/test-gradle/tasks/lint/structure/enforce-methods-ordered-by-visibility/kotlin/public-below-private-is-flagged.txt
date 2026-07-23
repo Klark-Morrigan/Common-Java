@@ -1,0 +1,10 @@
+class Sample {
+    fun alpha() {
+    }
+
+    private fun helper() {
+    }
+
+    fun beta() {
+    }
+}
