@@ -28,6 +28,7 @@ sourceSets {
                 'src/test-gradle/tasks/lint/literals/tests/enforce-no-magic-literals-kotlin',
                 'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes',
                 'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks',
+                'src/test-gradle/tasks/lint/structure/enforce-methods-ordered-by-visibility',
                 'src/test-gradle/tasks/lint/structure/tests/enforce-tests-nested',
         ]
         java.srcDirs = gateTestDirs
@@ -71,6 +72,11 @@ def testGradle = tasks.register('testGradle', Test) {
             '../gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks.gradle')
     inputs.file(mockGateScript).withPropertyName('mockGateScript')
     systemProperty 'mock.gate.script.path', mockGateScript.absolutePath
+
+    def methodsOrderGateScript = file(
+            '../gradle/tasks/lint/structure/enforce-methods-ordered-by-visibility.gradle')
+    inputs.file(methodsOrderGateScript).withPropertyName('methodsOrderGateScript')
+    systemProperty 'methods.order.gate.script.path', methodsOrderGateScript.absolutePath
 
     def nestedGateScript = file(
             '../gradle/tasks/lint/structure/tests/enforce-tests-nested.gradle')

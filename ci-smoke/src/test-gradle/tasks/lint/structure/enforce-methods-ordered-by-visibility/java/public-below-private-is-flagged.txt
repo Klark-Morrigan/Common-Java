@@ -1,0 +1,10 @@
+class Sample {
+    public void alpha() {
+    }
+
+    private void helper() {
+    }
+
+    public void beta() {
+    }
+}

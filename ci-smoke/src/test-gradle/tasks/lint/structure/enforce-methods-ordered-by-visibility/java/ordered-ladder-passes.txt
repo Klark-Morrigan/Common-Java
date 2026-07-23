@@ -1,0 +1,21 @@
+class Sample {
+    public void alpha() {
+    }
+
+    public int beta() {
+        return 1;
+    }
+
+    protected void gamma() {
+    }
+
+    void delta() {
+    }
+
+    private void epsilon() {
+    }
+
+    private int zeta() {
+        return 2;
+    }
+}

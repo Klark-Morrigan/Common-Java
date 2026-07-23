@@ -1,0 +1,21 @@
+class Sample {
+    public void alpha() {
+    }
+
+    private void helper() {
+    }
+
+    public Sample() {
+    }
+
+    enum Mode {
+        FAST(1),
+        SLOW(2);
+
+        public void run() {
+        }
+
+        private void tick() {
+        }
+    }
+}
