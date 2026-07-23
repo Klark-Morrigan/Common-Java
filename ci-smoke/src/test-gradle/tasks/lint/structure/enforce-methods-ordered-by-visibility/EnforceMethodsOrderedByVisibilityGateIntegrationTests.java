@@ -60,6 +60,21 @@ class EnforceMethodsOrderedByVisibilityGateIntegrationTests {
     }
 
     @Test
+    void ignoresJavaMultiLineFieldInitializers(@TempDir Path projectDir) throws IOException {
+        // A field whose value sits on the line after the '=' - a 'Type.factory(...)'
+        // or a 'new Type(...)' - looks like a bare package-private method on that
+        // continuation line, since the same-line '=' guard cannot see the '=' on the
+        // previous line. The gate must skip a continuation line (its previous line
+        // ends in '=') so the public methods below the fields are not flagged against
+        // a phantom method.
+        writeJavaSource(projectDir, "multiline-factory-field-initializer-ignored-passes");
+
+        var result = runGate(projectDir, false);
+
+        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+    }
+
+    @Test
     void flagsJavaInterfaceImplicitPublicBelowPrivate(@TempDir Path projectDir) throws IOException {
         // A no-modifier method is package-private in a class but public in an
         // interface. This fixture only fails if the gate ranks the bare interface

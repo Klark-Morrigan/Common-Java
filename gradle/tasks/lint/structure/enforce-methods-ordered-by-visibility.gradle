@@ -172,11 +172,25 @@ def enforceMethodsOrderedByVisibility = tasks.register('enforceMethodsOrderedByV
             def isPendingInterface = false
             def isInBlockComment = false
             def isInRawString = false
+            // The previous non-blank stripped line, so a field initializer whose
+            // value wraps onto the next line (its '=' ending the line above) is not
+            // read as a method: no real method declaration ever follows a line that
+            // ends in '=', but 'Type.factory(...)' or 'new Type(...)' on such a
+            // continuation line otherwise looks like one.
+            def lastNonBlankStripped = null
+            // Paren nesting carried across lines, so a field initializer's argument
+            // list that wraps - 'new Foo(' opening on one line, more values (perhaps
+            // a nested 'new Bar(...)') on the next - is known to be inside an open
+            // paren, and its inner calls are not read as method declarations.
+            def parenDepth = 0
             sourceFile.eachLine { rawLine, lineNumber ->
                 def stripped = stripLine(rawLine, isInBlockComment, isInRawString)
                 def line = stripped.text
                 isInBlockComment = stripped.inBlock
                 isInRawString = stripped.inRaw
+                // The paren depth entering this line: when positive, the line is a
+                // continuation inside an open argument list, not a declaration site.
+                def parenDepthAtLineStart = parenDepth
 
                 def classMatcher = classDecl.matcher(line)
                 def hasClassDecl = classMatcher.find()
@@ -187,7 +201,14 @@ def enforceMethodsOrderedByVisibility = tasks.register('enforceMethodsOrderedByV
                 // frame or not at all. A class-declaration line is never also a
                 // method, so it is excluded outright.
                 def frame = classStack.isEmpty() ? null : classStack.last()
-                if (frame != null && braceDepth == frame.openDepth && !hasClassDecl) {
+                // A line whose previous non-blank line ended in '=' is the value of
+                // a multi-line field initializer, not a member declaration - skip it
+                // so 'Set.of(...)' or 'new Foo(...)' on the continuation line is not
+                // read as a package-private method against the fields above it.
+                def isInitializerContinuation =
+                        lastNonBlankStripped != null && lastNonBlankStripped.endsWith('=')
+                if (frame != null && braceDepth == frame.openDepth && !hasClassDecl
+                        && !isInitializerContinuation && parenDepthAtLineStart == 0) {
                     def visibility = null
                     if (isKotlin) {
                         def funMatcher = kotlinFun.matcher(line)
@@ -222,8 +243,15 @@ def enforceMethodsOrderedByVisibility = tasks.register('enforceMethodsOrderedByV
                                     // A real method carries a return type before
                                     // its name; an empty prefix means an enum
                                     // constant or a bare constructor. A name equal
-                                    // to the enclosing type is a constructor.
-                                    if (!beforeName.isEmpty() && name != frame.name) {
+                                    // to the enclosing type is a constructor. A
+                                    // prefix ending in '.' is a qualified call, not
+                                    // a declaration - a multi-line field initializer
+                                    // whose 'Type.factory(...)' value sits on the
+                                    // line after the '=', which the same-line '='
+                                    // guard above cannot see on the previous line.
+                                    if (!beforeName.isEmpty()
+                                            && !beforeName.endsWith('.')
+                                            && name != frame.name) {
                                         visibility = classifyVisibility(
                                                 prefix, false, frame.isInterface)
                                     }
@@ -256,7 +284,11 @@ def enforceMethodsOrderedByVisibility = tasks.register('enforceMethodsOrderedByV
                 // popped only when a '}' lands at the exact depth its body opened
                 // at, so method and lambda braces deeper inside never disturb it.
                 line.each { ch ->
-                    if (ch == '{') {
+                    if (ch == '(') {
+                        parenDepth++
+                    } else if (ch == ')') {
+                        parenDepth = Math.max(0, parenDepth - 1)
+                    } else if (ch == '{') {
                         braceDepth++
                         if (hasPendingClass) {
                             classStack << [openDepth   : braceDepth,
@@ -274,6 +306,12 @@ def enforceMethodsOrderedByVisibility = tasks.register('enforceMethodsOrderedByV
                         }
                         braceDepth--
                     }
+                }
+                // Remember this line for the next iteration's continuation check,
+                // ignoring blank/comment-only lines (stripped to empty) so a field's
+                // '=' still reaches the value line across an intervening blank.
+                if (!line.trim().isEmpty()) {
+                    lastNonBlankStripped = line.trim()
                 }
             }
         }

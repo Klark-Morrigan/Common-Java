@@ -1,0 +1,31 @@
+class Sample {
+    // A static factory value on the line after the '=': 'Set.of(...)' must not be
+    // read as a bare package-private method, or the public methods below would look
+    // like ladder violations against it.
+    private static final Set<String> PLACEHOLDERS =
+            Set.of("independent", "player");
+
+    // A constructor value on the line after the '=': 'new Handle(...)' must be
+    // skipped the same way. Its prefix is 'new', not a qualified 'Type.', so only
+    // the continuation-line guard (previous line ends in '=') catches it.
+    private final Object handle =
+            new Object();
+
+    // A field whose argument list wraps: the factory '(' opens on the first line
+    // (with the '='), the nested 'new Object()' sits on the continuation line inside
+    // the still-open paren, whose own previous line ends in '(' not '='. Only the
+    // paren-depth guard (inside an open argument list) catches this one.
+    private final java.util.List<Object> composed = java.util.List.of(
+            new Object());
+
+    public String alpha() {
+        return "";
+    }
+
+    public String beta() {
+        return "";
+    }
+
+    private void helper() {
+    }
+}
