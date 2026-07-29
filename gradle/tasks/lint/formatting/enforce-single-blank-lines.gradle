@@ -10,6 +10,10 @@
 // this - blank lines are erased by compilation - so it is enforced as a
 // source-text pass over both main and test trees, reading Kotlin (KMO) as
 // well as Java.
+// Applied by this script, not assumed from the conventions file: the gate is
+// applied on its own by its integration test, so it has to carry what it uses.
+apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate-stamp.gradle')
+
 def enforceSingleBlankLines = tasks.register('enforceSingleBlankLines') {
     description = 'Fails the build when a source file has two or more ' +
             'consecutive blank lines.'
@@ -59,6 +63,10 @@ def enforceSingleBlankLines = tasks.register('enforceSingleBlankLines') {
         }
     }
 }
+
+// Give the gate an output so it can be skipped while the sources it reads are
+// unchanged; see lint-gate-stamp.gradle.
+declareLintGateStamp(enforceSingleBlankLines)
 
 // Run the gate as part of the standard verification lifecycle so both a
 // local 'build'/'check' and CI's 'test jar' trip it before tests execute.

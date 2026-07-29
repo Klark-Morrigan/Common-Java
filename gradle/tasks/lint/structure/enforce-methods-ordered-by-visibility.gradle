@@ -28,6 +28,10 @@
 // declaration's enclosing type, so the scan tracks brace depth and keeps a stack
 // of open class scopes; each scope remembers the least-visible method seen so
 // far, and a later, more-visible method at that scope is the violation.
+// Applied by this script, not assumed from the conventions file: the gate is
+// applied on its own by its integration test, so it has to carry what it uses.
+apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate-stamp.gradle')
+
 def enforceMethodsOrderedByVisibility = tasks.register('enforceMethodsOrderedByVisibility') {
     description = 'Fails the build when a more-visible method is declared below ' +
             'a less-visible one within the same type.'
@@ -326,6 +330,10 @@ def enforceMethodsOrderedByVisibility = tasks.register('enforceMethodsOrderedByV
         }
     }
 }
+
+// Give the gate an output so it can be skipped while the sources it reads are
+// unchanged; see lint-gate-stamp.gradle.
+declareLintGateStamp(enforceMethodsOrderedByVisibility)
 
 // Run the gate as part of the standard verification lifecycle so both a local
 // 'build'/'check' and CI's 'test jar' trip it before tests execute.

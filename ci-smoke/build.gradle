@@ -63,6 +63,11 @@ def testGradle = tasks.register('testGradle', Test) {
     // tests rather than leave them UP-TO-DATE against a stale version. The path
     // is also handed to the test so it does not assume a working directory. The
     // gates live one directory up, in Common-Java/gradle/tasks/lint.
+    // Every gate applies the stamp helper, so it is a runtime input of all of
+    // these tests even though no test names it: editing it must re-run them.
+    inputs.file(file('../gradle/tasks/lint/lint-gate-stamp.gradle'))
+            .withPropertyName('lintGateStampScript')
+
     def fakeGateScript = file(
             '../gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes.gradle')
     inputs.file(fakeGateScript).withPropertyName('fakeGateScript')

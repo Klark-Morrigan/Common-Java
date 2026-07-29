@@ -1,0 +1,36 @@
+// Shared plumbing for the lint gates: it gives a gate an output so Gradle can
+// skip it while the sources it reads are unchanged.
+//
+// A gate reads source text and asserts a convention; it produces no artifact,
+// and a task with actions but no declared output can never be UP-TO-DATE, so
+// every gate would re-scan every source file on every build even when nothing
+// changed. A stamp file closes that: the gate's inputs are already declared, so
+// Gradle skips it while those sources are unchanged, and a gate that fails
+// leaves no stamp behind and therefore runs again next time.
+//
+// It lives in its own script, applied by each gate rather than by the
+// conventions file, because a gate has to stand on its own: its integration
+// test applies that one script into a throwaway project and runs the task, with
+// no conventions script in sight. Defining the helper anywhere else would make
+// every gate silently depend on being applied in company.
+//
+// Applying this more than once per project is harmless - each gate applies it,
+// and the assignment below simply overwrites an identical closure.
+ext.declareLintGateStamp = { taskProvider ->
+    def stampFile = layout.buildDirectory.file("lint/${taskProvider.name}.stamp")
+    taskProvider.configure {
+        outputs.file(stampFile)
+        // The stamp is the whole result - it says "these exact sources passed
+        // this gate" - so it is safe to replay from the build cache, which is
+        // what keeps a clean build or a branch switch from re-scanning sources
+        // that some earlier run already cleared.
+        outputs.cacheIf { true }
+        // Appended after the gate's own action, so the stamp records a pass:
+        // when the check throws, this never runs and the gate stays out of date.
+        doLast {
+            def stamp = stampFile.get().asFile
+            stamp.parentFile.mkdirs()
+            stamp.text = "${taskProvider.name} passed\n"
+        }
+    }
+}
