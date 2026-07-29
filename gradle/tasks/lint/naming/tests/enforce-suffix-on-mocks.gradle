@@ -36,6 +36,10 @@
 // skips the ': Type' annotation. That also covers the mockito-kotlin reified
 // forms ('mock()', 'mock<T>()') when written with an explicit type; the untyped
 // 'val x = mock<T>()' is already caught, since the name sits before '='.
+// Applied by this script, not assumed from the conventions file: the gate is
+// applied on its own by its integration test, so it has to carry what it uses.
+apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate-stamp.gradle')
+
 def enforceSuffixOnMocks = tasks.register('enforceSuffixOnMocks') {
     description = 'Fails the build when a variable holding a Mockito mock is ' +
             'not suffixed Mock.'
@@ -135,7 +139,7 @@ def enforceSuffixOnMocks = tasks.register('enforceSuffixOnMocks') {
 }
 
 // Give the gate an output so it can be skipped while the sources it reads are
-// unchanged; see declareLintGateStamp in java-conventions.gradle.
+// unchanged; see lint-gate-stamp.gradle.
 declareLintGateStamp(enforceSuffixOnMocks)
 
 // Run the gate as part of the standard verification lifecycle so both a

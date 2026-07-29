@@ -23,6 +23,10 @@
 // Unlike the line-local naming gates, telling a top-level @Test from a nested
 // one needs each annotation's enclosing class, so the scan tracks brace depth
 // and keeps a stack of open class scopes.
+// Applied by this script, not assumed from the conventions file: the gate is
+// applied on its own by its integration test, so it has to carry what it uses.
+apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate-stamp.gradle')
+
 def enforceTestsNested = tasks.register('enforceTestsNested') {
     description = 'Fails the build when a @Test method is not enclosed in a ' +
             '@Nested class.'
@@ -223,7 +227,7 @@ def enforceTestsNested = tasks.register('enforceTestsNested') {
 }
 
 // Give the gate an output so it can be skipped while the sources it reads are
-// unchanged; see declareLintGateStamp in java-conventions.gradle.
+// unchanged; see lint-gate-stamp.gradle.
 declareLintGateStamp(enforceTestsNested)
 
 // Run the gate as part of the standard verification lifecycle so both a

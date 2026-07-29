@@ -27,6 +27,10 @@ dependencies {
     detektCli 'io.gitlab.arturbosch.detekt:detekt-cli:1.23.8'
 }
 
+// Applied by this script, not assumed from the conventions file: the gate is
+// applied on its own by its integration test, so it has to carry what it uses.
+apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate-stamp.gradle')
+
 def enforceNoMagicLiteralsKotlin = tasks.register('enforceNoMagicLiteralsKotlin', JavaExec) {
     description = 'Fails the build when a Kotlin source uses a magic number ' +
             'instead of a named constant.'
@@ -58,7 +62,7 @@ def enforceNoMagicLiteralsKotlin = tasks.register('enforceNoMagicLiteralsKotlin'
 }
 
 // Give the gate an output so it can be skipped while the sources it reads are
-// unchanged; see declareLintGateStamp in java-conventions.gradle.
+// unchanged; see lint-gate-stamp.gradle.
 declareLintGateStamp(enforceNoMagicLiteralsKotlin)
 
 // Run the gate as part of the standard verification lifecycle so both a local

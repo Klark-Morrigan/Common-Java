@@ -124,36 +124,6 @@ tasks.register('coverage') {
 // to THIS script's own gradle/ dir, the
 // same sibling-checkout convention checkstyle.xml uses. Magic numbers on Java
 // ride in checkstyle.xml above rather than as a separate gate.
-// A lint gate reads source text and asserts a convention; it produces no
-// artifact, and a task with actions but no declared output can never be
-// UP-TO-DATE, so every gate re-scans every source file on every build even when
-// nothing changed. Giving each gate a stamp file as its output closes that: the
-// gate's inputs are already declared, so Gradle skips it while the sources it
-// reads are unchanged, and a gate that fails leaves no stamp behind and so runs
-// again next time.
-//
-// Shared here rather than repeated per gate so the stamp convention (location,
-// naming, write-after-the-check ordering) has one definition. Call it with the
-// gate's task provider once the gate is registered.
-ext.declareLintGateStamp = { taskProvider ->
-    def stampFile = layout.buildDirectory.file("lint/${taskProvider.name}.stamp")
-    taskProvider.configure {
-        outputs.file(stampFile)
-        // The stamp is the whole result - it says "these exact sources passed
-        // this gate" - so it is safe to replay from the build cache, which is
-        // what keeps a clean build or a branch switch from re-scanning sources
-        // that some earlier run already cleared.
-        outputs.cacheIf { true }
-        // Appended after the gate's own action, so the stamp records a pass:
-        // when the check throws, this never runs and the gate stays out of date.
-        doLast {
-            def stamp = stampFile.get().asFile
-            stamp.parentFile.mkdirs()
-            stamp.text = "${taskProvider.name} passed\n"
-        }
-    }
-}
-
 def lintTasksDir = new File(buildscript.sourceFile.parentFile, 'tasks/lint')
 apply from: new File(lintTasksDir, 'formatting/enforce-single-blank-lines.gradle')
 apply from: new File(lintTasksDir, 'literals/enforce-no-magic-literals-kotlin.gradle')

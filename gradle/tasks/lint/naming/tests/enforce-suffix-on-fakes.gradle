@@ -33,6 +33,10 @@
 // '=' is the type, not the holder, so a second pattern reads the name from
 // after 'val'/'var' and skips the ': Type' annotation. The untyped
 // 'val x = XFake()' is already caught, since the name sits before '='.
+// Applied by this script, not assumed from the conventions file: the gate is
+// applied on its own by its integration test, so it has to carry what it uses.
+apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate-stamp.gradle')
+
 def enforceSuffixOnFakes = tasks.register('enforceSuffixOnFakes') {
     description = 'Fails the build when test-double types or fake-holding ' +
             'variables are not suffixed Fake.'
@@ -138,7 +142,7 @@ def enforceSuffixOnFakes = tasks.register('enforceSuffixOnFakes') {
 }
 
 // Give the gate an output so it can be skipped while the sources it reads are
-// unchanged; see declareLintGateStamp in java-conventions.gradle.
+// unchanged; see lint-gate-stamp.gradle.
 declareLintGateStamp(enforceSuffixOnFakes)
 
 // Run the gate as part of the standard verification lifecycle so both a
