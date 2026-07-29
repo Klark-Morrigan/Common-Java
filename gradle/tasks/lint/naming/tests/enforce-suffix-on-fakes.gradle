@@ -137,6 +137,10 @@ def enforceSuffixOnFakes = tasks.register('enforceSuffixOnFakes') {
     }
 }
 
+// Give the gate an output so it can be skipped while the sources it reads are
+// unchanged; see declareLintGateStamp in java-conventions.gradle.
+declareLintGateStamp(enforceSuffixOnFakes)
+
 // Run the gate as part of the standard verification lifecycle so both a
 // local 'build'/'check' and CI's 'test jar' trip it before tests execute.
 tasks.matching { it.name in ['test', 'check'] }.configureEach {
