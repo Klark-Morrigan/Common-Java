@@ -1,0 +1,192 @@
+// Javadoc/KDoc @param column aligner, the second half of the on-demand formatter.
+//
+// Spotless leaves doc comments completely alone - eclipse-formatter.xml turns off
+// format_javadoc_comments and every sibling comment setting - so nothing in the
+// toolchain has an opinion about the inside of a doc block. That is the right
+// default (the JDT comment formatter reflows prose and destroys hand-laid tables),
+// but it leaves one mechanical thing unowned: the description column of an aligned
+// @param list, which silently goes out of true the moment a parameter is renamed
+// to a different length. A leaked misalignment survives every build, so the fix is
+// a formatter pass rather than a gate.
+//
+// This rewrites source, so like Spotless it stays off `check` and `build` and runs
+// only when a person asks for it. It lives beside the lint gates but deliberately
+// not among them: everything under tasks/lint only ever reports.
+//
+// Applied by spotless-java.gradle so a repo that opted into the formatter gets
+// both halves, and directly appliable by a repo that wants only this one.
+
+// The two shapes inside a doc block this pass understands.
+//
+//   ^(\s*\*[ \t]+)@param[ \t]+(name)([ \t]+)(description)$
+//   ^(\s*\*)([ \t]+)(continuation of the description above)$
+//
+// Anchored at \z with the line ending captured separately, so a rewritten line
+// keeps whatever ending it arrived with (these trees are checked out CRLF).
+def javadocParamPattern = ~/^(\s*\*[ \t]+)@param[ \t]+(\S+)([ \t]+)(\S.*?)([\r\n]*)\z/
+def javadocContinuationPattern = ~/^(\s*\*)([ \t]+)(\S.*?)([\r\n]*)\z/
+def docBlockOpenPattern = ~/^\s*\/\*\*/
+def docBlockClosePattern = ~/\*\//
+
+// Re-lays one doc comment's @param descriptions onto a single column, and pulls
+// each wrapped continuation line onto that same column. Returns true when it
+// changed something.
+//
+// Two guards keep it from restyling blocks that were never column-aligned. It acts
+// only when some @param pads its name with more than one space (the author aligned
+// on purpose) AND the descriptions currently disagree about which column they start
+// in (the alignment is actually broken). A block that already agrees, or that uses
+// one space throughout, is left exactly as written - the pass fixes drift, it does
+// not impose a house style on prose.
+def alignDocBlockParams = { List<String> block ->
+    def params = []
+    def current = null
+    block.eachWithIndex { line, index ->
+        def paramMatch = javadocParamPattern.matcher(line)
+        if (paramMatch.matches()) {
+            current = [
+                index      : index,
+                prefix     : paramMatch.group(1),
+                name       : paramMatch.group(2),
+                gap        : paramMatch.group(3).length(),
+                description: paramMatch.group(4),
+                lineEnding : paramMatch.group(5),
+                continuations: [],
+            ]
+            params << current
+            return
+        }
+        def continuationMatch = javadocContinuationPattern.matcher(line)
+        if (current != null && continuationMatch.matches() && !continuationMatch.group(3).startsWith('@')) {
+            current.continuations << [
+                index     : index,
+                star      : continuationMatch.group(1),
+                indent    : continuationMatch.group(2).length(),
+                text      : continuationMatch.group(3),
+                lineEnding: continuationMatch.group(4),
+            ]
+            return
+        }
+        current = null
+    }
+    if (params.isEmpty()) {
+        return false
+    }
+
+    // '@param ' is 7 characters, so a description's column is the prefix plus that
+    // plus the name plus its padding.
+    def descriptionColumnOf = { param -> param.prefix.length() + 7 + param.name.length() + param.gap }
+    def isPaddedOnPurpose = params.any { it.gap > 1 }
+    if (!isPaddedOnPurpose) {
+        return false
+    }
+    def columns = params.collect(descriptionColumnOf).toSet()
+
+    // A lone @param has no sibling to disagree with, so only its wrapped lines can
+    // have drifted away from it.
+    if (params.size() == 1) {
+        def column = descriptionColumnOf(params[0])
+        def changed = false
+        params[0].continuations.each { continuation ->
+            if (continuation.star.length() + continuation.indent == column) {
+                return
+            }
+            block[continuation.index] = continuation.star +
+                    ' ' * (column - continuation.star.length()) +
+                    continuation.text + continuation.lineEnding
+            changed = true
+        }
+        return changed
+    }
+    if (columns.size() == 1) {
+        return false
+    }
+
+    def nameWidth = params.collect { it.name.length() }.max()
+    params.each { param ->
+        block[param.index] = param.prefix + '@param ' + param.name +
+                ' ' * (nameWidth - param.name.length() + 1) +
+                param.description + param.lineEnding
+        def column = param.prefix.length() + 7 + nameWidth + 1
+        param.continuations.each { continuation ->
+            block[continuation.index] = continuation.star +
+                    ' ' * (column - continuation.star.length()) +
+                    continuation.text + continuation.lineEnding
+        }
+    }
+    return true
+}
+
+def alignJavadocParams = tasks.register('alignJavadocParams') {
+    description = 'Re-aligns the @param description column in Javadoc and KDoc ' +
+            'blocks whose alignment has drifted.'
+    group = 'formatting'
+
+    // Honours the formatter's own exemption list rather than a second one of its
+    // own: a source set held out of Spotless is held out because it mirrors a third
+    // party's shape, and that reason applies just as much to its doc comments.
+    def excludedSourceSetNames = project.findProperty('spotlessExcludedSourceSets') ?: []
+    def alignedSourceSets = sourceSets.findAll { sourceSet ->
+        !(sourceSet.name in excludedSourceSetNames)
+    }
+    // Kotlin as well as Java: KDoc uses the same @param shape, so a Kotlin-only
+    // repo can apply this script on its own and get the same pass.
+    def alignedSources = alignedSourceSets.collect { sourceSet ->
+        sourceSet.allSource.matching { include '**/*.java', '**/*.kt' }
+    }
+    alignedSources.eachWithIndex { source, index ->
+        inputs.files(source).withPropertyName("alignedSource${index}")
+    }
+
+    doLast {
+        def rewrittenFiles = []
+        alignedSources.each { source ->
+            source.each { sourceFile ->
+                // Split after each newline so every line keeps its own ending; the
+                // patterns capture that ending and put it back, which is what stops
+                // a CRLF checkout being silently rewritten to LF.
+                def originalText = sourceFile.getText('UTF-8')
+                if (originalText.isEmpty()) {
+                    return
+                }
+                def lines = originalText.split(/(?<=\n)/) as List
+
+                def blockCount = 0
+                def blockStart = -1
+                def isInsideBlock = false
+                lines.eachWithIndex { line, index ->
+                    if (!isInsideBlock && docBlockOpenPattern.matcher(line).find()) {
+                        isInsideBlock = true
+                        blockStart = index
+                        return
+                    }
+                    if (isInsideBlock && docBlockClosePattern.matcher(line).find()) {
+                        def block = lines[blockStart..index]
+                        if (alignDocBlockParams(block)) {
+                            (blockStart..index).each { position ->
+                                lines[position] = block[position - blockStart]
+                            }
+                            blockCount++
+                        }
+                        isInsideBlock = false
+                    }
+                }
+                if (blockCount > 0) {
+                    sourceFile.setText(lines.join(''), 'UTF-8')
+                    rewrittenFiles << "${sourceFile} (${blockCount})"
+                }
+            }
+        }
+        if (rewrittenFiles.isEmpty()) {
+            logger.lifecycle('alignJavadocParams: every @param column already aligned.')
+        } else {
+            logger.lifecycle('alignJavadocParams: re-aligned ' +
+                    "${rewrittenFiles.size()} file(s):\n  " + rewrittenFiles.join('\n  '))
+        }
+    }
+}
+
+// Nothing depends on it: like spotlessApply, this rewrites source and is read as a
+// diff, so it must never ride along on a build. The reference keeps the task
+// configured and silences the unused-variable warning.
+alignJavadocParams

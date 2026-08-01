@@ -1,0 +1,82 @@
+// Opt-in Java formatter wiring: Spotless driving the Eclipse JDT formatter from
+// eclipse-formatter.xml, this script's sibling.
+//
+// Deliberately NOT applied from java-conventions.gradle, which is where every
+// other quality tool in the family lives. Those gates only ever report, so
+// inheriting them everywhere is free. This one rewrites source, and most
+// consumers of java-conventions must never have it: the Starsector port mods
+// carry third-party code where a reformat destroys the diff against upstream,
+// and the Kotlin mods have no Java for it to touch. A repo therefore opts in by
+// applying this script itself.
+//
+// It also stays off every automatic path. enforceCheck=false detaches
+// spotlessCheck from `check`, so `gradlew build` cannot fail on merely
+// unformatted code and nothing runs the formatter unless a person asks for it
+// with `gradlew spotlessApply`. That is a requirement, not caution: the
+// formatter normalises a few constructs it has no setting to preserve (a
+// lambda's expression body is rejoined onto one line, a compact
+// `@Override void f() {}` has its annotation split off), so a run is read as a
+// diff and curated by hand.
+//
+// By default every Java source set is formatted. A repo that owns source it does
+// not style - mirrors of a third party's shape, generated code - names those
+// source sets before applying this script:
+//
+//     ext.spotlessExcludedSourceSets = ['bridgeStubs']
+//     apply from: "${rootDir}/../Common-Java/gradle/spotless-java.gradle"
+
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.diffplug.spotless:spotless-plugin-gradle:7.2.1'
+    }
+}
+
+// Applied by class, not by the 'com.diffplug.spotless' id. Plugin-id lookup
+// searches the buildscript classpath of the project being configured, and the
+// classpath declared above belongs to THIS script - so the id resolves nowhere
+// and Gradle fails with "Plugin with id ... not found". The class is reachable
+// through this script's own classloader, which is what makes a shared script
+// able to carry its own plugin dependency at all.
+apply plugin: com.diffplug.gradle.spotless.SpotlessPlugin
+
+def excludedSourceSetNames = project.findProperty('spotlessExcludedSourceSets') ?: []
+def formattedJavaSources = sourceSets
+        .findAll { sourceSet -> !(sourceSet.name in excludedSourceSetNames) }
+        .collect { sourceSet -> sourceSet.java }
+
+spotless {
+    enforceCheck = false
+    java {
+        target formattedJavaSources
+        // Resolved against THIS script's own directory, not the consumer's
+        // rootDir - the same sibling-checkout convention checkstyle.xml uses,
+        // so it holds for every repo that applies this by relative path.
+        eclipse().configFile(new File(buildscript.sourceFile.parentFile, 'eclipse-formatter.xml'))
+    }
+}
+
+// The formatter's second half. Spotless is configured to leave doc comments
+// untouched, so the @param column inside them is nobody's job until this runs;
+// see the script for why that is a formatter pass rather than a gate.
+apply from: new File(buildscript.sourceFile.parentFile, 'tasks/format/align-javadoc-params.gradle')
+
+// Order matters only in one direction: Spotless can move a declaration onto
+// different lines, so the aligner reads the settled text rather than text
+// Spotless is about to rewrite underneath it.
+tasks.named('alignJavadocParams').configure {
+    mustRunAfter tasks.named('spotlessApply')
+}
+
+// The whole formatter, for a caller that wants "format this repo" without having
+// to know it comes in two passes. Each half stays independently runnable - the
+// aligner is the one to reach for after a rename, where a full Spotless run would
+// bury the change in unrelated normalisation.
+tasks.register('formatJava') {
+    description = 'Runs the full on-demand formatter: Spotless, then the ' +
+            'Javadoc @param aligner. Rewrites source; review the diff.'
+    group = 'formatting'
+    dependsOn tasks.named('spotlessApply'), tasks.named('alignJavadocParams')
+}
