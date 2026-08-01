@@ -1,0 +1,8 @@
+class Sample {
+    /**
+     * @param alpha  the first
+     * @param bravo  the second
+     */
+    void doThing(int alpha, int bravo) {
+    }
+}

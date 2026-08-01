@@ -1,0 +1,9 @@
+/** A one-line doc comment, which opens and closes in the same place. */
+class Sample {
+    /**
+     * @param alpha the first
+     * @param b     the second
+     */
+    void doThing(int alpha, int b) {
+    }
+}

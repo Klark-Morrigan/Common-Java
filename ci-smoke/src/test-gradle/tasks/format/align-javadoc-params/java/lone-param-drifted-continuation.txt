@@ -1,0 +1,8 @@
+class Sample {
+    /**
+     * @param onlyOne  the only one
+     *            a continuation that drifted
+     */
+    void doOther(int onlyOne) {
+    }
+}

@@ -8,12 +8,17 @@ consumer - it is the generic tier that downstream projects build on.
 
 - [What lives here](#what-lives-here)
 - [Gradle conventions](#gradle-conventions)
+- [Lint gates](#lint-gates)
+- [Formatting](#formatting)
 - [Reusable CI](#reusable-ci)
 - [Consuming with a domain layer](#consuming-with-a-domain-layer)
 
 ## What lives here
 
 - `gradle/java-conventions.gradle` - generic JVM build conventions.
+- `gradle/tasks/lint/` - source-text gates the conventions apply.
+- `gradle/spotless-java.gradle`, `gradle/tasks/format/` - the opt-in,
+  on-demand formatter.
 - `.github/workflows/_ci-gradle.yml` - reusable Gradle build/test workflow.
 - `.github/workflows/ci-bash.yml`, `ci-yaml.yml` - thin callers that
   delegate shell/YAML linting to Common-Automation.
@@ -33,6 +38,68 @@ Applied by path rather than published as a plugin, on the assumption that
 consumers are checked out as siblings under the same parent directory, so
 a relative path is the lowest-ceremony single source of truth. No
 `settings.gradle` change is needed.
+
+## Lint gates
+
+`java-conventions.gradle` also applies the gates under
+[gradle/tasks/lint/](gradle/tasks/lint/), so a consumer inherits them from
+one place alongside checkstyle. Each is a source-text pass asserting one
+convention no compiler can see, and each runs as part of `check` and
+`test`:
+
+| Task | Rule |
+| --- | --- |
+| `enforceDocLinksResolve` | a relative link in a `.md` file points at something that exists |
+| `enforceMethodsOrderedByVisibility` | production methods run most-public-first |
+| `enforceNoMagicLiteralsKotlin` | Kotlin numbers are named; Java's ride in `checkstyle.xml` |
+| `enforceSingleBlankLines` | at most one consecutive blank line |
+| `enforceSuffixOnFakes` | hand-written test doubles are suffixed `Fake` |
+| `enforceSuffixOnMocks` | Mockito mock variables are suffixed `Mock` |
+| `enforceTestsNested` | every `@Test` sits inside a `@Nested` class |
+
+A gate only ever reports, which is what makes inheriting them everywhere
+free. Each carries its own TestKit integration test in `ci-smoke/` that
+applies the one script into a throwaway project and drives a real build.
+
+## Formatting
+
+The formatter is opt-in and never automatic, which is why
+`java-conventions.gradle` does not apply it: it rewrites source, and most
+consumers must never have it - the Starsector port mods carry third-party
+code where a reformat destroys the diff against upstream. A repo opts in
+by applying the script itself:
+
+```groovy
+apply from: "${rootDir}/../Common-Java/gradle/spotless-java.gradle"
+```
+
+It comes in two passes, each independently runnable:
+
+- `spotlessApply` - Spotless driving the Eclipse JDT formatter from
+  [gradle/eclipse-formatter.xml](gradle/eclipse-formatter.xml). Owns code
+  layout and leaves doc comments alone.
+- `alignJavadocParams` - re-aligns the `@param` description column in
+  Javadoc and KDoc blocks whose alignment has drifted. It fixes drift
+  rather than imposing a style: a block that uses one space throughout, or
+  whose descriptions already agree, is left exactly as written. This is
+  the pass to reach for after a rename, where a full Spotless run would
+  bury the change in unrelated normalisation.
+- `formatJava` - both, in that order.
+
+Nothing depends on any of them, and `spotlessCheck` is detached from
+`check` (`enforceCheck = false`), so a build cannot fail on merely
+unformatted code. That is a requirement rather than caution: the JDT
+formatter normalises a few constructs it has no setting to preserve, so a
+run is read as a diff and curated by hand.
+
+A repo that owns source it does not style - a mirror of a third party's
+shape, generated code - names those source sets first, and both passes
+honour the list:
+
+```groovy
+ext.spotlessExcludedSourceSets = ['bridgeStubs']
+apply from: "${rootDir}/../Common-Java/gradle/spotless-java.gradle"
+```
 
 ## Reusable CI
 

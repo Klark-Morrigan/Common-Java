@@ -1,0 +1,9 @@
+class Sample {
+    /**
+     * @param alpha the first
+     * @param b     the second, which wraps
+     *              onto another line
+     */
+    void doThing(int alpha, int b) {
+    }
+}

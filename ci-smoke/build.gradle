@@ -9,22 +9,23 @@ apply from: "${rootDir}/../gradle/java-conventions.gradle"
 
 group = 'commonjava.smoke'
 
-// The shared lint gates are build logic, so each carries its own TestKit
-// integration test that drives a real Gradle build. They live here, in
-// Common-Java's own proving ground, beside the conventions they verify - in a
-// dedicated 'test-gradle' tree, not the unit-test one, because gradleTestKit()
-// drags a log4j-over-slf4j bridge onto the runtime classpath that can shadow a
-// real log4j a consumer's unit tests assert against.
+// The shared lint gates and the on-demand formatter are build logic, so each
+// carries its own TestKit integration test that drives a real Gradle build. They
+// live here, in Common-Java's own proving ground, beside the conventions they
+// verify - in a dedicated 'test-gradle' tree, not the unit-test one, because
+// gradleTestKit() drags a log4j-over-slf4j bridge onto the runtime classpath that
+// can shadow a real log4j a consumer's unit tests assert against.
 sourceSets {
     testGradle {
-        // Each gate's test + its .txt fixtures sit in one folder named for the
+        // Each script's test + its .txt fixtures sit in one folder named for the
         // script under test, fixtures split into a subfolder per language
         // (java/, kotlin/, markdown/). Each folder is a source root, so the
         // test sits in the default package (a Java package cannot carry the
         // folder's hyphens) and the fixtures resolve under the shared classpath
         // root - the language prefix plus distinct names keep them from
         // colliding there.
-        def gateTestDirs = [
+        def scriptTestDirs = [
+                'src/test-gradle/tasks/format/align-javadoc-params',
                 'src/test-gradle/tasks/lint/docs/enforce-doc-links-resolve',
                 'src/test-gradle/tasks/lint/formatting/tests/enforce-single-blank-lines',
                 'src/test-gradle/tasks/lint/literals/tests/enforce-no-magic-literals-kotlin',
@@ -33,8 +34,8 @@ sourceSets {
                 'src/test-gradle/tasks/lint/structure/enforce-methods-ordered-by-visibility',
                 'src/test-gradle/tasks/lint/structure/tests/enforce-tests-nested',
         ]
-        java.srcDirs = gateTestDirs
-        resources.srcDirs = gateTestDirs
+        java.srcDirs = scriptTestDirs
+        resources.srcDirs = scriptTestDirs
         resources.exclude '**/*.java'
     }
 }
@@ -51,7 +52,8 @@ dependencies {
 }
 
 def testGradle = tasks.register('testGradle', Test) {
-    description = 'Runs TestKit integration tests for the shared Gradle gates.'
+    description = 'Runs TestKit integration tests for the shared Gradle gates ' +
+            'and the on-demand formatter.'
     group = 'verification'
     testClassesDirs = sourceSets.testGradle.output.classesDirs
     classpath = sourceSets.testGradle.runtimeClasspath
@@ -60,15 +62,25 @@ def testGradle = tasks.register('testGradle', Test) {
         events 'passed', 'skipped', 'failed'
     }
 
-    // Each gate script under test is a runtime input the matching test reads by
-    // path, so declare it as a task input: editing a gate must re-run these
+    // Each script under test is a runtime input the matching test reads by
+    // path, so declare it as a task input: editing one must re-run these
     // tests rather than leave them UP-TO-DATE against a stale version. The path
     // is also handed to the test so it does not assume a working directory. The
-    // gates live one directory up, in Common-Java/gradle/tasks/lint.
+    // scripts live one directory up, under Common-Java/gradle/tasks.
     // Every gate applies the stamp helper, so it is a runtime input of all of
     // these tests even though no test names it: editing it must re-run them.
     inputs.file(file('../gradle/tasks/lint/lint-gate-stamp.gradle'))
             .withPropertyName('lintGateStampScript')
+
+    // The formatter's aligner pass. It applies the shared source-set selector the
+    // same way the gates apply the stamp helper, so that script is an unnamed
+    // runtime input of this test too.
+    def alignJavadocParamsScript = file(
+            '../gradle/tasks/format/align-javadoc-params.gradle')
+    inputs.file(alignJavadocParamsScript).withPropertyName('alignJavadocParamsScript')
+    inputs.file(file('../gradle/tasks/format/formatted-source-sets.gradle'))
+            .withPropertyName('formattedSourceSetsScript')
+    systemProperty 'align.javadoc.params.script.path', alignJavadocParamsScript.absolutePath
 
     def docLinksGateScript = file(
             '../gradle/tasks/lint/docs/enforce-doc-links-resolve.gradle')
