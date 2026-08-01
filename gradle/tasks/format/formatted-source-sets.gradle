@@ -1,0 +1,26 @@
+// Shared plumbing for the formatter's two passes: it answers "which source sets does
+// the formatter touch here?" once, for both.
+//
+// Both passes honour the same exemption list, because a source set is held out for a
+// reason that covers all of it - it mirrors a third party's shape, or it is generated
+// - and that reason applies to its code layout and to its doc comments alike. The
+// list is also the formatter's one consumer-facing knob, so its property name is part
+// of a public contract; resolving it here keeps that name from being spelled in two
+// scripts that could then drift apart.
+//
+// It lives in its own script, applied by each pass rather than by spotless-java.gradle,
+// for the same reason lint-gate-stamp.gradle does: the aligner can be applied on its
+// own by a repo that wants only that pass, so it has to carry what it uses rather than
+// depend on being applied in company.
+//
+// Applying this more than once per project is harmless - each pass applies it, and the
+// assignment below simply overwrites an identical closure.
+
+// Named for Spotless because that was the first pass to read it, and because this is
+// the spelling consumers already have in their build scripts; it governs both passes.
+def excludedSourceSetsProperty = 'spotlessExcludedSourceSets'
+
+ext.selectFormattedSourceSets = {
+    def excludedSourceSetNames = project.findProperty(excludedSourceSetsProperty) ?: []
+    return sourceSets.findAll { sourceSet -> !(sourceSet.name in excludedSourceSetNames) }
+}

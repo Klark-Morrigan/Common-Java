@@ -13,8 +13,14 @@
 // only when a person asks for it. It lives beside the lint gates but deliberately
 // not among them: everything under tasks/lint only ever reports.
 //
-// Applied by spotless-java.gradle so a repo that opted into the formatter gets
-// both halves, and directly appliable by a repo that wants only this one.
+// Applied by spotless-java.gradle so a repo that opted into the formatter gets both
+// halves, and appliable on its own by a repo that wants only this one - which needs
+// the java or kotlin plugin already applied, since the pass reads source sets rather
+// than guessing at directory names.
+
+// The exemption list is resolved by the script that owns it, so this pass and Spotless
+// cannot come to disagree about which source sets the formatter touches.
+apply from: new File(buildscript.sourceFile.parentFile, 'formatted-source-sets.gradle')
 
 // The two shapes inside a doc block this pass understands.
 //
@@ -27,6 +33,28 @@ def javadocParamPattern = ~/^(\s*\*[ \t]+)@param[ \t]+(\S+)([ \t]+)(\S.*?)([\r\n
 def javadocContinuationPattern = ~/^(\s*\*)([ \t]+)(\S.*?)([\r\n]*)\z/
 def docBlockOpenPattern = ~/^\s*\/\*\*/
 def docBlockClosePattern = ~/\*\//
+
+// The tag and the single space that always follows it. A description's column is the
+// comment prefix plus this, plus the parameter name and whatever padding follows it.
+def paramTag = '@param '
+
+// Re-lays one wrapped description line so its text starts at 'column', keeping the
+// line's own leading whitespace-and-star and its original line ending. Returns true
+// when that actually moved the text.
+//
+// The padding floor of one space is for input this pass cannot produce but can be
+// handed: a continuation indented further than its own @param's column would ask for
+// negative padding, and gluing the text onto the star is not an improvement.
+def alignContinuationToColumn = { List<String> block, continuation, int column ->
+    def realignedLine = continuation.star +
+            ' ' * Math.max(1, column - continuation.star.length()) +
+            continuation.text + continuation.lineEnding
+    if (realignedLine == block[continuation.index]) {
+        return false
+    }
+    block[continuation.index] = realignedLine
+    return true
+}
 
 // Re-lays one doc comment's @param descriptions onto a single column, and pulls
 // each wrapped continuation line onto that same column. Returns true when it
@@ -73,48 +101,50 @@ def alignDocBlockParams = { List<String> block ->
         return false
     }
 
-    // '@param ' is 7 characters, so a description's column is the prefix plus that
-    // plus the name plus its padding.
-    def descriptionColumnOf = { param -> param.prefix.length() + 7 + param.name.length() + param.gap }
+    def descriptionColumnOf = { param ->
+        param.prefix.length() + paramTag.length() + param.name.length() + param.gap
+    }
     def isPaddedOnPurpose = params.any { it.gap > 1 }
     if (!isPaddedOnPurpose) {
         return false
     }
-    def columns = params.collect(descriptionColumnOf).toSet()
 
     // A lone @param has no sibling to disagree with, so only its wrapped lines can
-    // have drifted away from it.
+    // have drifted away from it - and they drift towards the column it already sets,
+    // which is why this path never touches the @param line itself.
     if (params.size() == 1) {
         def column = descriptionColumnOf(params[0])
-        def changed = false
+        def isChanged = false
         params[0].continuations.each { continuation ->
-            if (continuation.star.length() + continuation.indent == column) {
-                return
-            }
-            block[continuation.index] = continuation.star +
-                    ' ' * (column - continuation.star.length()) +
-                    continuation.text + continuation.lineEnding
-            changed = true
+            isChanged |= alignContinuationToColumn(block, continuation, column)
         }
-        return changed
+        return isChanged
     }
-    if (columns.size() == 1) {
+
+    // Every description already starts in the same place: aligned, nothing to fix.
+    if (params.collect(descriptionColumnOf).toSet().size() == 1) {
         return false
     }
 
     def nameWidth = params.collect { it.name.length() }.max()
     params.each { param ->
-        block[param.index] = param.prefix + '@param ' + param.name +
+        block[param.index] = param.prefix + paramTag + param.name +
                 ' ' * (nameWidth - param.name.length() + 1) +
                 param.description + param.lineEnding
-        def column = param.prefix.length() + 7 + nameWidth + 1
+        def column = param.prefix.length() + paramTag.length() + nameWidth + 1
         param.continuations.each { continuation ->
-            block[continuation.index] = continuation.star +
-                    ' ' * (column - continuation.star.length()) +
-                    continuation.text + continuation.lineEnding
+            alignContinuationToColumn(block, continuation, column)
         }
     }
     return true
+}
+
+// Resolved here rather than inside the task's own closure: the selector is a project
+// extra property, and reading it where this script is the enclosing scope keeps the
+// lookup unambiguous. Kotlin as well as Java - KDoc uses the same @param shape, so a
+// Kotlin-only repo can apply this script on its own and get the same pass.
+def alignedSources = selectFormattedSourceSets().collect { sourceSet ->
+    sourceSet.allSource.matching { include '**/*.java', '**/*.kt' }
 }
 
 def alignJavadocParams = tasks.register('alignJavadocParams') {
@@ -122,21 +152,11 @@ def alignJavadocParams = tasks.register('alignJavadocParams') {
             'blocks whose alignment has drifted.'
     group = 'formatting'
 
-    // Honours the formatter's own exemption list rather than a second one of its
-    // own: a source set held out of Spotless is held out because it mirrors a third
-    // party's shape, and that reason applies just as much to its doc comments.
-    def excludedSourceSetNames = project.findProperty('spotlessExcludedSourceSets') ?: []
-    def alignedSourceSets = sourceSets.findAll { sourceSet ->
-        !(sourceSet.name in excludedSourceSetNames)
-    }
-    // Kotlin as well as Java: KDoc uses the same @param shape, so a Kotlin-only
-    // repo can apply this script on its own and get the same pass.
-    def alignedSources = alignedSourceSets.collect { sourceSet ->
-        sourceSet.allSource.matching { include '**/*.java', '**/*.kt' }
-    }
-    alignedSources.eachWithIndex { source, index ->
-        inputs.files(source).withPropertyName("alignedSource${index}")
-    }
+    // Deliberately declares neither inputs nor outputs. A formatter rewrites the very
+    // files it reads, so the two would name the same set and there is nothing for an
+    // up-to-date check to compare; a task asked for by hand wants to run every time
+    // regardless. The lint gates have the opposite problem - they produce nothing at
+    // all, so they can never be skipped - which is what lint-gate-stamp.gradle solves.
 
     doLast {
         def rewrittenFiles = []
@@ -158,18 +178,22 @@ def alignJavadocParams = tasks.register('alignJavadocParams') {
                     if (!isInsideBlock && docBlockOpenPattern.matcher(line).find()) {
                         isInsideBlock = true
                         blockStart = index
+                    }
+                    // Falls through to the close test on the opening line rather than
+                    // skipping it: a one-line /** ... */ opens and closes in the same
+                    // place, and leaving it open would run the block on to the NEXT
+                    // comment's terminator, mis-scoping both.
+                    if (!isInsideBlock || !docBlockClosePattern.matcher(line).find()) {
                         return
                     }
-                    if (isInsideBlock && docBlockClosePattern.matcher(line).find()) {
-                        def block = lines[blockStart..index]
-                        if (alignDocBlockParams(block)) {
-                            (blockStart..index).each { position ->
-                                lines[position] = block[position - blockStart]
-                            }
-                            blockCount++
+                    def block = lines[blockStart..index]
+                    if (alignDocBlockParams(block)) {
+                        (blockStart..index).each { position ->
+                            lines[position] = block[position - blockStart]
                         }
-                        isInsideBlock = false
+                        blockCount++
                     }
+                    isInsideBlock = false
                 }
                 if (blockCount > 0) {
                     sourceFile.setText(lines.join(''), 'UTF-8')

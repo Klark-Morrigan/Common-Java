@@ -42,10 +42,11 @@ buildscript {
 // able to carry its own plugin dependency at all.
 apply plugin: com.diffplug.gradle.spotless.SpotlessPlugin
 
-def excludedSourceSetNames = project.findProperty('spotlessExcludedSourceSets') ?: []
-def formattedJavaSources = sourceSets
-        .findAll { sourceSet -> !(sourceSet.name in excludedSourceSetNames) }
-        .collect { sourceSet -> sourceSet.java }
+// Which source sets the formatter touches is a question both passes have to answer
+// the same way, so neither owns it; see the applied script.
+apply from: new File(buildscript.sourceFile.parentFile, 'tasks/format/formatted-source-sets.gradle')
+
+def formattedJavaSources = selectFormattedSourceSets().collect { sourceSet -> sourceSet.java }
 
 spotless {
     enforceCheck = false
