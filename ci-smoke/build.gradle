@@ -18,12 +18,14 @@ group = 'commonjava.smoke'
 sourceSets {
     testGradle {
         // Each gate's test + its .txt fixtures sit in one folder named for the
-        // script under test, fixtures split into java/ and kotlin/ subfolders.
-        // Each folder is a source root, so the test sits in the default package
-        // (a Java package cannot carry the folder's hyphens) and the fixtures
-        // resolve under the shared classpath root - the java//kotlin/ prefix
-        // plus distinct names keep them from colliding there.
+        // script under test, fixtures split into a subfolder per language
+        // (java/, kotlin/, markdown/). Each folder is a source root, so the
+        // test sits in the default package (a Java package cannot carry the
+        // folder's hyphens) and the fixtures resolve under the shared classpath
+        // root - the language prefix plus distinct names keep them from
+        // colliding there.
         def gateTestDirs = [
+                'src/test-gradle/tasks/lint/docs/enforce-doc-links-resolve',
                 'src/test-gradle/tasks/lint/formatting/tests/enforce-single-blank-lines',
                 'src/test-gradle/tasks/lint/literals/tests/enforce-no-magic-literals-kotlin',
                 'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes',
@@ -67,6 +69,11 @@ def testGradle = tasks.register('testGradle', Test) {
     // these tests even though no test names it: editing it must re-run them.
     inputs.file(file('../gradle/tasks/lint/lint-gate-stamp.gradle'))
             .withPropertyName('lintGateStampScript')
+
+    def docLinksGateScript = file(
+            '../gradle/tasks/lint/docs/enforce-doc-links-resolve.gradle')
+    inputs.file(docLinksGateScript).withPropertyName('docLinksGateScript')
+    systemProperty 'doc.links.gate.script.path', docLinksGateScript.absolutePath
 
     def fakeGateScript = file(
             '../gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes.gradle')

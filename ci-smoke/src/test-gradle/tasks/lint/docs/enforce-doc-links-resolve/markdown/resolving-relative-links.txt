@@ -1,0 +1,6 @@
+# Guide
+
+A sibling: [other](other.md).
+A parent: [root](../README.md).
+A root-relative directory: [sources](/src/main/java).
+A sibling plus a fragment: [other, at a heading](other.md#other).

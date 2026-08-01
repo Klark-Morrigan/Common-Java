@@ -117,14 +117,15 @@ tasks.register('coverage') {
     dependsOn test, jacocoTestReport
 }
 
-// Lint gates: generic JVM code-quality and test-structure checks no plain build
-// catches (blank-line runs, magic numbers on Kotlin, test-double naming,
-// method-visibility ordering, nested test structure). Applied here so every
-// consumer inherits them from one place, alongside checkstyle. Resolved relative
-// to THIS script's own gradle/ dir, the
+// Lint gates: generic code-quality, doc and test-structure checks no plain
+// build catches (blank-line runs, magic numbers on Kotlin, test-double naming,
+// method-visibility ordering, nested test structure, broken doc links). Applied
+// here so every consumer inherits them from one place, alongside checkstyle.
+// Resolved relative to THIS script's own gradle/ dir, the
 // same sibling-checkout convention checkstyle.xml uses. Magic numbers on Java
 // ride in checkstyle.xml above rather than as a separate gate.
 def lintTasksDir = new File(buildscript.sourceFile.parentFile, 'tasks/lint')
+apply from: new File(lintTasksDir, 'docs/enforce-doc-links-resolve.gradle')
 apply from: new File(lintTasksDir, 'formatting/enforce-single-blank-lines.gradle')
 apply from: new File(lintTasksDir, 'literals/enforce-no-magic-literals-kotlin.gradle')
 apply from: new File(lintTasksDir, 'naming/tests/enforce-suffix-on-fakes.gradle')

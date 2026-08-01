@@ -1,0 +1,9 @@
+# Guide
+
+How to write a link:
+
+```markdown
+[gone](nowhere.md)
+```
+
+And that is all.

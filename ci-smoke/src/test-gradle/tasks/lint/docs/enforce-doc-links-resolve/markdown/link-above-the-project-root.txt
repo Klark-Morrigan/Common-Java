@@ -1,0 +1,4 @@
+# Guide
+
+Out into the game install: [the API jar](../../../starsector-core/starfarer.api.zip).
+Out into a sibling checkout: [the other mod](../../sibling/src/Main.kt).

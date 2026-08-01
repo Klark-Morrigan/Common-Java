@@ -1,0 +1,3 @@
+# Guide
+
+A heading in a file that is not there: [index](missing.md#index).
