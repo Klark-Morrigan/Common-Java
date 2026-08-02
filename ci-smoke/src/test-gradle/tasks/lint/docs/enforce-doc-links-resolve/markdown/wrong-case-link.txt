@@ -1,0 +1,3 @@
+# Guide
+
+The file on disk is `other.md`: [other](Other.md).

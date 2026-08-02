@@ -61,6 +61,16 @@ A gate only ever reports, which is what makes inheriting them everywhere
 free. Each carries its own TestKit integration test in `ci-smoke/` that
 applies the one script into a throwaway project and drives a real build.
 
+`enforceDocLinksResolve` skips version-control and build-tool directories
+by name, which is all this repo knows about. A consumer whose own tooling
+writes markdown names that directory too, from a script that runs after
+the conventions - the list is read when the tree is scanned, so a late
+addition still counts:
+
+```groovy
+docLinkScanExcludedDirectoryNames << 'graphify-out'
+```
+
 ## Formatting
 
 The formatter is opt-in and never automatic, which is why
@@ -97,7 +107,7 @@ shape, generated code - names those source sets first, and both passes
 honour the list:
 
 ```groovy
-ext.spotlessExcludedSourceSets = ['bridgeStubs']
+ext.formatterExcludedSourceSets = ['bridgeStubs']
 apply from: "${rootDir}/../Common-Java/gradle/spotless-java.gradle"
 ```
 

@@ -67,58 +67,47 @@ def testGradle = tasks.register('testGradle', Test) {
     // tests rather than leave them UP-TO-DATE against a stale version. The path
     // is also handed to the test so it does not assume a working directory. The
     // scripts live one directory up, under Common-Java/gradle/tasks.
-    // Every gate applies the stamp helper, so it is a runtime input of all of
-    // these tests even though no test names it: editing it must re-run them.
+    // Two shared helpers are runtime inputs of these tests even though no test
+    // names either: every gate applies the stamp helper, and both formatter
+    // passes apply the source-set selector. Editing one must re-run them.
     inputs.file(file('../gradle/tasks/lint/lint-gate-stamp.gradle'))
             .withPropertyName('lintGateStampScript')
-
-    // The formatter's aligner pass. It applies the shared source-set selector the
-    // same way the gates apply the stamp helper, so that script is an unnamed
-    // runtime input of this test too.
-    def alignJavadocParamsScript = file(
-            '../gradle/tasks/format/align-javadoc-params.gradle')
-    inputs.file(alignJavadocParamsScript).withPropertyName('alignJavadocParamsScript')
     inputs.file(file('../gradle/tasks/format/formatted-source-sets.gradle'))
             .withPropertyName('formattedSourceSetsScript')
-    systemProperty 'align.javadoc.params.script.path', alignJavadocParamsScript.absolutePath
 
-    def docLinksGateScript = file(
+    // One script binds three ways - as a task input, under an
+    // up-to-dateness property name, and as the system property its test reads
+    // the path from - and all three name the same file. Binding them together
+    // keeps a new script to one call rather than a block to copy, and stops the
+    // three drifting apart. Named for scripts rather than gates: the formatter's
+    // aligner pass binds the same three ways and is not a gate.
+    def declareScriptUnderTest = { String propertyName, String systemPropertyKey, String path ->
+        def scriptUnderTest = file(path)
+        inputs.file(scriptUnderTest).withPropertyName(propertyName)
+        systemProperty systemPropertyKey, scriptUnderTest.absolutePath
+    }
+
+    declareScriptUnderTest('alignJavadocParamsScript', 'align.javadoc.params.script.path',
+            '../gradle/tasks/format/align-javadoc-params.gradle')
+    declareScriptUnderTest('docLinksGateScript', 'doc.links.gate.script.path',
             '../gradle/tasks/lint/docs/enforce-doc-links-resolve.gradle')
-    inputs.file(docLinksGateScript).withPropertyName('docLinksGateScript')
-    systemProperty 'doc.links.gate.script.path', docLinksGateScript.absolutePath
-
-    def fakeGateScript = file(
+    declareScriptUnderTest('fakeGateScript', 'gate.script.path',
             '../gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes.gradle')
-    inputs.file(fakeGateScript).withPropertyName('fakeGateScript')
-    systemProperty 'gate.script.path', fakeGateScript.absolutePath
-
-    def mockGateScript = file(
+    declareScriptUnderTest('mockGateScript', 'mock.gate.script.path',
             '../gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks.gradle')
-    inputs.file(mockGateScript).withPropertyName('mockGateScript')
-    systemProperty 'mock.gate.script.path', mockGateScript.absolutePath
-
-    def methodsOrderGateScript = file(
+    declareScriptUnderTest('methodsOrderGateScript', 'methods.order.gate.script.path',
             '../gradle/tasks/lint/structure/enforce-methods-ordered-by-visibility.gradle')
-    inputs.file(methodsOrderGateScript).withPropertyName('methodsOrderGateScript')
-    systemProperty 'methods.order.gate.script.path', methodsOrderGateScript.absolutePath
-
-    def nestedGateScript = file(
+    declareScriptUnderTest('nestedGateScript', 'nested.gate.script.path',
             '../gradle/tasks/lint/structure/tests/enforce-tests-nested.gradle')
-    inputs.file(nestedGateScript).withPropertyName('nestedGateScript')
-    systemProperty 'nested.gate.script.path', nestedGateScript.absolutePath
-
-    def singleBlankGateScript = file(
+    declareScriptUnderTest('singleBlankGateScript', 'single.blank.gate.script.path',
             '../gradle/tasks/lint/formatting/enforce-single-blank-lines.gradle')
-    inputs.file(singleBlankGateScript).withPropertyName('singleBlankGateScript')
-    systemProperty 'single.blank.gate.script.path', singleBlankGateScript.absolutePath
-
-    // The Kotlin literal gate also reads its detekt.yml by path, so that is an
-    // input too: editing the rule must re-run the test, not leave it UP-TO-DATE.
-    def kotlinLiteralsGateScript = file(
+    declareScriptUnderTest('kotlinLiteralsGateScript', 'kotlin.literals.gate.script.path',
             '../gradle/tasks/lint/literals/enforce-no-magic-literals-kotlin.gradle')
-    inputs.file(kotlinLiteralsGateScript).withPropertyName('kotlinLiteralsGateScript')
+
+    // The Kotlin literal gate is the one that reads a second file by path, its
+    // detekt.yml, so that is an input too: editing the rule must re-run the
+    // test, not leave it UP-TO-DATE.
     inputs.file(file('../gradle/detekt.yml')).withPropertyName('detektConfig')
-    systemProperty 'kotlin.literals.gate.script.path', kotlinLiteralsGateScript.absolutePath
 }
 
 // Run with the rest of verification: 'check' covers a local 'build', and

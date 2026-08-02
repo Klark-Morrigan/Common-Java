@@ -127,11 +127,23 @@ class AlignJavadocParamsFormatterIntegrationTests {
         // reading it at all.
         writeSource(projectDir, TEST_SOURCE_PATH, "drifted-columns");
 
-        var result = runFormatter(projectDir, "ext.spotlessExcludedSourceSets = ['test']\n");
+        var result = runFormatter(projectDir, "ext.formatterExcludedSourceSets = ['test']\n");
 
         assertThat(readSource(projectDir, TEST_SOURCE_PATH))
                 .isEqualTo(loadFixture("java/drifted-columns"));
         assertThat(result.getOutput()).contains("every @param column already aligned");
+    }
+
+    @Test
+    void refusesAnExemptionListLeftOnTheOldPropertyName(@TempDir Path projectDir)
+            throws IOException {
+        // Reading the old spelling as "nothing is exempt" would format the very
+        // source the list names, so the rename fails loudly rather than quietly.
+        var result = runFormatterExpectingFailure(projectDir,
+                "ext.spotlessExcludedSourceSets = ['test']\n");
+
+        assertThat(result.getOutput()).contains(
+                "spotlessExcludedSourceSets has been renamed to formatterExcludedSourceSets");
     }
 
     @Test
@@ -158,6 +170,16 @@ class AlignJavadocParamsFormatterIntegrationTests {
 
     private BuildResult runFormatter(Path projectDir, String buildScriptPrelude)
             throws IOException {
+        return createRunner(projectDir, buildScriptPrelude).build();
+    }
+
+    private BuildResult runFormatterExpectingFailure(Path projectDir, String buildScriptPrelude)
+            throws IOException {
+        return createRunner(projectDir, buildScriptPrelude).buildAndFail();
+    }
+
+    private GradleRunner createRunner(Path projectDir, String buildScriptPrelude)
+            throws IOException {
         // An explicit settings file stops Gradle walking up into a real build.
         Files.writeString(projectDir.resolve("settings.gradle"),
                 "rootProject.name = 'formatter-fixture'\n");
@@ -172,8 +194,7 @@ class AlignJavadocParamsFormatterIntegrationTests {
 
         return GradleRunner.create()
                 .withProjectDir(projectDir.toFile())
-                .withArguments("alignJavadocParams")
-                .build();
+                .withArguments("alignJavadocParams");
     }
 
     private void writeSource(Path projectDir, String sourcePath, String fixture)

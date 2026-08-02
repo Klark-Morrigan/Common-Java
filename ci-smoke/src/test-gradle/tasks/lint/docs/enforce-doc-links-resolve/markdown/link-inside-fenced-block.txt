@@ -6,4 +6,5 @@ How to write a link:
 [gone](nowhere.md)
 ```
 
-And that is all.
+And below the fence, a link that really is broken:
+[after](after-the-fence.md).

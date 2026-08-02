@@ -44,6 +44,23 @@ class EnforceDocLinksResolveGateIntegrationTests {
     }
 
     @Test
+    void failsWhenALinkTargetIsSpeltInTheWrongCase(@TempDir Path projectDir) throws IOException {
+        writeLinkTargets(projectDir);
+        writeDoc(projectDir, "wrong-case-link");
+
+        var result = runGate(projectDir, true);
+
+        // Asserted on the target rather than on either verdict's wording,
+        // because which verdict is correct depends on the filesystem under the
+        // build: a case-insensitive one (Windows, macOS) finds the file and
+        // reports the misspelling, while a case-sensitive one never finds it
+        // and reports it missing. The link is wrong either way, and pinning one
+        // wording would make this test pass only on the machine that wrote it -
+        // the very asymmetry the gate exists to close.
+        assertThat(result.getOutput()).contains("Other.md");
+    }
+
+    @Test
     void ignoresExternalAndFragmentTargets(@TempDir Path projectDir) throws IOException {
         // The two shapes the gate declines to resolve: a scheme leaves the
         // repository, and a bare #fragment names a heading rather than a path.
@@ -79,12 +96,43 @@ class EnforceDocLinksResolveGateIntegrationTests {
     }
 
     @Test
-    void ignoresLinksInsideAFencedCodeBlock(@TempDir Path projectDir) throws IOException {
-        // A markdown example demonstrating link syntax is sample text, not
-        // navigation, so the path it names need not exist.
+    void ignoresLinksInsideAFenceAndResumesBelowIt(@TempDir Path projectDir) throws IOException {
+        // One fixture, two proofs. A markdown example demonstrating link syntax
+        // is sample text rather than navigation, so the path it names need not
+        // exist - and the fence has to close again, since a fence that latched
+        // open would swallow the genuinely broken link below it and let the
+        // gate pass in silence.
         writeDoc(projectDir, "link-inside-fenced-block");
 
+        var result = runGate(projectDir, true);
+
+        assertThat(result.getOutput())
+                .contains("link target does not exist: after-the-fence.md")
+                .doesNotContain("nowhere.md");
+    }
+
+    @Test
+    void ignoresMarkdownUnderADefaultExcludedDirectory(@TempDir Path projectDir) throws IOException {
+        // A build directory holds copies of authored docs, so judging them
+        // would report every violation once per copy.
+        writeBrokenDocUnder(projectDir, "build/docs");
+
         var result = runGate(projectDir, false);
+
+        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+    }
+
+    @Test
+    void honoursAnExcludedDirectoryAddedAfterTheGateIsApplied(@TempDir Path projectDir)
+            throws IOException {
+        // The consumer seam: a project whose own tooling generates markdown
+        // names that directory from its own build script, which runs after this
+        // gate is applied. The exclusion has to be read at scan time for a late
+        // addition to count.
+        writeBrokenDocUnder(projectDir, "generated");
+
+        var result = runGateWithExtraConfiguration(projectDir, false,
+                "docLinkScanExcludedDirectoryNames << 'generated'\n");
 
         assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
     }
@@ -97,17 +145,32 @@ class EnforceDocLinksResolveGateIntegrationTests {
     }
 
     private BuildResult runGate(Path projectDir, boolean expectFailure) throws IOException {
+        return runGateWithExtraConfiguration(projectDir, expectFailure, "");
+    }
+
+    // Only the exclusion seam needs to configure the gate after applying it, so
+    // the extra script stays out of every other case's call.
+    private BuildResult runGateWithExtraConfiguration(
+            Path projectDir, boolean expectFailure, String extraBuildScript) throws IOException {
         // An explicit settings file stops Gradle walking up into a real build.
         Files.writeString(projectDir.resolve("settings.gradle"),
                 "rootProject.name = 'gate-fixture'\n");
         Files.writeString(projectDir.resolve("build.gradle"),
-                "apply from: '" + scriptPath() + "'\n");
+                "apply from: '" + scriptPath() + "'\n" + extraBuildScript);
 
         var runner = GradleRunner.create()
                 .withProjectDir(projectDir.toFile())
                 .withArguments("enforceDocLinksResolve");
 
         return expectFailure ? runner.buildAndFail() : runner.build();
+    }
+
+    // A doc whose link is broken beyond doubt, so a case that expects success
+    // is proving the directory was skipped rather than that the link was sound.
+    private void writeBrokenDocUnder(Path projectDir, String directory) throws IOException {
+        var dir = projectDir.resolve(directory);
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve("guide.md"), loadFixture("markdown/missing-relative-link"));
     }
 
     // The doc under test sits one directory down, so a fixture can exercise a
