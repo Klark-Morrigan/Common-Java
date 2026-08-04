@@ -1,0 +1,12 @@
+package example.framework;
+
+// A word list matched as bare text would report every line here: 'blocks',
+// 'blocking' and 'blockade' each carry the forbidden word as a prefix and none
+// of them says it. A gate that fired on these would be allowlisted into
+// silence, which is worse than no gate.
+final class Sample {
+
+    void buildBlocks() {
+        // Blocking work, in blockades of one.
+    }
+}

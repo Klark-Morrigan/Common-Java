@@ -53,6 +53,7 @@ convention no compiler can see, and each runs as part of `check` and
 | `enforceMethodsOrderedByVisibility` | production methods run most-public-first |
 | `enforceNoMagicLiteralsKotlin` | Kotlin numbers are named; Java's ride in `checkstyle.xml` |
 | `enforcePackageLayering` | a package root does not import one the consumer declared it closed to |
+| `enforcePackageVocabulary` | a package root does not say a word the consumer declared it closed to |
 | `enforceSingleBlankLines` | at most one consecutive blank line |
 | `enforceSuffixOnFakes` | hand-written test doubles are suffixed `Fake` |
 | `enforceSuffixOnMocks` | Mockito mock variables are suffixed `Mock` |
@@ -87,6 +88,35 @@ Every source set is scanned, not `main` and `test` alone: a layering rule
 that exempts a tree is a layering rule with a hole in it. Test sources
 matter as much as production ones, since a suite reaching across the line
 for a real type is the shortest way to make it compile.
+
+`enforcePackageVocabulary` is that gate one level in: it keeps a package
+root from being *written in* another's words, in code, in comments, and in
+the markdown filed beside them. A leaked import stops compiling the day
+the package moves; a leaked noun in a Javadoc survives every move in
+silence, and it is what a reader of the package actually reads. Like the
+layering rule, the vocabulary is a per-project fact this repo cannot know:
+
+```groovy
+enforcePackageVocabulary {
+    forbidWords under: 'kmu.maplayers.base',
+            words: ['territory', 'territories', 'bloc']
+    allowWord word: 'bloc',
+            inFile: 'src/main/java/kmu/maplayers/base/theme/README.md'
+}
+```
+
+Words are matched whole and parted at camel humps, so `blocks` is its own
+word and `clipInsideTheNationalBorder` says `national border`. A plural is
+a different word, so a list forbidding `bloc` does not catch `blocs` - the
+consumer declares both. A phrase is found across a line break too, since
+prose wraps where the column runs out rather than where the phrase ends.
+
+The escape hatch is a declared allowance rather than an inline marker
+comment, and the declaration is the point: an entry is a line someone adds
+to the build and a reviewer reads in the diff, where an inline opt-out is
+invisible until somebody greps for it. An allowance is per file and per
+word, and one naming a file the gate does not scan fails the build - a
+stale path exempts nothing while reading as though it does.
 
 ## Formatting
 
