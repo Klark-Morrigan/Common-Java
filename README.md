@@ -52,6 +52,7 @@ convention no compiler can see, and each runs as part of `check` and
 | `enforceDocLinksResolve` | a relative link in a `.md` file points at something that exists |
 | `enforceMethodsOrderedByVisibility` | production methods run most-public-first |
 | `enforceNoMagicLiteralsKotlin` | Kotlin numbers are named; Java's ride in `checkstyle.xml` |
+| `enforcePackageLayering` | a package root does not import one the consumer declared it closed to |
 | `enforceSingleBlankLines` | at most one consecutive blank line |
 | `enforceSuffixOnFakes` | hand-written test doubles are suffixed `Fake` |
 | `enforceSuffixOnMocks` | Mockito mock variables are suffixed `Mock` |
@@ -70,6 +71,21 @@ addition still counts:
 ```groovy
 docLinkScanExcludedDirectoryNames << 'graphify-out'
 ```
+
+`enforcePackageLayering` checks nothing until the consumer says what its
+layers are, since which package may not reach which is a per-project fact
+this repo cannot know. Each edge is declared whole, in one call, so a
+half-stated rule is never a thing that exists:
+
+```groovy
+enforcePackageLayering {
+    forbidImport under: 'kmu.maplayers.base', of: 'kmu.maplayers.politicalmap'
+}
+```
+
+Both trees are scanned. A test reaching across the line for a real type is
+always the shortest way to make a suite compile, which makes `src/test` the
+half more likely to slip rather than the one that matters less.
 
 ## Formatting
 

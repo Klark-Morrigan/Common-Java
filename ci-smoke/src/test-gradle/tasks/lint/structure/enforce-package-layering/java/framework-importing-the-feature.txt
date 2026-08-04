@@ -1,0 +1,7 @@
+package example.framework.render;
+
+import example.feature.view.FeatureView;
+
+class Sample {
+    FeatureView view;
+}

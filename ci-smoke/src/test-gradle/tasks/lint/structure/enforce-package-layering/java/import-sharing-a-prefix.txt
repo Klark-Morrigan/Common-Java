@@ -1,0 +1,7 @@
+package example.framework.render;
+
+import example.featureless.view.PlainView;
+
+class Sample {
+    PlainView view;
+}

@@ -119,7 +119,8 @@ tasks.register('coverage') {
 
 // Lint gates: generic code-quality, doc and test-structure checks no plain
 // build catches (blank-line runs, magic numbers on Kotlin, test-double naming,
-// method-visibility ordering, nested test structure, broken doc links). Applied
+// method-visibility ordering, package layering, nested test structure, broken
+// doc links). Applied
 // here so every consumer inherits them from one place, alongside checkstyle.
 // Resolved relative to THIS script's own gradle/ dir, the
 // same sibling-checkout convention checkstyle.xml uses. Magic numbers on Java
@@ -131,4 +132,5 @@ apply from: new File(lintTasksDir, 'literals/enforce-no-magic-literals-kotlin.gr
 apply from: new File(lintTasksDir, 'naming/tests/enforce-suffix-on-fakes.gradle')
 apply from: new File(lintTasksDir, 'naming/tests/enforce-suffix-on-mocks.gradle')
 apply from: new File(lintTasksDir, 'structure/enforce-methods-ordered-by-visibility.gradle')
+apply from: new File(lintTasksDir, 'structure/enforce-package-layering.gradle')
 apply from: new File(lintTasksDir, 'structure/tests/enforce-tests-nested.gradle')
