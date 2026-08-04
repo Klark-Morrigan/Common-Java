@@ -1,0 +1,5 @@
+package example.framework.render
+
+import example.feature.view.FeatureView as View
+
+class Sample(private val view: View)

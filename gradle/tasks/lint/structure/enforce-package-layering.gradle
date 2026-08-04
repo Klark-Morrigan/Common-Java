@@ -1,0 +1,167 @@
+// Package-layering gate, applied by java-conventions.gradle into every KM
+// project. Kept in its own script so the conventions file stays about
+// classpath, version, and test stack, while this owns one concern: the
+// verification rule.
+//
+// The convention: a package root declared closed to another may not import it,
+// in any source set. Nothing else can see this - the compiler accepts
+// either direction, so one accidental import inverts a dependency arrow while
+// the build stays green, and the inversion is only rediscovered the next time
+// someone tries to build on the layer it was meant to protect. That is a
+// convention on the honour system, and every other one in this family
+// (blank-line runs, test-double naming, method ordering) is a gate for the
+// same reason.
+//
+// A layering rule is a per-project fact rather than a shared one, so this
+// script owns only the mechanism and the consuming build declares the edges:
+//
+//     enforcePackageLayering {
+//         forbidImport under: 'kmu.maplayers.base',
+//                 of: 'kmu.maplayers.politicalmap'
+//     }
+//
+// Both halves arrive in one call rather than through a fluent chain, so a
+// half-declared edge is never a state anything can hold or a caller can
+// forget to finish.
+//
+// A build that declares no edge inherits the task and checks nothing, which is
+// what lets the conventions file apply it everywhere rather than leaving each
+// consumer to opt in.
+
+// Applied by this script, not assumed from the conventions file: the gate is
+// applied on its own by its integration test, so it has to carry what it uses.
+apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate-stamp.gradle')
+
+// A package declaration, with or without the semicolon Kotlin leaves off.
+def packageDeclarationPattern = ~/^\s*package\s+([\w.]+)\s*;?\s*$/
+// An import, static or not, aliased or not. The captured name runs to the
+// first character that cannot appear in one, so Java's trailing `;` and
+// Kotlin's trailing `as Alias` both fall outside it, and an on-demand
+// `import x.y.*` keeps its star - which still reads as being under `x.y`.
+def importDeclarationPattern = ~/^\s*import\s+(?:static\s+)?([\w.*]+)/
+
+// Answers whether a dotted name sits at or under a package root. Compared a
+// whole segment at a time rather than as a bare string prefix, so
+// `kmu.maplayers.baseline` is not read as living under `kmu.maplayers.base`.
+def isAtOrUnderPackageRoot = { String dottedName, String packageRoot ->
+    return dottedName == packageRoot || dottedName.startsWith(packageRoot + '.')
+}
+
+// Reports one message per import in this file that its own package is closed
+// to. The file's package is read from its declaration rather than inferred
+// from its path, since that is what the import statements below it are
+// resolved against - and a source root a consumer laid out its own way would
+// otherwise put every file in the wrong package.
+def findForbiddenImports = { File sourceFile, List forbiddenEdges ->
+    def forbidden = []
+    def lines = sourceFile.readLines()
+    def declaredPackage = null
+    for (line in lines) {
+        def packageMatcher = packageDeclarationPattern.matcher(line)
+        if (packageMatcher.matches()) {
+            declaredPackage = packageMatcher.group(1)
+            break
+        }
+    }
+    if (declaredPackage == null) {
+        // The default package sits under no root, so no edge can name it.
+        return forbidden
+    }
+    def applicableEdges = forbiddenEdges.findAll {
+        isAtOrUnderPackageRoot(declaredPackage, it.under)
+    }
+    if (applicableEdges.isEmpty()) {
+        return forbidden
+    }
+    lines.eachWithIndex { line, index ->
+        def matcher = importDeclarationPattern.matcher(line)
+        if (!matcher.find()) {
+            return
+        }
+        def importedName = matcher.group(1)
+        applicableEdges.each { edge ->
+            if (isAtOrUnderPackageRoot(importedName, edge.of)) {
+                forbidden << "${sourceFile}:${index + 1}: " +
+                        "${edge.under} may not import ${edge.of}: ${importedName}"
+            }
+        }
+    }
+    return forbidden
+}
+
+// Filled by the consuming build through the task's own `forbidImport`, so it
+// is captured here rather than inside the task: the execution-time action
+// reads the same list the declarations appended to.
+def forbiddenEdges = []
+
+def enforcePackageLayering = tasks.register('enforcePackageLayering') {
+    description = 'Fails the build when a package root imports one the ' +
+            'consuming build declared it closed to.'
+    group = 'verification'
+
+    // Declares one forbidden edge. Named arguments rather than positional
+    // ones because both are dotted package roots of the same type, so a
+    // transposition would otherwise assert the rule backwards and still pass.
+    ext.forbidImport = { Map edge ->
+        if (!edge.under || !edge.of) {
+            throw new GradleException("forbidImport needs both 'under' (the " +
+                    "package root that is closed) and 'of' (the package root " +
+                    "it may not import); got: ${edge}")
+        }
+        forbiddenEdges << [under: edge.under, of: edge.of]
+    }
+
+    // Every source set under src/, rather than main and test alone: a layering
+    // rule that exempts a tree is a layering rule with a hole in it, and an
+    // extra source set (a dev tool, a stub tree) compiles against the same
+    // packages the code it is built from lives in. Test sources matter as much
+    // as production ones for the same reason - a suite reaching across the line
+    // for a real type is the shortest way to make it compile.
+    //
+    // Declared as the matched files rather than as the directories: an absent
+    // tree is then an empty scan rather than the configuration failure a
+    // declared-but-missing input directory would be, and a resource edit does
+    // not re-run a gate that only reads code.
+    def scannedSources = fileTree('src') {
+        include '**/*.java', '**/*.kt'
+    }
+    inputs.files(scannedSources).withPropertyName('scannedSources')
+    // The edges are an input as much as the sources are - adding one has to
+    // re-run the gate rather than leave it UP-TO-DATE against the rule it was
+    // last cleared under. Wrapped in a provider because they are declared after
+    // this registration runs, and snapshotted as plain strings rather than as
+    // the maps themselves, since an input property's value has to be
+    // serialisable.
+    inputs.property('forbiddenEdges', providers.provider {
+        forbiddenEdges.collect { "${it.under} !-> ${it.of}".toString() }.sort()
+    })
+
+    doLast {
+        if (forbiddenEdges.isEmpty()) {
+            return
+        }
+        def violations = []
+        scannedSources.each { sourceFile ->
+            violations.addAll(findForbiddenImports(sourceFile, forbiddenEdges))
+        }
+        if (!violations.isEmpty()) {
+            // GradleException is the idiomatic build-failure signal; its clean
+            // message reads as the gate's verdict. The editor flags it as an
+            // unresolved class because an applied script has no Gradle API on
+            // its classpath - a known tooling false positive, not a defect, so
+            // do not "fix" it by swapping in a java.lang exception.
+            throw new GradleException("Package layering violated:\n  " +
+                    violations.join('\n  '))
+        }
+    }
+}
+
+// Give the gate an output so it can be skipped while the sources it reads are
+// unchanged; see lint-gate-stamp.gradle.
+declareLintGateStamp(enforcePackageLayering)
+
+// Run the gate as part of the standard verification lifecycle so both a
+// local 'build'/'check' and CI's 'test jar' trip it before tests execute.
+tasks.matching { it.name in ['test', 'check'] }.configureEach {
+    dependsOn enforcePackageLayering
+}

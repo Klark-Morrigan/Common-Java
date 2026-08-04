@@ -1,0 +1,9 @@
+package example.framework.render;
+
+import static example.feature.view.FeatureView.DEFAULT_VIEW;
+
+import example.feature.view.*;
+
+class Sample {
+    FeatureView view = DEFAULT_VIEW;
+}
