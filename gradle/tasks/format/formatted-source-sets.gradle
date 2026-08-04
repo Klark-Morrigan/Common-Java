@@ -16,9 +16,19 @@
 // Applying this more than once per project is harmless - each pass applies it, and the
 // assignment below simply overwrites an identical closure.
 
-// Named for Spotless because that was the first pass to read it, and because this is
-// the spelling consumers already have in their build scripts; it governs both passes.
-def excludedSourceSetsProperty = 'spotlessExcludedSourceSets'
+// Named for the formatter rather than for Spotless: the list governs both passes,
+// and the aligner is appliable on its own by a repo with no Spotless in sight.
+def excludedSourceSetsProperty = 'formatterExcludedSourceSets'
+
+// The name the knob carried while Spotless was its only reader. A consumer left on
+// the old spelling would otherwise have its exemption silently ignored, and the
+// formatter would reach straight into the source it was told to leave alone - so
+// refuse rather than let that pass unnoticed. Removable once no checkout sets it.
+def legacyExcludedSourceSetsProperty = 'spotlessExcludedSourceSets'
+if (project.findProperty(legacyExcludedSourceSetsProperty) != null) {
+    throw new GradleException("${legacyExcludedSourceSetsProperty} has been renamed " +
+            "to ${excludedSourceSetsProperty}; rename it in this project's build script.")
+}
 
 ext.selectFormattedSourceSets = {
     def excludedSourceSetNames = project.findProperty(excludedSourceSetsProperty) ?: []

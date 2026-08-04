@@ -1,0 +1,10 @@
+# Guide
+
+How to write a link:
+
+```markdown
+[gone](nowhere.md)
+```
+
+And below the fence, a link that really is broken:
+[after](after-the-fence.md).

@@ -1,0 +1,5 @@
+# Guide
+
+Off the network: [site](https://example.com/nope.md).
+Off the network too: [mail](mailto:nobody@example.com).
+Inside this file: [index](#index).

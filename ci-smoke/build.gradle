@@ -9,21 +9,24 @@ apply from: "${rootDir}/../gradle/java-conventions.gradle"
 
 group = 'commonjava.smoke'
 
-// The shared lint gates are build logic, so each carries its own TestKit
-// integration test that drives a real Gradle build. They live here, in
-// Common-Java's own proving ground, beside the conventions they verify - in a
-// dedicated 'test-gradle' tree, not the unit-test one, because gradleTestKit()
-// drags a log4j-over-slf4j bridge onto the runtime classpath that can shadow a
-// real log4j a consumer's unit tests assert against.
+// The shared lint gates and the on-demand formatter are build logic, so each
+// carries its own TestKit integration test that drives a real Gradle build. They
+// live here, in Common-Java's own proving ground, beside the conventions they
+// verify - in a dedicated 'test-gradle' tree, not the unit-test one, because
+// gradleTestKit() drags a log4j-over-slf4j bridge onto the runtime classpath that
+// can shadow a real log4j a consumer's unit tests assert against.
 sourceSets {
     testGradle {
-        // Each gate's test + its .txt fixtures sit in one folder named for the
-        // script under test, fixtures split into java/ and kotlin/ subfolders.
-        // Each folder is a source root, so the test sits in the default package
-        // (a Java package cannot carry the folder's hyphens) and the fixtures
-        // resolve under the shared classpath root - the java//kotlin/ prefix
-        // plus distinct names keep them from colliding there.
-        def gateTestDirs = [
+        // Each script's test + its .txt fixtures sit in one folder named for the
+        // script under test, fixtures split into a subfolder per language
+        // (java/, kotlin/, markdown/). Each folder is a source root, so the
+        // test sits in the default package (a Java package cannot carry the
+        // folder's hyphens) and the fixtures resolve under the shared classpath
+        // root - the language prefix plus distinct names keep them from
+        // colliding there.
+        def scriptTestDirs = [
+                'src/test-gradle/tasks/format/align-javadoc-params',
+                'src/test-gradle/tasks/lint/docs/enforce-doc-links-resolve',
                 'src/test-gradle/tasks/lint/formatting/tests/enforce-single-blank-lines',
                 'src/test-gradle/tasks/lint/literals/tests/enforce-no-magic-literals-kotlin',
                 'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes',
@@ -31,8 +34,8 @@ sourceSets {
                 'src/test-gradle/tasks/lint/structure/enforce-methods-ordered-by-visibility',
                 'src/test-gradle/tasks/lint/structure/tests/enforce-tests-nested',
         ]
-        java.srcDirs = gateTestDirs
-        resources.srcDirs = gateTestDirs
+        java.srcDirs = scriptTestDirs
+        resources.srcDirs = scriptTestDirs
         resources.exclude '**/*.java'
     }
 }
@@ -49,7 +52,8 @@ dependencies {
 }
 
 def testGradle = tasks.register('testGradle', Test) {
-    description = 'Runs TestKit integration tests for the shared Gradle gates.'
+    description = 'Runs TestKit integration tests for the shared Gradle gates ' +
+            'and the on-demand formatter.'
     group = 'verification'
     testClassesDirs = sourceSets.testGradle.output.classesDirs
     classpath = sourceSets.testGradle.runtimeClasspath
@@ -58,48 +62,52 @@ def testGradle = tasks.register('testGradle', Test) {
         events 'passed', 'skipped', 'failed'
     }
 
-    // Each gate script under test is a runtime input the matching test reads by
-    // path, so declare it as a task input: editing a gate must re-run these
+    // Each script under test is a runtime input the matching test reads by
+    // path, so declare it as a task input: editing one must re-run these
     // tests rather than leave them UP-TO-DATE against a stale version. The path
     // is also handed to the test so it does not assume a working directory. The
-    // gates live one directory up, in Common-Java/gradle/tasks/lint.
-    // Every gate applies the stamp helper, so it is a runtime input of all of
-    // these tests even though no test names it: editing it must re-run them.
+    // scripts live one directory up, under Common-Java/gradle/tasks.
+    // Two shared helpers are runtime inputs of these tests even though no test
+    // names either: every gate applies the stamp helper, and both formatter
+    // passes apply the source-set selector. Editing one must re-run them.
     inputs.file(file('../gradle/tasks/lint/lint-gate-stamp.gradle'))
             .withPropertyName('lintGateStampScript')
+    inputs.file(file('../gradle/tasks/format/formatted-source-sets.gradle'))
+            .withPropertyName('formattedSourceSetsScript')
 
-    def fakeGateScript = file(
+    // One script binds three ways - as a task input, under an
+    // up-to-dateness property name, and as the system property its test reads
+    // the path from - and all three name the same file. Binding them together
+    // keeps a new script to one call rather than a block to copy, and stops the
+    // three drifting apart. Named for scripts rather than gates: the formatter's
+    // aligner pass binds the same three ways and is not a gate.
+    def declareScriptUnderTest = { String propertyName, String systemPropertyKey, String path ->
+        def scriptUnderTest = file(path)
+        inputs.file(scriptUnderTest).withPropertyName(propertyName)
+        systemProperty systemPropertyKey, scriptUnderTest.absolutePath
+    }
+
+    declareScriptUnderTest('alignJavadocParamsScript', 'align.javadoc.params.script.path',
+            '../gradle/tasks/format/align-javadoc-params.gradle')
+    declareScriptUnderTest('docLinksGateScript', 'doc.links.gate.script.path',
+            '../gradle/tasks/lint/docs/enforce-doc-links-resolve.gradle')
+    declareScriptUnderTest('fakeGateScript', 'gate.script.path',
             '../gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes.gradle')
-    inputs.file(fakeGateScript).withPropertyName('fakeGateScript')
-    systemProperty 'gate.script.path', fakeGateScript.absolutePath
-
-    def mockGateScript = file(
+    declareScriptUnderTest('mockGateScript', 'mock.gate.script.path',
             '../gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks.gradle')
-    inputs.file(mockGateScript).withPropertyName('mockGateScript')
-    systemProperty 'mock.gate.script.path', mockGateScript.absolutePath
-
-    def methodsOrderGateScript = file(
+    declareScriptUnderTest('methodsOrderGateScript', 'methods.order.gate.script.path',
             '../gradle/tasks/lint/structure/enforce-methods-ordered-by-visibility.gradle')
-    inputs.file(methodsOrderGateScript).withPropertyName('methodsOrderGateScript')
-    systemProperty 'methods.order.gate.script.path', methodsOrderGateScript.absolutePath
-
-    def nestedGateScript = file(
+    declareScriptUnderTest('nestedGateScript', 'nested.gate.script.path',
             '../gradle/tasks/lint/structure/tests/enforce-tests-nested.gradle')
-    inputs.file(nestedGateScript).withPropertyName('nestedGateScript')
-    systemProperty 'nested.gate.script.path', nestedGateScript.absolutePath
-
-    def singleBlankGateScript = file(
+    declareScriptUnderTest('singleBlankGateScript', 'single.blank.gate.script.path',
             '../gradle/tasks/lint/formatting/enforce-single-blank-lines.gradle')
-    inputs.file(singleBlankGateScript).withPropertyName('singleBlankGateScript')
-    systemProperty 'single.blank.gate.script.path', singleBlankGateScript.absolutePath
-
-    // The Kotlin literal gate also reads its detekt.yml by path, so that is an
-    // input too: editing the rule must re-run the test, not leave it UP-TO-DATE.
-    def kotlinLiteralsGateScript = file(
+    declareScriptUnderTest('kotlinLiteralsGateScript', 'kotlin.literals.gate.script.path',
             '../gradle/tasks/lint/literals/enforce-no-magic-literals-kotlin.gradle')
-    inputs.file(kotlinLiteralsGateScript).withPropertyName('kotlinLiteralsGateScript')
+
+    // The Kotlin literal gate is the one that reads a second file by path, its
+    // detekt.yml, so that is an input too: editing the rule must re-run the
+    // test, not leave it UP-TO-DATE.
     inputs.file(file('../gradle/detekt.yml')).withPropertyName('detektConfig')
-    systemProperty 'kotlin.literals.gate.script.path', kotlinLiteralsGateScript.absolutePath
 }
 
 // Run with the rest of verification: 'check' covers a local 'build', and

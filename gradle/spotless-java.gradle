@@ -22,7 +22,7 @@
 // not style - mirrors of a third party's shape, generated code - names those
 // source sets before applying this script:
 //
-//     ext.spotlessExcludedSourceSets = ['bridgeStubs']
+//     ext.formatterExcludedSourceSets = ['bridgeStubs']
 //     apply from: "${rootDir}/../Common-Java/gradle/spotless-java.gradle"
 
 buildscript {

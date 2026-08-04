@@ -1,0 +1,179 @@
+// Markdown link gate, applied by java-conventions.gradle into every KM
+// project. Kept in its own script so the conventions file stays about
+// classpath, version, and test stack, while this owns one concern: the
+// verification rule.
+//
+// The convention: a relative link in a checked-in .md file points at
+// something that exists. Docs in this family are navigated by clicking
+// through them, and nothing else in the build reads markdown - a package
+// rename updates every import the compiler can see and silently strands
+// every doc link that named the old path. That rot is invisible until a
+// reader follows the link and lands on nothing, so a gate is the only thing
+// that can find it.
+//
+// Three kinds of link are deliberately out of scope, and all three for the
+// one reason: the gate asserts only over what this checkout owns. External
+// ones (any target carrying a scheme - http, mailto) would need the network,
+// which a build gate must not depend on. Targets that climb out of the project
+// root - into the game install, a sibling checkout - resolve differently on
+// every machine. Pure fragments (#section) resolve against headings inside a
+// file this gate does not parse, so checking them would need a markdown parser
+// to buy a much smaller class of rot.
+
+// Groovy's default imports stop at java.io, so the nio type the link
+// resolution is expressed in has to be named.
+import java.nio.file.Path
+
+// Applied by this script, not assumed from the conventions file: the gate is
+// applied on its own by its integration test, so it has to carry what it uses.
+apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate-stamp.gradle')
+
+// The inline link form, `[text](target)`, with an optional quoted title after
+// the target dropped. Link text may not itself contain brackets: a nested pair
+// is rare in this family's prose, and admitting it would need a balancing
+// parse to buy one edge case - so such a link is skipped rather than
+// mis-parsed into a false report.
+def markdownInlineLinkPattern = ~/\[[^\[\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/
+// A fence opens or closes a code block. Everything inside one is sample text
+// rather than navigation - a markdown example showing link syntax would
+// otherwise be reported for the file it never meant to point at.
+def markdownFencePattern = ~/^\s{0,3}(```|~~~)/
+// A target carrying a scheme (`https:`, `mailto:`) or a protocol-relative
+// `//host` prefix leaves the repository, so it is not this gate's to resolve.
+def markdownExternalTargetPattern = ~/^([A-Za-z][A-Za-z0-9+.\-]*:|\/\/).*/
+
+// Answers whether the target is spelt the way the file is actually named.
+// Windows and macOS resolve a path case-insensitively, so `README.md` finds
+// `readme.md` and the link looks sound on the machine that wrote it - then
+// 404s on a repository host, which is case-sensitive. Canonicalising is what
+// recovers the real spelling from the filesystem.
+//
+// Both sides are relativised against the canonical scan root before they are
+// compared, so the casing of everything above the project - a drive letter, a
+// home directory - cancels out instead of being read as a mismatch.
+def isSpeltAsOnDisk = { Path resolvedTarget, Path normalisedScanRoot ->
+    def canonicalRoot = normalisedScanRoot.toFile().canonicalFile.toPath()
+    def canonicalTarget = resolvedTarget.toFile().canonicalFile.toPath()
+    return normalisedScanRoot.relativize(resolvedTarget).toString() ==
+            canonicalRoot.relativize(canonicalTarget).toString()
+}
+
+// Reports one message per link in this file whose target names a path that is
+// not on disk. The scan root is what a root-relative target (`/docs/x.md`) is
+// measured from, the way a repository host resolves one; every other target is
+// measured from the linking file's own directory. It arrives already
+// normalised because it is the same root for every link of every file, and
+// the containment test below runs once per link.
+def findUnresolvedLinks = { File markdownFile, Path normalisedScanRoot ->
+    def unresolved = []
+    def isInsideFence = false
+    markdownFile.eachLine { line, lineNumber ->
+        if (markdownFencePattern.matcher(line).find()) {
+            isInsideFence = !isInsideFence
+            return
+        }
+        if (isInsideFence) {
+            return
+        }
+        def matcher = markdownInlineLinkPattern.matcher(line)
+        while (matcher.find()) {
+            def target = matcher.group(1)
+            if (markdownExternalTargetPattern.matcher(target).matches()) {
+                continue
+            }
+            // Split the fragment off before resolving: `README.md#index` names
+            // a file plus a heading, and only the file half is a path. A target
+            // that is nothing but a fragment leaves an empty path and is
+            // skipped by the same split.
+            def targetPath = target.split('#', 2)[0]
+            // Percent-encoded spaces are the one escape these docs use; a full
+            // URL decode would also turn `+` into a space, which is wrong for a
+            // path.
+            targetPath = targetPath.replace('%20', ' ')
+            if (targetPath.isEmpty()) {
+                continue
+            }
+            def isRootRelative = targetPath.startsWith('/')
+            def base = isRootRelative ? normalisedScanRoot : markdownFile.parentFile.toPath()
+            def relativePath = isRootRelative ? targetPath.substring(1) : targetPath
+            // Normalise textually rather than canonically: `..` has to collapse
+            // for the containment test below, and a target that does not exist
+            // is exactly the case being judged, so nothing may depend on the
+            // path being on disk.
+            def resolvedTarget = base.resolve(relativePath).normalize()
+            if (!resolvedTarget.startsWith(normalisedScanRoot)) {
+                continue
+            }
+            if (!resolvedTarget.toFile().exists()) {
+                unresolved << "${markdownFile}:${lineNumber}: " +
+                        "link target does not exist: ${target}"
+            } else if (!isSpeltAsOnDisk(resolvedTarget, normalisedScanRoot)) {
+                // A separate verdict because it is a separate defect: the file
+                // is there, the link is spelt wrong, and the build machine is
+                // the only reason it appears to work.
+                unresolved << "${markdownFile}:${lineNumber}: " +
+                        "link target differs in case from the file on disk: ${target}"
+            }
+        }
+    }
+    return unresolved
+}
+
+// Directories whose markdown is generated or copied rather than authored.
+// Scanning them would report a violation once per copy and tie the gate's
+// up-to-dateness to artefacts the docs do not own.
+//
+// The default names are version-control and build-tool conventions, which is
+// all this repo knows: a consumer whose own tooling writes markdown adds that
+// directory from its intermediate convention script. Read at traversal time
+// rather than copied into the file tree's pattern set, so an addition made
+// after this script is applied still counts.
+ext.docLinkScanExcludedDirectoryNames = [
+        '.git', '.gradle', 'bin', 'build', 'out', 'node_modules']
+
+def enforceDocLinksResolve = tasks.register('enforceDocLinksResolve') {
+    description = 'Fails the build when a relative link in a markdown file ' +
+            'points at a path that does not exist.'
+    group = 'verification'
+
+    // Captured at configuration time: the execution-time action must not reach
+    // back through `project`, which the configuration cache forbids.
+    def scanRoot = project.projectDir
+    def normalisedScanRoot = scanRoot.toPath().normalize()
+    def excludedDirectoryNames = docLinkScanExcludedDirectoryNames
+    def markdownFiles = fileTree(scanRoot) {
+        include '**/*.md'
+        // Matched against every segment rather than the first, so an excluded
+        // directory nested inside the tree is skipped too.
+        exclude { element ->
+            element.relativePath.segments.any { it in excludedDirectoryNames }
+        }
+    }
+    inputs.files(markdownFiles).withPropertyName('markdownFiles')
+
+    doLast {
+        def violations = []
+        markdownFiles.each { markdownFile ->
+            violations.addAll(findUnresolvedLinks(markdownFile, normalisedScanRoot))
+        }
+        if (!violations.isEmpty()) {
+            // GradleException is the idiomatic build-failure signal; its clean
+            // message reads as the gate's verdict. The editor flags it as an
+            // unresolved class because an applied script has no Gradle API on
+            // its classpath - a known tooling false positive, not a defect, so
+            // do not "fix" it by swapping in a java.lang exception.
+            throw new GradleException("Broken documentation links:\n  " +
+                    violations.join('\n  '))
+        }
+    }
+}
+
+// Give the gate an output so it can be skipped while the docs it reads are
+// unchanged; see lint-gate-stamp.gradle.
+declareLintGateStamp(enforceDocLinksResolve)
+
+// Run the gate as part of the standard verification lifecycle so both a
+// local 'build'/'check' and CI's 'test jar' trip it before tests execute.
+tasks.matching { it.name in ['test', 'check'] }.configureEach {
+    dependsOn enforceDocLinksResolve
+}
