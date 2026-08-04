@@ -1,0 +1,11 @@
+package example.feature;
+
+// The feature's own tree, where these words are the subject rather than a leak.
+// A vocabulary rule that reached here would forbid a package from saying what
+// it is about.
+final class Sample {
+
+    // Fills the region under one owner's territory.
+    void fillRegion() {
+    }
+}

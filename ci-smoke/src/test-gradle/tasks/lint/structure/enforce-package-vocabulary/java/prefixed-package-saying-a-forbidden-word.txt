@@ -1,0 +1,10 @@
+package example.frameworkish;
+
+// 'example.frameworkish' is not under 'example.framework', so the rule does not
+// reach it - only a whole-segment match may close a package.
+final class Sample {
+
+    // Fills the region under one owner's territory.
+    void fillRegion() {
+    }
+}

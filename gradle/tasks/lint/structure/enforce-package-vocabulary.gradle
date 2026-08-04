@@ -1,0 +1,258 @@
+// Package-vocabulary gate, applied by java-conventions.gradle into every KM
+// project. Kept in its own script so the conventions file stays about
+// classpath, version, and test stack, while this owns one concern: the
+// verification rule.
+//
+// The convention: a package root declared closed to a word does not say it,
+// anywhere in its tree - in code, in comments, or in the markdown filed beside
+// them. It is the sibling of enforcePackageLayering one level in: that gate
+// keeps a framework from *importing* a feature, this one keeps it from being
+// *written in the feature's words*, which is what a reader of the framework
+// actually reads. A leaked import stops compiling the day the package moves; a
+// leaked noun in a Javadoc survives every move in silence.
+//
+// The two are separate gates rather than one with two checks, because they have
+// different failure characteristics. An import edge is a compile-visible fact
+// with no false positives and no escape hatch. A word list has both, so this
+// one carries an allowlist and the other must not have to.
+//
+// A vocabulary is a per-project fact rather than a shared one, so this script
+// owns only the mechanism and the consuming build declares the words:
+//
+//     enforcePackageVocabulary {
+//         forbidWords under: 'kmu.maplayers.base',
+//                 words: ['territory', 'territories', 'bloc']
+//         allowWord word: 'bloc',
+//                 inFile: 'src/main/java/kmu/maplayers/base/theme/README.md'
+//     }
+//
+// Both halves of each declaration arrive in one call rather than through a
+// fluent chain, for the reason the layering gate gives: a half-declared rule is
+// then never a state anything can hold or a caller can forget to finish.
+//
+// A build that declares no word inherits the task and checks nothing, which is
+// what lets the conventions file apply it everywhere rather than leaving each
+// consumer to opt in.
+
+// Applied by this script, not assumed from the conventions file: the gate is
+// applied on its own by its integration test, so it has to carry what it uses.
+apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate-stamp.gradle')
+
+// One word of a name, as a reader reads it: a run of letters, parted at each
+// camel hump. This is what lets the gate judge an identifier and a sentence by
+// the same rule - `TheNationalBorder` says the same three words the prose
+// does - while leaving `blocks` alone, since `bloc` is not one of its words.
+//
+// Digits and every non-letter part words rather than joining them, so
+// `bloc2` and `filter_bloc` both say `bloc`. The consequence worth knowing: a
+// plural is a different word, so a list forbidding `bloc` does not catch
+// `blocs` and a consumer declares both.
+def nameWordPattern = ~/\p{Lu}?\p{Ll}+|\p{Lu}+(?!\p{Ll})/
+
+// The file types a package's vocabulary is written in: its code, and the
+// markdown filed beside it. Resources are data rather than prose - a fixture
+// column named for a domain concept is the layer's own, not the framework's
+// claim about itself - so they stay out of reach.
+def scannedFileIncludes = ['**/*.java', '**/*.kt', '**/*.md']
+
+// Answers whether a file sits at or under a package root, matched a whole
+// segment at a time so `kmu.maplayers.baseline` is not read as living under
+// `kmu.maplayers.base`.
+//
+// Judged by directory rather than by the package a source file declares, which
+// is the one place this gate parts from its layering sibling: markdown carries
+// no package declaration and is half of what the rule is about, so the tree is
+// the subject here rather than the compilation unit.
+def isUnderPackageRoot = { List pathSegments, String packageRoot ->
+    def rootSegments = packageRoot.tokenize('.')
+    def lastStart = pathSegments.size() - rootSegments.size()
+    for (int start = 0; start <= lastStart; start++) {
+        if (pathSegments.subList(start, start + rootSegments.size()) == rootSegments) {
+            return true
+        }
+    }
+    return false
+}
+
+// Every word the file says, in reading order, each paired with the line it sits
+// on. Collected across the whole file rather than per line so a phrase that
+// wraps in prose is still one phrase; the report names the line its first word
+// is on, which is where a reader starts looking.
+def readNameWords = { File sourceFile ->
+    def words = []
+    sourceFile.eachLine { line, lineNumber ->
+        def matcher = nameWordPattern.matcher(line)
+        while (matcher.find()) {
+            words << [text: matcher.group().toLowerCase(), line: lineNumber]
+        }
+    }
+    return words
+}
+
+// Reports one message per forbidden phrase this file says. A phrase matches a
+// run of consecutive words, so a two-word entry ('national border') is found
+// whether it was written as prose or as part of a name.
+def findForbiddenWords = { File sourceFile, String reportedPath, List applicableRules ->
+    def forbidden = []
+    def words = readNameWords(sourceFile)
+    applicableRules.each { rule ->
+        rule.phrases.each { phrase ->
+            if (phrase.words.size() > words.size()) {
+                return
+            }
+            for (int start = 0; start <= words.size() - phrase.words.size(); start++) {
+                def spoken = words
+                        .subList(start, start + phrase.words.size())
+                        .collect { it.text }
+                if (spoken == phrase.words) {
+                    forbidden << "${reportedPath}:${words[start].line}: " +
+                            "${rule.under} may not say \"${phrase.declared}\""
+                }
+            }
+        }
+    }
+    return forbidden
+}
+
+// Filled by the consuming build through the task's own `forbidWords` and
+// `allowWord`, so both are captured here rather than inside the task: the
+// execution-time action reads the same lists the declarations appended to.
+def vocabularyRules = []
+def allowances = []
+
+def enforcePackageVocabulary = tasks.register('enforcePackageVocabulary') {
+    description = 'Fails the build when a package root uses a word the ' +
+            'consuming build declared it closed to.'
+    group = 'verification'
+
+    // Declares one package root's forbidden words. Named arguments rather than
+    // positional ones because the root and the words are both plain text, so a
+    // transposition would otherwise forbid a package name inside a word list.
+    ext.forbidWords = { Map declaration ->
+        if (!declaration.under || !declaration.words) {
+            throw new GradleException("forbidWords needs both 'under' (the " +
+                    "package root that is closed) and 'words' (the words it " +
+                    "may not say); got: ${declaration}")
+        }
+        vocabularyRules << [
+                under: declaration.under,
+                phrases: declaration.words.collect { String word ->
+                    [declared: word, words: word.toLowerCase().tokenize(' ')]
+                },
+        ]
+    }
+
+    // Exempts one file from one word. Declared here rather than as a marker
+    // comment in the file itself, and that is the point: an entry is a line
+    // someone adds to the build and a reviewer reads in the diff, where an
+    // inline opt-out is invisible until somebody greps for it.
+    //
+    // The path is project-relative, spelt as it is on disk, so a reader of the
+    // build knows exactly which file was let through.
+    ext.allowWord = { Map exemption ->
+        if (!exemption.word || !exemption.inFile) {
+            throw new GradleException("allowWord needs both 'word' (the word " +
+                    "being let through) and 'inFile' (the project-relative " +
+                    "path it is allowed in); got: ${exemption}")
+        }
+        allowances << [word: exemption.word.toLowerCase(), inFile: exemption.inFile]
+    }
+
+    // Every source set under src/, rather than main and test alone: a
+    // vocabulary rule that exempts a tree is a vocabulary rule with a hole in
+    // it, and a dev-tooling or fixture source set is written in prose like any
+    // other - it is simply prose nobody sweeps, which is where the words the
+    // sweeps missed collect.
+    //
+    // Declared as the matched files rather than as the directories: an absent
+    // tree is then an empty scan rather than the configuration failure a
+    // declared-but-missing input directory would be.
+    def scannedSources = fileTree('src') {
+        include scannedFileIncludes
+    }
+    inputs.files(scannedSources).withPropertyName('scannedSources')
+    // The declarations are an input as much as the sources are - adding a word
+    // has to re-run the gate rather than leave it UP-TO-DATE against the list
+    // it was last cleared under. Wrapped in a provider because they are
+    // declared after this registration runs, and snapshotted as plain strings
+    // rather than as the maps themselves, since an input property's value has
+    // to be serialisable.
+    inputs.property('vocabularyRules', providers.provider {
+        vocabularyRules.collect {
+            "${it.under} !- ${it.phrases.collect { phrase -> phrase.declared }.sort()}"
+                    .toString()
+        }.sort()
+    })
+    inputs.property('allowances', providers.provider {
+        allowances.collect { "${it.word} in ${it.inFile}".toString() }.sort()
+    })
+
+    doLast {
+        if (vocabularyRules.isEmpty()) {
+            return
+        }
+        def violations = []
+        def scannedPaths = [] as Set
+        scannedSources.visit { details ->
+            if (details.directory) {
+                return
+            }
+            // Reported and matched as one path spelling: project-relative with
+            // forward slashes, so an allowance reads the same on every machine
+            // and a report is clickable from the project root.
+            def reportedPath = 'src/' + details.path
+            scannedPaths << reportedPath
+            // An allowance is per file and per word, so a word let through one
+            // README is still forbidden in the file next to it - which is the
+            // whole of what makes the escape hatch narrow enough to keep.
+            def allowedWords = allowances
+                    .findAll { it.inFile == reportedPath }
+                    .collect { it.word }
+            def pathSegments = details.relativePath.segments as List
+            def applicableRules = vocabularyRules.findAll {
+                isUnderPackageRoot(pathSegments, it.under)
+            }.collect { rule ->
+                return [
+                        under: rule.under,
+                        phrases: rule.phrases.findAll {
+                            !(it.declared.toLowerCase() in allowedWords)
+                        },
+                ]
+            }.findAll { !it.phrases.isEmpty() }
+            if (applicableRules.isEmpty()) {
+                return
+            }
+            violations.addAll(
+                    findForbiddenWords(details.file, reportedPath, applicableRules))
+        }
+        // An allowance naming a file the scan never sees is dead config: it
+        // exempts nothing, and the word it was written for is loose again the
+        // moment the file it meant comes back under another name. Reported as a
+        // violation rather than ignored, because a silent no-op is the exact
+        // failure this gate exists to remove - one level up.
+        def strandedAllowances = allowances.findAll { !(it.inFile in scannedPaths) }
+        strandedAllowances.each {
+            violations << "${it.inFile}: allowWord names a file this gate does " +
+                    "not scan, so it allows nothing: \"${it.word}\""
+        }
+        if (!violations.isEmpty()) {
+            // GradleException is the idiomatic build-failure signal; its clean
+            // message reads as the gate's verdict. The editor flags it as an
+            // unresolved class because an applied script has no Gradle API on
+            // its classpath - a known tooling false positive, not a defect, so
+            // do not "fix" it by swapping in a java.lang exception.
+            throw new GradleException("Package vocabulary violated:\n  " +
+                    violations.join('\n  '))
+        }
+    }
+}
+
+// Give the gate an output so it can be skipped while the sources it reads are
+// unchanged; see lint-gate-stamp.gradle.
+declareLintGateStamp(enforcePackageVocabulary)
+
+// Run the gate as part of the standard verification lifecycle so both a
+// local 'build'/'check' and CI's 'test jar' trip it before tests execute.
+tasks.matching { it.name in ['test', 'check'] }.configureEach {
+    dependsOn enforcePackageVocabulary
+}

@@ -1,0 +1,9 @@
+package example.framework;
+
+// Written in the framework's own words throughout: a cluster, its border, the
+// owner an opaque key resolves to.
+final class Sample {
+
+    void fillCluster() {
+    }
+}

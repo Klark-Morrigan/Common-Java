@@ -1,0 +1,10 @@
+package example.framework;
+
+// The case a hand sweep misses: the phrase is spelt in camel case, so a search
+// for it as written in prose never finds it and a reviewer's eye reads the name
+// as one word.
+final class Sample {
+
+    void clipTheAcceptedLineInsideTheNationalBorder() {
+    }
+}

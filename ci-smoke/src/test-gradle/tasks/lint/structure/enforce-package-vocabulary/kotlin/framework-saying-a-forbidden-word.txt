@@ -1,0 +1,11 @@
+package example.framework
+
+// Kotlin leaves the semicolon off its package declaration, and its comments are
+// prose like any other - the vocabulary rule cares about what the tree says,
+// not about which language says it.
+internal class Sample {
+
+    // Fills the region under one owner's territory.
+    fun fillRegion() {
+    }
+}

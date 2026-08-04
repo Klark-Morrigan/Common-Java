@@ -1,0 +1,11 @@
+package example.framework;
+
+// The shape the gate exists for: nothing here imports the feature, and the
+// compiler is entirely happy, but the prose tells a reader of the framework
+// that the framework is about the feature's subject matter.
+final class Sample {
+
+    // Fills the region under one owner's territory.
+    void fillRegion() {
+    }
+}
