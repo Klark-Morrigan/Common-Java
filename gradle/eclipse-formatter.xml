@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+  Single source of truth for Java code layout, driving the Eclipse JDT formatter
+  through Spotless (`eclipse().configFile`).
+
+  Run on demand only, with `gradlew spotlessApply` - never on save and never as
+  a build gate. The profile below removes almost all
+  of the formatter's appetite for rewriting code, but not quite all of it: a
+  lambda's expression body gets rejoined onto one line and a compact
+  `@Override void f() {}` has its annotation split off, neither of which any
+  setting in this file can prevent. So a run is read as a diff and curated by
+  hand. The same file can drive an IDE (`java.format.settings.url`), but pointing
+  format-on-save at it would apply those same unfaithful edits silently.
+
+  Continuation lines indent by 4, EXCEPT a declaration's parameter list, which
+  indents by 8. The split is not arbitrary. Java puts the opening brace at the
+  end of the signature, so a wrapped parameter list at 4 lands on exactly the
+  indent the method body will use, and the parameters read as statements:
+
+      public static <T> String join(Iterable<T> items, String delimiter,
+          Function<? super T, String> render) {
+          var joined = new StringBuilder();
+
+  Doubling the indent restores the boundary the brace does not draw. Everywhere
+  else - assignments, invocations, ternaries, operators - no braced body
+  follows, nothing is ambiguous, and 4 is both tidier and what the current
+  written standards (Google Java Style, google-java-format, checkstyle's own
+  Indentation default) use.
+
+  Otherwise deliberately subtractive. The formatter is capable of rewriting far
+  more than the family wants it to, and every setting it is not told about falls
+  back to a JDT default that does not match this codebase - tabs for
+  indentation, an 80-column ceiling, and comment reflowing among them. So the
+  high-impact settings are all pinned explicitly, even where the pinned value
+  matches a default, and anything that would reflow existing code is off:
+
+  - join_wrapped_lines is off, so an existing wrap point is never collapsed.
+    Left at its default the formatter would pull any wrap that happens to fit
+    back onto one line, rewriting deliberate argument-per-line layout wholesale.
+  - Comment formatting is off in all four forms. Javadoc here is hand-aligned
+    and held to a 90-character rule the formatter has no notion of.
+-->
+<profiles version="23">
+<profile kind="CodeFormatterProfile" name="KM Java" version="23">
+
+<!-- Indentation: spaces, 4 per level. Pinned because JDT defaults to tabs. -->
+<setting id="org.eclipse.jdt.core.formatter.tabulation.char" value="space"/>
+<setting id="org.eclipse.jdt.core.formatter.tabulation.size" value="4"/>
+<setting id="org.eclipse.jdt.core.formatter.indentation.size" value="4"/>
+<setting id="org.eclipse.jdt.core.formatter.use_tabs_only_for_leading_indentations" value="false"/>
+<setting id="org.eclipse.jdt.core.formatter.indent_empty_lines" value="false"/>
+
+<!-- The baseline continuation is 2 units (8 spaces), which only parameter lists
+     actually take; see the header note. It reads as the odd choice here, but it
+     is the one JDT can express: a construct may be told to indent by exactly
+     one unit, never by two, so the 8-space case has to be the default that the
+     4-space constructs opt out of rather than the other way round.
+     Array initializers have their own continuation setting and take 4. -->
+<setting id="org.eclipse.jdt.core.formatter.continuation_indentation" value="2"/>
+<setting id="org.eclipse.jdt.core.formatter.continuation_indentation_for_array_initializer" value="1"/>
+
+<!-- Line width. No lint enforces one today, so this is the family's first
+     stated ceiling; 120 matches detekt's own MaxLineLength default, keeping the
+     Java and Kotlin halves in agreement if that rule is ever switched on. No
+     KM Java code line reaches it, so nothing existing is rewrapped. -->
+<setting id="org.eclipse.jdt.core.formatter.lineSplit" value="120"/>
+
+<!-- Never undo an existing wrap. See the header note - this is what keeps the
+     reformat surgical rather than a whole-codebase reflow. -->
+<setting id="org.eclipse.jdt.core.formatter.join_wrapped_lines" value="false"/>
+<setting id="org.eclipse.jdt.core.formatter.join_lines_in_comments" value="false"/>
+
+<!-- Wrapping policy per construct. Two values are in play:
+
+       16 = wrap only where necessary, indent by the baseline continuation (8)
+       20 = the same, but indent by exactly one unit (4)
+
+     so 20 is the ordinary case and 16 is reserved for the parameter lists that
+     want the deeper indent. The wrapping half of both values matters as much as
+     the indent half: paired with join_wrapped_lines=false above, "wrap only
+     where necessary" means "keep the wrap points that are there, add none,
+     remove none".
+
+     Pinning the whole family matters because JDT's per-construct defaults sit
+     at both extremes, and both extremes rewrite code. Constructs defaulted to
+     "do not wrap" (assignments, enum constants, for-loop headers, binary
+     operators) have their existing breaks deleted, because join_wrapped_lines
+     only preserves a break the construct's policy considers legal in the first
+     place - so a hand-wrapped assignment is silently pulled back onto one line.
+     Constructs defaulted to "force wrap" (ternaries, superinterface clauses)
+     get breaks inserted that nobody asked for, splitting a one-line ternary in
+     two. Both were observed on the first run over KMLib. -->
+
+<!-- A declaration's parameters: the 8-space case the header note explains.
+     Record components are the same construct wearing a different name - a
+     parameter list with a braced body behind it. -->
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_parameters_in_method_declaration" value="16"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_parameters_in_constructor_declaration" value="16"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_record_components" value="16"/>
+
+<!-- Everything else indents by one unit. -->
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_assignment" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_multiple_fields" value="20"/>
+<!-- Enum constants invert the mapping above: 16 puts them at 4, 20 at 8. They
+     are body declarations, so the type's own body indent already applies and
+     "indent by one" adds a second level on top of it. -->
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_enum_constants" value="16"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_expressions_in_for_loop_header" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_expressions_in_array_initializer" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_compact_if" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_compact_loops" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_conditional_expression" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_conditional_expression_chain" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_assertion_message" value="20"/>
+
+<!-- Operators, split by where they actually occur rather than by being
+     operators. JDT breaks the old single binary_expression policy into one
+     setting per operator class, which is what makes the distinction possible.
+
+     `&&`, `||` and the comparisons are how a wrapped `if (...)` condition
+     breaks, and a condition is a block header - its continuation has to clear
+     the body indent for the same reason a parameter list does, or the tail of
+     the condition reads as the first statement. They take 8.
+
+     Arithmetic, shifts, bitwise and string concatenation are ordinary
+     expression parts. They turn up inside argument lists and assignments where
+     no braced body follows, so 8 only pushes them needlessly far right; they
+     take 4 like the rest.
+
+     binary_expression is the legacy combined key, kept for older JDTs that do
+     not read the split ones. It is set to 4 because the operators it would
+     govern there are overwhelmingly the arithmetic kind. -->
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_relational_operator" value="16"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_logical_operator" value="16"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_binary_expression" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_additive_operator" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_multiplicative_operator" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_shift_operator" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_bitwise_operator" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_string_concatenation" value="20"/>
+
+<!-- Invocation argument lists. Unlike a declaration's parameters these are not
+     followed by a body, so there is nothing for them to be confused with. -->
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_arguments_in_method_invocation" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_arguments_in_allocation_expression" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_arguments_in_qualified_allocation_expression" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_arguments_in_explicit_constructor_call" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_arguments_in_enum_constant" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_arguments_in_annotation" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_selector_in_method_invocation" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_throws_clause_in_method_declaration" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_throws_clause_in_constructor_declaration" value="20"/>
+
+<!-- Type headers and generics. The superinterface clause is three settings, not
+     one: a class, an enum and a record each have their own, and setting only
+     the class one leaves records taking JDT's force-wrap default, which splits
+     `implements Interactive {` across two lines. -->
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_method_declaration" value="16"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_superclass_in_type_declaration" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_superinterfaces_in_type_declaration" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_superinterfaces_in_enum_declaration" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_superinterfaces_in_record_declaration" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_permitted_types_in_type_declaration" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_parameterized_type_references" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_type_arguments" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_type_parameters" value="20"/>
+
+<!-- Annotations. JDT's default forces each one onto its own line, which rewrites
+     a deliberately compact `@Override public boolean isDone() { ... }`. Wrapping
+     where necessary leaves both that and the ordinary one-per-line form alone. -->
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_annotations_on_method" value="16"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_annotations_on_type" value="16"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_annotations_on_field" value="16"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_annotations_on_local_variable" value="16"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_annotations_on_parameter" value="16"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_annotations_on_enum_constant" value="16"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_annotations_on_package" value="16"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_type_annotations" value="16"/>
+
+<!-- Statement-level constructs. -->
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_resources_in_try" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_union_type_in_multicatch" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_switch_case_with_arrow" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_expressions_in_switch_case_with_arrow" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_expressions_in_switch_case_with_colon" value="20"/>
+<setting id="org.eclipse.jdt.core.formatter.alignment_for_module_statements" value="20"/>
+
+<!-- Comments are hand-authored and hand-aligned; the formatter leaves them be. -->
+<setting id="org.eclipse.jdt.core.formatter.comment.format_javadoc_comments" value="false"/>
+<setting id="org.eclipse.jdt.core.formatter.comment.format_block_comments" value="false"/>
+<setting id="org.eclipse.jdt.core.formatter.comment.format_line_comments" value="false"/>
+<setting id="org.eclipse.jdt.core.formatter.comment.format_header" value="false"/>
+<setting id="org.eclipse.jdt.core.formatter.comment.format_source_code" value="false"/>
+<setting id="org.eclipse.jdt.core.formatter.comment.format_html" value="false"/>
+<setting id="org.eclipse.jdt.core.formatter.never_indent_block_comments_on_first_column" value="true"/>
+<setting id="org.eclipse.jdt.core.formatter.never_indent_line_comments_on_first_column" value="true"/>
+
+<!-- One blank line survives, runs of two or more collapse - the same rule the
+     enforce-single-blank-lines gate already applies, so the two agree. -->
+<setting id="org.eclipse.jdt.core.formatter.number_of_empty_lines_to_preserve" value="1"/>
+
+<!-- Braces stay K&R (opening brace on the declaration line), which is what the
+     codebase already does; pinned so a JDT default change cannot move them. -->
+<setting id="org.eclipse.jdt.core.formatter.brace_position_for_type_declaration" value="end_of_line"/>
+<setting id="org.eclipse.jdt.core.formatter.brace_position_for_method_declaration" value="end_of_line"/>
+<setting id="org.eclipse.jdt.core.formatter.brace_position_for_constructor_declaration" value="end_of_line"/>
+<setting id="org.eclipse.jdt.core.formatter.brace_position_for_block" value="end_of_line"/>
+<setting id="org.eclipse.jdt.core.formatter.brace_position_for_switch" value="end_of_line"/>
+<setting id="org.eclipse.jdt.core.formatter.brace_position_for_array_initializer" value="end_of_line"/>
+<setting id="org.eclipse.jdt.core.formatter.brace_position_for_enum_declaration" value="end_of_line"/>
+<setting id="org.eclipse.jdt.core.formatter.brace_position_for_enum_constant" value="end_of_line"/>
+<setting id="org.eclipse.jdt.core.formatter.brace_position_for_annotation_type_declaration" value="end_of_line"/>
+<setting id="org.eclipse.jdt.core.formatter.brace_position_for_record_declaration" value="end_of_line"/>
+<setting id="org.eclipse.jdt.core.formatter.brace_position_for_record_constructor" value="end_of_line"/>
+
+<!-- Whether a declaration or block that fits on one line is allowed to stay
+     there is the author's call, not the formatter's: one_line_preserve keeps
+     whatever is written, which is the same stance join_wrapped_lines=false
+     takes for wrapped lines. Without it a compact `enum Visibility { A, B }` is
+     exploded across three lines. -->
+<setting id="org.eclipse.jdt.core.formatter.keep_type_declaration_on_one_line" value="one_line_preserve"/>
+<setting id="org.eclipse.jdt.core.formatter.keep_enum_declaration_on_one_line" value="one_line_preserve"/>
+<setting id="org.eclipse.jdt.core.formatter.keep_enum_constant_declaration_on_one_line" value="one_line_preserve"/>
+<setting id="org.eclipse.jdt.core.formatter.keep_record_declaration_on_one_line" value="one_line_preserve"/>
+<setting id="org.eclipse.jdt.core.formatter.keep_record_constructor_on_one_line" value="one_line_preserve"/>
+<setting id="org.eclipse.jdt.core.formatter.keep_annotation_declaration_on_one_line" value="one_line_preserve"/>
+<setting id="org.eclipse.jdt.core.formatter.keep_anonymous_type_declaration_on_one_line" value="one_line_preserve"/>
+<setting id="org.eclipse.jdt.core.formatter.keep_method_body_on_one_line" value="one_line_preserve"/>
+<setting id="org.eclipse.jdt.core.formatter.keep_simple_getter_setter_on_one_line" value="one_line_preserve"/>
+<!-- keep_code_block_on_one_line is absent deliberately: alone in this family it
+     rejects one_line_preserve, and the formatter then throws on every file it
+     is handed rather than reporting a bad option. Its default stands. -->
+<setting id="org.eclipse.jdt.core.formatter.keep_if_then_body_block_on_one_line" value="one_line_preserve"/>
+<setting id="org.eclipse.jdt.core.formatter.keep_loop_body_block_on_one_line" value="one_line_preserve"/>
+<setting id="org.eclipse.jdt.core.formatter.keep_lambda_body_block_on_one_line" value="one_line_preserve"/>
+<setting id="org.eclipse.jdt.core.formatter.keep_switch_body_block_on_one_line" value="one_line_preserve"/>
+<setting id="org.eclipse.jdt.core.formatter.keep_switch_case_with_arrow_on_one_line" value="one_line_preserve"/>
+<setting id="org.eclipse.jdt.core.formatter.keep_empty_array_initializer_on_one_line" value="true"/>
+
+<!-- A brace-less `if (cond) statement;` stays as written. JDT spells its own
+     constant "keep_imple_if_on_one_line" - the typo is in the published API, so
+     the correct spelling is silently ignored. -->
+<setting id="org.eclipse.jdt.core.formatter.keep_imple_if_on_one_line" value="true"/>
+<setting id="org.eclipse.jdt.core.formatter.keep_then_statement_on_same_line" value="true"/>
+<setting id="org.eclipse.jdt.core.formatter.keep_else_statement_on_same_line" value="false"/>
+<setting id="org.eclipse.jdt.core.formatter.compact_else_if" value="true"/>
+
+<!-- `new boolean[] {true}` keeps its space; JDT's default closes it up. -->
+<setting id="org.eclipse.jdt.core.formatter.insert_space_before_opening_brace_in_array_initializer" value="insert"/>
+
+<!-- Switch bodies indent under their case labels, matching existing code. -->
+<setting id="org.eclipse.jdt.core.formatter.indent_switchstatements_compare_to_cases" value="true"/>
+<setting id="org.eclipse.jdt.core.formatter.indent_switchstatements_compare_to_switch" value="false"/>
+<setting id="org.eclipse.jdt.core.formatter.indent_body_declarations_compare_to_type_header" value="true"/>
+<setting id="org.eclipse.jdt.core.formatter.indent_statements_compare_to_block" value="true"/>
+<setting id="org.eclipse.jdt.core.formatter.indent_statements_compare_to_body" value="true"/>
+
+<!-- Column alignment of members is off: it pads with spaces to line up names,
+     which fights every later edit that changes a type's length. -->
+<setting id="org.eclipse.jdt.core.formatter.align_type_members_on_columns" value="false"/>
+
+</profile>
+</profiles>
