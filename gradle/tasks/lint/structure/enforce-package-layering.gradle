@@ -4,7 +4,7 @@
 // verification rule.
 //
 // The convention: a package root declared closed to another may not import it,
-// in production or in test. Nothing else can see this - the compiler accepts
+// in any source set. Nothing else can see this - the compiler accepts
 // either direction, so one accidental import inverts a dependency arrow while
 // the build stays green, and the inversion is only rediscovered the next time
 // someone tries to build on the layer it was meant to protect. That is a
@@ -55,14 +55,18 @@ def isAtOrUnderPackageRoot = { String dottedName, String packageRoot ->
 def findForbiddenImports = { File sourceFile, List forbiddenEdges ->
     def forbidden = []
     def lines = sourceFile.readLines()
-    def packageLine = lines.find { packageDeclarationPattern.matcher(it).matches() }
-    if (packageLine == null) {
+    def declaredPackage = null
+    for (line in lines) {
+        def packageMatcher = packageDeclarationPattern.matcher(line)
+        if (packageMatcher.matches()) {
+            declaredPackage = packageMatcher.group(1)
+            break
+        }
+    }
+    if (declaredPackage == null) {
         // The default package sits under no root, so no edge can name it.
         return forbidden
     }
-    def packageMatcher = packageDeclarationPattern.matcher(packageLine)
-    packageMatcher.matches()
-    def declaredPackage = packageMatcher.group(1)
     def applicableEdges = forbiddenEdges.findAll {
         isAtOrUnderPackageRoot(declaredPackage, it.under)
     }
@@ -107,24 +111,27 @@ def enforcePackageLayering = tasks.register('enforcePackageLayering') {
         forbiddenEdges << [under: edge.under, of: edge.of]
     }
 
-    // Scan production and test sources alike: a test reaching for a real type
-    // from the far side is always the shortest way to make a suite compile,
-    // which makes the test tree the half more likely to slip rather than the
-    // one that matters less.
-    def sourceRoots = [file('src/main'), file('src/test')]
-    // Declare an input only when it exists: Gradle validates a declared input
-    // directory is present, so an absent tree (a mod with no tests, say) would
-    // otherwise fail configuration rather than skip. The doLast guards the
-    // same absence at execution time.
-    sourceRoots.findAll { it.exists() }.eachWithIndex { root, index ->
-        inputs.dir(root).withPropertyName("sourceRoot${index}")
+    // Every source set under src/, rather than main and test alone: a layering
+    // rule that exempts a tree is a layering rule with a hole in it, and an
+    // extra source set (a dev tool, a stub tree) compiles against the same
+    // packages the code it is built from lives in. Test sources matter as much
+    // as production ones for the same reason - a suite reaching across the line
+    // for a real type is the shortest way to make it compile.
+    //
+    // Declared as the matched files rather than as the directories: an absent
+    // tree is then an empty scan rather than the configuration failure a
+    // declared-but-missing input directory would be, and a resource edit does
+    // not re-run a gate that only reads code.
+    def scannedSources = fileTree('src') {
+        include '**/*.java', '**/*.kt'
     }
+    inputs.files(scannedSources).withPropertyName('scannedSources')
     // The edges are an input as much as the sources are - adding one has to
     // re-run the gate rather than leave it UP-TO-DATE against the rule it was
-    // last cleared under. Wrapped in a provider because they are declared
-    // after this registration runs.
-    // Snapshotted as plain strings rather than the maps themselves, since an
-    // input property's value has to be serialisable.
+    // last cleared under. Wrapped in a provider because they are declared after
+    // this registration runs, and snapshotted as plain strings rather than as
+    // the maps themselves, since an input property's value has to be
+    // serialisable.
     inputs.property('forbiddenEdges', providers.provider {
         forbiddenEdges.collect { "${it.under} !-> ${it.of}".toString() }.sort()
     })
@@ -134,10 +141,8 @@ def enforcePackageLayering = tasks.register('enforcePackageLayering') {
             return
         }
         def violations = []
-        sourceRoots.findAll { it.exists() }.each { root ->
-            fileTree(root).matching { include '**/*.java', '**/*.kt' }.each { sourceFile ->
-                violations.addAll(findForbiddenImports(sourceFile, forbiddenEdges))
-            }
+        scannedSources.each { sourceFile ->
+            violations.addAll(findForbiddenImports(sourceFile, forbiddenEdges))
         }
         if (!violations.isEmpty()) {
             // GradleException is the idiomatic build-failure signal; its clean

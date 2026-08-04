@@ -83,9 +83,10 @@ enforcePackageLayering {
 }
 ```
 
-Both trees are scanned. A test reaching across the line for a real type is
-always the shortest way to make a suite compile, which makes `src/test` the
-half more likely to slip rather than the one that matters less.
+Every source set is scanned, not `main` and `test` alone: a layering rule
+that exempts a tree is a layering rule with a hole in it. Test sources
+matter as much as production ones, since a suite reaching across the line
+for a real type is the shortest way to make it compile.
 
 ## Formatting
 
