@@ -129,6 +129,17 @@ jobs:
       || fromJSON('["ubuntu-latest"]') }}
 
     steps:
+      # First step, ahead of any checkout: a self-hosted runner keeps its
+      # workspace between jobs, and actions/checkout only cleans the path it
+      # checks out into, so a caller using checkout-path inherits whatever the
+      # previous run left beside it - a sibling clone included, which would
+      # make the clone step below fail outright. Registry-form `uses:` is
+      # fetched into the runner's action cache rather than the workspace, so
+      # it resolves here with nothing checked out yet.
+      - name: Clean the runner workspace
+        if: runner.environment == 'self-hosted'
+        uses: Klark-Morrigan/Common-Automation/.github/actions/clean-workspace@master
+
       - name: Check out source
         # SHA-pinned for supply-chain hardening: a mutable tag (@v5) can be
         # repointed at malicious code, a commit SHA cannot. v5 line runs on
@@ -153,6 +164,17 @@ jobs:
             repo=$(jq -rn --argjson e "$entry" '$e.repo')
             ref=$(jq -rn --argjson e "$entry" '$e.ref // ""')
             path=$(jq -rn --argjson e "$entry" '$e.path')
+            # `path` is a caller-supplied JSON value used as a clone
+            # destination, on a runner whose disk outlives the job. An
+            # absolute or ../ value would write outside the workspace and
+            # stay there, beyond the reach of the cleanup step above, so
+            # accept only a plain workspace-relative name.
+            case "$path" in
+              /* | *..* | '' | null)
+                echo "::error::refusing unsafe sibling path: '${path}'"
+                exit 1
+                ;;
+            esac
             echo "::group::clone ${repo}${ref:+@${ref}} -> ${path}"
             git clone --depth 1 ${ref:+--branch "${ref}"} \
               "https://x-access-token:${GH_TOKEN}@github.com/${repo}.git" "${path}"
