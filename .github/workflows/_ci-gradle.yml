@@ -196,6 +196,14 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
         run: chmod +x gradlew
 
+      # --warning-mode all names each deprecation and the script it came from.
+      # The default one-line summary says only that some deprecated feature was
+      # used, which cannot tell you whether the offender is a build script or a
+      # plugin's internals - and that is the only thing deciding who fixes it.
+      # A clean build prints nothing extra, so this costs no noise and makes the
+      # next deprecation visible in the run that introduces it.
       - name: Build and test
         working-directory: ${{ inputs.working-directory }}
-        run: ./gradlew ${{ inputs.gradle-tasks }} --no-daemon --console=plain
+        run: >-
+          ./gradlew ${{ inputs.gradle-tasks }}
+          --no-daemon --console=plain --warning-mode all
