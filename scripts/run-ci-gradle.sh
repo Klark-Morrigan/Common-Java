@@ -60,8 +60,9 @@ fi
 
 echo "=== gradlew $* (in ${build_dir}) ==="
 cd "${build_dir}"
-# --no-daemon --console=plain matches _ci-gradle.yml so local output and
-# process model line up with CI.
-./gradlew "$@" --no-daemon --console=plain
+# --no-daemon --console=plain --warning-mode all matches _ci-gradle.yml so local
+# output and process model line up with CI - including which deprecations are
+# named, so one is not first seen on a runner.
+./gradlew "$@" --no-daemon --console=plain --warning-mode all
 echo
 echo "Gradle build passed."
