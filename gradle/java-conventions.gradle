@@ -14,6 +14,22 @@ apply plugin: 'java'
 apply plugin: 'jacoco'
 apply plugin: 'checkstyle'
 
+// One line per build naming the toolchain it actually ran on, so a log read
+// after the fact says which it was rather than leaving it to be inferred.
+//
+// Gradle's version comes from the wrapper, so it is pinned rather than found -
+// printed anyway because a wrapper bump is otherwise visible only in the URLs
+// inside deprecation notices, which a green build does not emit. The JVM IS
+// discovered: a consumer whose CI skips setup-java builds on whatever JDK the
+// machine happens to have, and that is the half most likely to differ between
+// a workstation and a runner.
+//
+// Configuration time, so it prints for any invocation rather than only for the
+// tasks that happen to run.
+logger.lifecycle("Toolchain: Gradle ${gradle.gradleVersion}, "
+        + "JVM ${System.getProperty('java.version')} "
+        + "(${System.getProperty('java.vendor')})")
+
 repositories {
     mavenCentral()
 }
