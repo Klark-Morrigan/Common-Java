@@ -32,5 +32,11 @@ if (project.findProperty(legacyExcludedSourceSetsProperty) != null) {
 
 ext.selectFormattedSourceSets = {
     def excludedSourceSetNames = project.findProperty(excludedSourceSetsProperty) ?: []
-    return sourceSets.findAll { sourceSet -> !(sourceSet.name in excludedSourceSetNames) }
+    // toList() first: DomainObjectCollection.findAll(Closure) is removed in Gradle 10,
+    // and this hands the filtering to Groovy's own List.findAll instead. Both callers
+    // only collect over the result, so a plain List serves them as well as the
+    // collection did.
+    return sourceSets.toList().findAll { sourceSet ->
+        !(sourceSet.name in excludedSourceSetNames)
+    }
 }
