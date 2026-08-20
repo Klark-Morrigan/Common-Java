@@ -110,8 +110,11 @@ def findForbiddenImports = { File sourceFile, List forbiddenEdges ->
 
             if (isAtOrUnderPackageRoot(importedName, edge.of)) {
 
-                forbidden << "${sourceFile}:${index + 1}: "
-                    + "${edge.closedSideLabel} may not import ${edge.of}: ${importedName}"
+                // Bracketed so the leading '+' continues this expression. Groovy ends a
+                // statement at a line break wherever the line already parses whole, and reads
+                // the next one as unary plus on a string - which fails at the call, not here.
+                forbidden << ("${sourceFile}:${index + 1}: "
+                    + "${edge.closedSideLabel} may not import ${edge.of}: ${importedName}")
             }
         }
     }
@@ -126,8 +129,10 @@ def forbiddenEdges = []
 def enforcePackageLayering = tasks.register('enforcePackageLayering') {
 
     group = 'verification'
-    description = 'Fails the build when a package root imports one the '
-        + 'consuming build declared it closed to.'
+    // Bracketed for the same reason as the message above: without it the leading '+' is a
+    // statement of its own, and this one fails at configuration time in every consumer.
+    description = ('Fails the build when a package root imports one the '
+        + 'consuming build declared it closed to.')
 
     // Declares one forbidden edge. Named arguments rather than positional
     // ones because both are dotted package roots of the same type, so a
