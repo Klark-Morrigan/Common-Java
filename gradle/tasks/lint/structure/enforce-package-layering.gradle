@@ -17,12 +17,29 @@
 //
 //     enforcePackageLayering {
 //         forbidImport under: 'kmu.maplayers.base',
-//                 of: 'kmu.maplayers.politicalmap'
+//             of: 'kmu.maplayers.politicalmap'
 //     }
 //
 // Both halves arrive in one call rather than through a fluent chain, so a
 // half-declared edge is never a state anything can hold or a caller can
 // forget to finish.
+//
+// The closed side comes in two widths. 'under' closes a root and everything
+// beneath it, which is the usual shape - a layer is its whole subtree. 'exactly'
+// closes one package alone and leaves its subpackages free:
+//
+//     enforcePackageLayering {
+//         forbidImport exactly: 'kmlib.starsector.markets',
+//             of: 'kmlib.starsector.markets.ownership'
+//     }
+//
+// which is the shape a package needs when its own subpackages are what it is
+// closed to. A package holding reads, with an operation in a package beneath it,
+// may not reach down into that operation - while the operation's sibling
+// subpackage still may. Stated with 'under', the same edge would close the
+// operations to each other too, and there would be no way to write the rule at
+// all. The imported side stays a subtree either way: what a package is closed to
+// is a layer, and no caller has yet needed to name one package of it.
 //
 // A build that declares no edge inherits the task and checks nothing, which is
 // what lets the conventions file apply it everywhere rather than leaving each
@@ -53,12 +70,16 @@ def isAtOrUnderPackageRoot = { String dottedName, String packageRoot ->
 // resolved against - and a source root a consumer laid out its own way would
 // otherwise put every file in the wrong package.
 def findForbiddenImports = { File sourceFile, List forbiddenEdges ->
+
     def forbidden = []
     def lines = sourceFile.readLines()
     def declaredPackage = null
+
     for (line in lines) {
+        
         def packageMatcher = packageDeclarationPattern.matcher(line)
         if (packageMatcher.matches()) {
+            
             declaredPackage = packageMatcher.group(1)
             break
         }
@@ -68,21 +89,29 @@ def findForbiddenImports = { File sourceFile, List forbiddenEdges ->
         return forbidden
     }
     def applicableEdges = forbiddenEdges.findAll {
-        isAtOrUnderPackageRoot(declaredPackage, it.under)
+
+        it.isClosedExactly
+            ? declaredPackage == it.closedRoot
+            : isAtOrUnderPackageRoot(declaredPackage, it.closedRoot)
     }
     if (applicableEdges.isEmpty()) {
         return forbidden
     }
     lines.eachWithIndex { line, index ->
+
         def matcher = importDeclarationPattern.matcher(line)
+
         if (!matcher.find()) {
             return
         }
         def importedName = matcher.group(1)
+
         applicableEdges.each { edge ->
+
             if (isAtOrUnderPackageRoot(importedName, edge.of)) {
-                forbidden << "${sourceFile}:${index + 1}: " +
-                        "${edge.under} may not import ${edge.of}: ${importedName}"
+
+                forbidden << "${sourceFile}:${index + 1}: "
+                    + "${edge.closedSideLabel} may not import ${edge.of}: ${importedName}"
             }
         }
     }
@@ -95,20 +124,47 @@ def findForbiddenImports = { File sourceFile, List forbiddenEdges ->
 def forbiddenEdges = []
 
 def enforcePackageLayering = tasks.register('enforcePackageLayering') {
-    description = 'Fails the build when a package root imports one the ' +
-            'consuming build declared it closed to.'
+
     group = 'verification'
+    description = 'Fails the build when a package root imports one the '
+        + 'consuming build declared it closed to.'
 
     // Declares one forbidden edge. Named arguments rather than positional
     // ones because both are dotted package roots of the same type, so a
     // transposition would otherwise assert the rule backwards and still pass.
     ext.forbidImport = { Map edge ->
-        if (!edge.under || !edge.of) {
-            throw new GradleException("forbidImport needs both 'under' (the " +
-                    "package root that is closed) and 'of' (the package root " +
-                    "it may not import); got: ${edge}")
+    
+        // Rejected before the missing-half check, so a declaration naming both
+        // widths is reported as the contradiction it is rather than as
+        // whichever one happened to be read first.
+        if (edge.under && edge.exactly) {
+
+            throw new GradleException("forbidImport closes a package root one "
+                + "way or the other: 'under' for it and everything beneath "
+                + "it, or 'exactly' for that one package - not both; "
+                + "got: ${edge}")
         }
-        forbiddenEdges << [under: edge.under, of: edge.of]
+        def closedRoot = edge.under ?: edge.exactly
+
+        if (!closedRoot || !edge.of) {
+
+            throw new GradleException("forbidImport needs the package root "
+                + "that is closed - 'under' for it and everything beneath "
+                + "it, or 'exactly' for that one package - and 'of' (the "
+                + "package root it may not import); got: ${edge}")
+        }
+        // The label carries the width into every message the edge produces,
+        // including the input-property snapshot below: the two widths are
+        // different rules over the same pair of roots, so a run cleared under
+        // one must not read as UP-TO-DATE under the other.
+        forbiddenEdges << [
+            closedRoot: closedRoot,
+            isClosedExactly: edge.exactly as boolean,
+            closedSideLabel: edge.exactly
+                ? "${closedRoot} itself"
+                : closedRoot,
+            of: edge.of,
+        ]
     }
 
     // Every source set under src/, rather than main and test alone: a layering
@@ -125,7 +181,9 @@ def enforcePackageLayering = tasks.register('enforcePackageLayering') {
     def scannedSources = fileTree('src') {
         include '**/*.java', '**/*.kt'
     }
+
     inputs.files(scannedSources).withPropertyName('scannedSources')
+
     // The edges are an input as much as the sources are - adding one has to
     // re-run the gate rather than leave it UP-TO-DATE against the rule it was
     // last cleared under. Wrapped in a provider because they are declared after
@@ -133,25 +191,31 @@ def enforcePackageLayering = tasks.register('enforcePackageLayering') {
     // the maps themselves, since an input property's value has to be
     // serialisable.
     inputs.property('forbiddenEdges', providers.provider {
-        forbiddenEdges.collect { "${it.under} !-> ${it.of}".toString() }.sort()
+
+        forbiddenEdges
+            .collect { "${it.closedSideLabel} !-> ${it.of}".toString() }
+            .sort()
     })
 
     doLast {
+
         if (forbiddenEdges.isEmpty()) {
             return
         }
         def violations = []
+
         scannedSources.each { sourceFile ->
             violations.addAll(findForbiddenImports(sourceFile, forbiddenEdges))
         }
+
         if (!violations.isEmpty()) {
             // GradleException is the idiomatic build-failure signal; its clean
             // message reads as the gate's verdict. The editor flags it as an
             // unresolved class because an applied script has no Gradle API on
             // its classpath - a known tooling false positive, not a defect, so
             // do not "fix" it by swapping in a java.lang exception.
-            throw new GradleException("Package layering violated:\n  " +
-                    violations.join('\n  '))
+            throw new GradleException("Package layering violated:\n  "
+                + violations.join('\n  '))
         }
     }
 }

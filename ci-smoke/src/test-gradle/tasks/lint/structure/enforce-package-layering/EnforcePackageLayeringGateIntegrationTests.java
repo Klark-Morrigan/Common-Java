@@ -42,10 +42,21 @@ class EnforcePackageLayeringGateIntegrationTests {
         "under: '" + CLOSED_PACKAGE_ROOT + "', of: '" + FORBIDDEN_PACKAGE_ROOT + "'",
         "under: '" + CLOSED_PACKAGE_ROOT + "', of: '" + SECOND_FORBIDDEN_PACKAGE_ROOT + "'");
 
+    // The same rule at the narrower width: the closed package alone, with its
+    // own subpackages left free to import what it may not.
+    private static final String CLOSED_EXACTLY_TO_THE_FEATURE = buildEdgeDeclaration(
+        "exactly: '" + CLOSED_PACKAGE_ROOT + "', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
+
     // An edge naming only the closed root, which says nothing about what it is
     // closed to - the shape a misspelt or forgotten 'of:' takes.
     private static final String HALF_DECLARED_EDGE = buildEdgeDeclaration(
         "under: '" + CLOSED_PACKAGE_ROOT + "'");
+
+    // An edge closing one root at both widths at once, which states two
+    // different rules and cannot mean both.
+    private static final String EDGE_CLOSED_AT_BOTH_WIDTHS = buildEdgeDeclaration(
+        "under: '" + CLOSED_PACKAGE_ROOT + "', exactly: '" + CLOSED_PACKAGE_ROOT
+            + "', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
 
     @Test
     void failsWhenProductionCodeImportsTheForbiddenRoot(@TempDir Path projectDir)
@@ -150,7 +161,50 @@ class EnforcePackageLayeringGateIntegrationTests {
         var result = runGateExpectingFailure(projectDir, HALF_DECLARED_EDGE);
 
         assertThat(result.getOutput())
-            .contains("forbidImport needs both 'under'");
+            .contains("forbidImport needs the package root that is closed");
+    }
+
+    @Test
+    void failsWhenTheClosedPackageItselfImportsTheForbiddenRootAtTheNarrowWidth(
+            @TempDir Path projectDir) throws IOException {
+
+        // The package named is closed at either width; what differs is how far
+        // the rule reaches beneath it.
+        writeJavaSource(projectDir, "src/main/java", "framework-root-importing-the-feature");
+
+        var result = runGateExpectingFailure(projectDir, CLOSED_EXACTLY_TO_THE_FEATURE);
+
+        assertThat(result.getOutput())
+            .contains("example.framework itself may not import example.feature: "
+                + "example.feature.view.FeatureView");
+    }
+
+    @Test
+    void failsWhenTheClosedPackageItselfImportsTheForbiddenRootAtTheWideWidth(
+            @TempDir Path projectDir) throws IOException {
+
+        // The root of a closed subtree is inside it, so the wide width reaches
+        // the same file the narrow one does - the two differ only below it.
+        writeJavaSource(projectDir, "src/main/java", "framework-root-importing-the-feature");
+
+        var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURE);
+
+        assertThat(result.getOutput())
+            .contains("example.framework may not import example.feature");
+    }
+
+    @Test
+    void failsWhenAnEdgeClosesItsRootAtBothWidthsAtOnce(@TempDir Path projectDir)
+            throws IOException {
+
+        // Two different rules over one pair of roots. Reading either and
+        // ignoring the other would enforce something nobody declared.
+        writeJavaSource(projectDir, "src/main/java", "framework-importing-the-feature");
+
+        var result = runGateExpectingFailure(projectDir, EDGE_CLOSED_AT_BOTH_WIDTHS);
+
+        assertThat(result.getOutput())
+            .contains("forbidImport closes a package root one way or the other");
     }
 
     @Test
@@ -176,6 +230,22 @@ class EnforcePackageLayeringGateIntegrationTests {
         writeJavaSource(projectDir, "src/main/java", "framework-importing-nothing-forbidden");
 
         var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURE);
+
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
+    }
+
+    @Test
+    void passesWhenOnlyASubpackageOfTheNarrowlyClosedPackageImportsTheForbiddenRoot(
+            @TempDir Path projectDir) throws IOException {
+
+        // The whole reason the narrow width exists. A package closed to one of
+        // its own subpackages cannot be closed as a subtree, or the rule would
+        // shut that subpackage off from its siblings too - and there would be
+        // no way to state the edge at all.
+        writeJavaSource(projectDir, "src/main/java", "framework-importing-the-feature");
+
+        var result = runGateExpectingSuccess(projectDir, CLOSED_EXACTLY_TO_THE_FEATURE);
 
         assertThat(result.task(TASK_PATH).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
