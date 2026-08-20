@@ -34,6 +34,15 @@ repositories {
     mavenCentral()
 }
 
+// The import blocks a project sorts into, for a consumer that names none of its
+// own. Everything it compiles against in one block, the JDK last: the ordering
+// every Java project agrees on, and the only part of the question a repo that
+// knows nothing about its consumers can answer. A layer that does know - the
+// Starsector conventions, for the mods - assigns the real list over this, and a
+// default is set rather than left empty because checkstyle fails on a property
+// its config names and nothing supplies.
+def defaultImportGroups = '*,java'
+
 checkstyle {
     toolVersion = '10.20.1'
     // Resolve the shared config relative to THIS script's own location, not the
@@ -44,6 +53,13 @@ checkstyle {
     // rather than a tolerated warning count.
     ignoreFailures = false
     maxWarnings = 0
+    // Static imports sort into the same blocks as the rest, so both properties
+    // carry one list: two lists would let a project's static imports fall into
+    // blocks its plain ones do not have.
+    configProperties = [
+        importGroups: defaultImportGroups,
+        staticImportGroups: defaultImportGroups,
+    ]
 }
 
 dependencies {
