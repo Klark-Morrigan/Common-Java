@@ -39,6 +39,23 @@ consumers are checked out as siblings under the same parent directory, so
 a relative path is the lowest-ceremony single source of truth. No
 `settings.gradle` change is needed.
 
+Checkstyle runs from `gradle/checkstyle.xml`, whose import-order rule takes
+the blocks as a property rather than naming any consumer's packages. The
+default is everything-then-the-JDK; a consumer (or a layer above it, such
+as a family's own conventions script) states its real blocks over the top:
+
+```groovy
+def importGroups = 'com.example.api,mylib,myapp,/^org\\./,java'
+
+checkstyle.configProperties.importGroups = importGroups
+checkstyle.configProperties.staticImportGroups = importGroups
+```
+
+Every group a project imports from has to be named. Checkstyle sorts an
+import matching no group after every named one - below `java.*` - so a
+package left off the list fails in a way that reads as nothing to do with
+the list.
+
 ## Lint gates
 
 `java-conventions.gradle` also applies the gates under
