@@ -64,8 +64,8 @@ dependencies {
 
 def testGradle = tasks.register('testGradle', Test) {
 
-    description = 'Runs TestKit integration tests for the shared Gradle gates '
-        + 'and the on-demand formatter.'
+    description = ('Runs TestKit integration tests for the shared Gradle gates '
+        + 'and the on-demand formatter.')
 
     group = 'verification'
     testClassesDirs = sourceSets.testGradle.output.classesDirs
