@@ -83,7 +83,8 @@ def testGradle = tasks.register('testGradle', Test) {
     // scripts live one directory up, under Common-Java/gradle/tasks.
     // Two shared helpers are runtime inputs of these tests even though no test
     // names either: every gate applies the stamp helper, and both formatter
-    // passes apply the source-set selector. Editing one must re-run them.
+    // passes plus the blank-line gate apply the source-set selector. Editing one
+    // must re-run them.
     inputs.file(file('../gradle/tasks/lint/lint-gate-stamp.gradle'))
         .withPropertyName('lintGateStampScript')
 

@@ -8,43 +8,82 @@
 // import blocks, between members, ...); two or more in a row are visual
 // noise with no meaning, so they are rejected. No bytecode-level tool can see
 // this - blank lines are erased by compilation - so it is enforced as a
-// source-text pass over both main and test trees, reading Kotlin (KMO) as
+// source-text pass over the project's own source, reading Kotlin (KMO) as
 // well as Java.
+//
+// Every source set the project declares, rather than a list of tree names.
+// The rule is about how code reads, which is a property of the code and not of
+// which tree it sits in - and a gate that names its trees silently stops
+// covering a source set the moment one is added, which is how a developer-
+// tooling tree came to accrue violations while the gate reported success.
 // Applied by this script, not assumed from the conventions file: the gate is
 // applied on its own by its integration test, so it has to carry what it uses.
-apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate-stamp.gradle')
+apply from: new File(
+    buildscript.sourceFile.parentFile,
+    '../lint-gate-stamp.gradle')
+
+apply from: new File(
+    buildscript.sourceFile.parentFile,
+    '../../format/formatted-source-sets.gradle')
+
+// Source sets are the java plugin's, so a build applying this gate on its own
+// has to have applied that plugin first. Refused here, in the terms of what the
+// gate needs, rather than left to surface as a missing-property failure from
+// inside the task - where the reader is looking at blank lines, not plugins.
+if (!project.pluginManager.hasPlugin('java')) {
+    throw new GradleException('enforceSingleBlankLines needs the java plugin: it reads '
+        + "the project's source sets to find the trees it scans.")
+}
 
 def enforceSingleBlankLines = tasks.register('enforceSingleBlankLines') {
-    description = 'Fails the build when a source file has two or more ' +
-            'consecutive blank lines.'
+
+    description = ('Fails the build when a source file has two or more '
+        + 'consecutive blank lines.')
+
     group = 'verification'
 
-    // Scan production and test sources alike: the rule is about how the code
-    // reads, which is independent of which tree a file lives in.
-    def sourceRoots = [file('src/main'), file('src/test')]
-    // Declare an input only when it exists: Gradle validates a declared input
-    // directory is present, so an absent tree (a mod with no tests, say) would
-    // otherwise fail configuration rather than skip. The doLast guards the
-    // same absence at execution time.
-    sourceRoots.findAll { it.exists() }.eachWithIndex { root, index ->
-        inputs.dir(root).withPropertyName("sourceRoot${index}")
+    // Resolved lazily, because a project declares its own source sets in a
+    // build script that runs after this one is applied - so a list taken now
+    // would see only the ones the java plugin starts with.
+    //
+    // Held out where the formatter is held out. A source set is exempted for a
+    // reason that covers the whole of it - it mirrors a third party's shape, or
+    // it is generated - and that reason applies to its blank lines exactly as it
+    // applies to the rest of its layout.
+    def scannedSources = project.provider {
+        selectFormattedSourceSets().collect { sourceSet ->
+            sourceSet.allSource.matching { include '**/*.java', '**/*.kt' }
+        }
     }
+    // A file collection rather than declared directories: it resolves at
+    // execution time, so an absent tree is simply no files rather than the
+    // configuration failure a declared-but-missing input directory would be.
+    inputs.files(scannedSources).withPropertyName('scannedSources')
 
     doLast {
+
         def violations = []
-        sourceRoots.findAll { it.exists() }.each { root ->
-            fileTree(root).matching { include '**/*.java', '**/*.kt' }.each { sourceFile ->
+
+        scannedSources.get().each { sources ->
+
+            sources.each { sourceFile ->
+
                 // Track the length of the current run of blank lines. A line is
                 // "blank" when it holds only whitespace. The second blank line
                 // in a row (and every further one) is the violation; reporting
                 // each gives a precise click-through location per offending gap.
                 def blankRun = 0
+
                 sourceFile.eachLine { line, lineNumber ->
+
                     if (line.trim().isEmpty()) {
+
                         blankRun++
+
                         if (blankRun >= 2) {
-                            violations << "${sourceFile}:${lineNumber}: " +
-                                    "consecutive blank line; only one is allowed"
+
+                            violations << ("${sourceFile}:${lineNumber}: "
+                                + "consecutive blank line; only one is allowed")
                         }
                     } else {
                         blankRun = 0
@@ -58,8 +97,8 @@ def enforceSingleBlankLines = tasks.register('enforceSingleBlankLines') {
             // unresolved class because an applied script has no Gradle API on
             // its classpath - a known tooling false positive, not a defect, so
             // do not "fix" it by swapping in a java.lang exception.
-            throw new GradleException("Blank-line convention violated:\n  " +
-                    violations.join('\n  '))
+            throw new GradleException("Blank-line convention violated:\n  "
+                + violations.join('\n  '))
         }
     }
 }
