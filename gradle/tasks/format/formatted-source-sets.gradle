@@ -1,17 +1,22 @@
-// Shared plumbing for the formatter's two passes: it answers "which source sets does
-// the formatter touch here?" once, for both.
+// Answers "which source sets is this repo's layout its own to shape?" once, for
+// everything that shapes or judges layout - the formatter's two passes and the
+// blank-line gate alike.
 //
-// Both passes honour the same exemption list, because a source set is held out for a
+// All of them honour the same exemption list, because a source set is held out for a
 // reason that covers all of it - it mirrors a third party's shape, or it is generated
-// - and that reason applies to its code layout and to its doc comments alike. The
-// list is also the formatter's one consumer-facing knob, so its property name is part
-// of a public contract; resolving it here keeps that name from being spelled in two
-// scripts that could then drift apart.
+// - and that reason applies to its code layout, its doc comments and its blank lines
+// alike. The list is also the one consumer-facing knob here, so its property name is
+// part of a public contract; resolving it here keeps that name from being spelled in
+// several scripts that could then drift apart.
 //
-// It lives in its own script, applied by each pass rather than by spotless-java.gradle,
-// for the same reason lint-gate-stamp.gradle does: the aligner can be applied on its
-// own by a repo that wants only that pass, so it has to carry what it uses rather than
-// depend on being applied in company.
+// Still named for the formatter, in the script and in the property. Renaming a knob a
+// consumer sets is a contract change, and the reading it encodes - "not ours to shape"
+// - is what a new reader needs rather than which pass asked first.
+//
+// It lives in its own script, applied by each reader rather than by
+// spotless-java.gradle, for the same reason lint-gate-stamp.gradle does: any one of
+// them can be applied on its own by a repo that wants only that pass, so it has to
+// carry what it uses rather than depend on being applied in company.
 //
 // Applying this more than once per project is harmless - each pass applies it, and the
 // assignment below simply overwrites an identical closure.
