@@ -1,0 +1,28 @@
+package example.production;
+
+// Every line here says a tier-two word in its production sense, and the gate
+// must clear all of them. These are not hypotheticals: each is the shape real
+// geometry, UI and placeholder prose takes. A flat ban on 'test', 'stub' or
+// 'assert' would fire on this file, and a gate that fires on correct writing
+// trains its next reader to reach for the allowlist instead of to read.
+final class Sample {
+
+    // Hit-tests every laid-out row of boxes: which box, if any, a point falls
+    // in. The half-plane test is the side to retain, and the band test reduces
+    // exactly to the line test when girth is zero.
+    boolean containsPoint() {
+        // Predicate::test is a JDK method name, so no rename can reach it.
+        return holds.test(high);
+    }
+
+    // TODO: production implementation. Today's stub returns null, so the
+    // deposit pass falls through and upkeep stays stubbed at 0f.
+    Object pickDeposit() {
+        return null;
+    }
+
+    // Two names for one hop: the no-arg name asserts the hop takes nothing,
+    // where this one would leave that open.
+    void hopOnce() {
+    }
+}

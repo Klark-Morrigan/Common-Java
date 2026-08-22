@@ -25,21 +25,30 @@ sourceSets {
         // root - the language prefix plus distinct names keep them from
         // colliding there.
         def scriptTestDirs = [
-                'src/test-gradle/tasks/format/align-javadoc-params',
-                'src/test-gradle/tasks/lint/docs/enforce-doc-links-resolve',
-                'src/test-gradle/tasks/lint/formatting/tests/enforce-single-blank-lines',
-                'src/test-gradle/tasks/lint/literals/tests/enforce-no-magic-literals-kotlin',
-                'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes',
-                'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks',
-                'src/test-gradle/tasks/lint/structure/enforce-methods-ordered-by-visibility',
-                'src/test-gradle/tasks/lint/structure/enforce-package-layering',
-                'src/test-gradle/tasks/lint/structure/enforce-package-vocabulary',
-                'src/test-gradle/tasks/lint/structure/tests/enforce-tests-nested',
+            'src/test-gradle/tasks/format/align-javadoc-params',
+            'src/test-gradle/tasks/lint/docs/enforce-doc-links-resolve',
+            'src/test-gradle/tasks/lint/formatting/tests/enforce-single-blank-lines',
+            'src/test-gradle/tasks/lint/literals/tests/enforce-no-magic-literals-kotlin',
+            'src/test-gradle/tasks/lint/naming/enforce-no-test-vocabulary',
+            'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes',
+            'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks',
+            'src/test-gradle/tasks/lint/structure/enforce-methods-ordered-by-visibility',
+            'src/test-gradle/tasks/lint/structure/enforce-package-layering',
+            'src/test-gradle/tasks/lint/structure/enforce-package-vocabulary',
+            'src/test-gradle/tasks/lint/structure/tests/enforce-tests-nested',
         ]
         java.srcDirs = scriptTestDirs
+
         resources.srcDirs = scriptTestDirs
         resources.exclude '**/*.java'
     }
+}
+
+// The TestKit tree is a test tree that Gradle's default naming does not cover,
+// so the test-vocabulary gate has to be told: these are the gates' own tests,
+// and half of them are about the words mocks and suites are described in.
+enforceNoTestVocabulary {
+    exemptSourceSet name: 'test-gradle'
 }
 
 configurations {
@@ -54,11 +63,14 @@ dependencies {
 }
 
 def testGradle = tasks.register('testGradle', Test) {
-    description = 'Runs TestKit integration tests for the shared Gradle gates ' +
-            'and the on-demand formatter.'
+
+    description = 'Runs TestKit integration tests for the shared Gradle gates '
+        + 'and the on-demand formatter.'
+
     group = 'verification'
     testClassesDirs = sourceSets.testGradle.output.classesDirs
     classpath = sourceSets.testGradle.runtimeClasspath
+
     useJUnitPlatform()
     testLogging {
         events 'passed', 'skipped', 'failed'
@@ -73,9 +85,10 @@ def testGradle = tasks.register('testGradle', Test) {
     // names either: every gate applies the stamp helper, and both formatter
     // passes apply the source-set selector. Editing one must re-run them.
     inputs.file(file('../gradle/tasks/lint/lint-gate-stamp.gradle'))
-            .withPropertyName('lintGateStampScript')
+        .withPropertyName('lintGateStampScript')
+
     inputs.file(file('../gradle/tasks/format/formatted-source-sets.gradle'))
-            .withPropertyName('formattedSourceSetsScript')
+        .withPropertyName('formattedSourceSetsScript')
 
     // One script binds three ways - as a task input, under an
     // up-to-dateness property name, and as the system property its test reads
@@ -84,31 +97,66 @@ def testGradle = tasks.register('testGradle', Test) {
     // three drifting apart. Named for scripts rather than gates: the formatter's
     // aligner pass binds the same three ways and is not a gate.
     def declareScriptUnderTest = { String propertyName, String systemPropertyKey, String path ->
+
         def scriptUnderTest = file(path)
         inputs.file(scriptUnderTest).withPropertyName(propertyName)
         systemProperty systemPropertyKey, scriptUnderTest.absolutePath
     }
 
-    declareScriptUnderTest('alignJavadocParamsScript', 'align.javadoc.params.script.path',
-            '../gradle/tasks/format/align-javadoc-params.gradle')
-    declareScriptUnderTest('docLinksGateScript', 'doc.links.gate.script.path',
-            '../gradle/tasks/lint/docs/enforce-doc-links-resolve.gradle')
-    declareScriptUnderTest('fakeGateScript', 'gate.script.path',
-            '../gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes.gradle')
-    declareScriptUnderTest('mockGateScript', 'mock.gate.script.path',
-            '../gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks.gradle')
-    declareScriptUnderTest('methodsOrderGateScript', 'methods.order.gate.script.path',
-            '../gradle/tasks/lint/structure/enforce-methods-ordered-by-visibility.gradle')
-    declareScriptUnderTest('packageLayeringGateScript', 'package.layering.gate.script.path',
-            '../gradle/tasks/lint/structure/enforce-package-layering.gradle')
-    declareScriptUnderTest('packageVocabularyGateScript', 'package.vocabulary.gate.script.path',
-            '../gradle/tasks/lint/structure/enforce-package-vocabulary.gradle')
-    declareScriptUnderTest('nestedGateScript', 'nested.gate.script.path',
-            '../gradle/tasks/lint/structure/tests/enforce-tests-nested.gradle')
-    declareScriptUnderTest('singleBlankGateScript', 'single.blank.gate.script.path',
-            '../gradle/tasks/lint/formatting/enforce-single-blank-lines.gradle')
-    declareScriptUnderTest('kotlinLiteralsGateScript', 'kotlin.literals.gate.script.path',
-            '../gradle/tasks/lint/literals/enforce-no-magic-literals-kotlin.gradle')
+    declareScriptUnderTest(
+        'alignJavadocParamsScript',
+        'align.javadoc.params.script.path',
+        '../gradle/tasks/format/align-javadoc-params.gradle')
+
+    declareScriptUnderTest(
+        'docLinksGateScript',
+        'doc.links.gate.script.path',
+        '../gradle/tasks/lint/docs/enforce-doc-links-resolve.gradle')
+
+    declareScriptUnderTest(
+        'fakeGateScript',
+        'gate.script.path',
+        '../gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes.gradle')
+
+    declareScriptUnderTest(
+        'mockGateScript',
+        'mock.gate.script.path',
+        '../gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks.gradle')
+
+    declareScriptUnderTest(
+        'testVocabularyGateScript',
+        'test.vocabulary.gate.script.path',
+        '../gradle/tasks/lint/naming/enforce-no-test-vocabulary.gradle')
+
+    declareScriptUnderTest(
+        'methodsOrderGateScript',
+        'methods.order.gate.script.path',
+        '../gradle/tasks/lint/structure/enforce-methods-ordered-by-visibility.gradle')
+
+    declareScriptUnderTest(
+        'packageLayeringGateScript',
+        'package.layering.gate.script.path',
+        '../gradle/tasks/lint/structure/enforce-package-layering.gradle')
+
+    declareScriptUnderTest(
+        'packageVocabularyGateScript',
+        'package.vocabulary.gate.script.path',
+        '../gradle/tasks/lint/structure/enforce-package-vocabulary.gradle')
+
+    declareScriptUnderTest(
+        'nestedGateScript',
+        'nested.gate.script.path',
+        '../gradle/tasks/lint/structure/tests/enforce-tests-nested.gradle')
+
+    declareScriptUnderTest(
+        'singleBlankGateScript',
+        'single.blank.gate.script.path',
+        '../gradle/tasks/lint/formatting/enforce-single-blank-lines.gradle')
+
+    declareScriptUnderTest(
+        'kotlinLiteralsGateScript',
+        'kotlin.literals.gate.script.path',
+        '../gradle/tasks/lint/literals/enforce-no-magic-literals-kotlin.gradle')
 
     // The Kotlin literal gate is the one that reads a second file by path, its
     // detekt.yml, so that is an input too: editing the rule must re-run the

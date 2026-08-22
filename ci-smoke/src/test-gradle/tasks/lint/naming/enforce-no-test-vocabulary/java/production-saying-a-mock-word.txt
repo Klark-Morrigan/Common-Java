@@ -1,0 +1,11 @@
+package example.production;
+
+// The shape the gate exists for: the class compiles, nothing imports a test
+// library, and the Javadoc still describes the caller instead of the subject.
+// A reader of this class is told about a harness it must not know about.
+final class Sample {
+
+    // Absent during early engine boot, or when the sector is a mock.
+    void resolveColour() {
+    }
+}
