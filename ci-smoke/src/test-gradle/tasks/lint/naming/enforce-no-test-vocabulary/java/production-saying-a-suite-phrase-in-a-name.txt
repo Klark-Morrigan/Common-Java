@@ -1,0 +1,10 @@
+package example.production;
+
+// The case a hand sweep misses, and the reason the phrase tier is matched by
+// words rather than by text: the phrase is spelt in camel case, so searching
+// for it as prose finds nothing and the name reads as one token.
+final class Sample {
+
+    void buildUnitTestHarness() {
+    }
+}

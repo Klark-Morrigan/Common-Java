@@ -1,0 +1,9 @@
+package example.production
+
+// Kotlin is half the production surface in the consuming mods, and the leak
+// arrives through KDoc exactly as it does through Javadoc.
+class Sample {
+
+    /** Returns null only in the harness, where the dialog is a mock. */
+    fun beginTooltip(): Any? = null
+}

@@ -1,0 +1,359 @@
+// Test-vocabulary gate, applied by java-conventions.gradle into every KM
+// project. It keeps the words a test suite is written in out of the trees that
+// ship: production code and the markdown filed beside it may not talk about
+// mocks, fakes, stubbing or unit tests.
+//
+// It is the inverse of its structure sibling, enforce-package-vocabulary. That
+// gate closes one package root to words a consuming build names, because a
+// domain vocabulary is a per-project fact. This one closes *everything except*
+// the fixture roots to a word list the gate itself owns, because the test
+// vocabulary is the same in every repo - there is nothing for a consumer to
+// decide beyond where its fixtures live.
+//
+// The words leak in through Javadoc rather than through code. A test-only
+// detail written into a production class ("returns null only in the test
+// harness", "can be unit-tested against mocks") describes the caller instead of
+// the subject, so the class documents a consumer it must not know about, and no
+// compiler or import graph can see it. A hand sweep finds them once; this finds
+// them on every build.
+//
+// A consuming build declares only its exemptions:
+//
+//     enforceNoTestVocabulary {
+//         exemptSourceSet name: 'bridgestubs'
+//         exemptPackage root: 'kmlib.testfixtures'
+//         allowWord word: 'mocking',
+//                 inFile: 'src/main/java/kmlib/starsector/ui/README.md'
+//     }
+//
+// A build that declares nothing still gets the gate over src/main, which is
+// what lets the conventions file apply it everywhere rather than leaving each
+// consumer to opt in.
+
+// Applied by this script, not assumed from the conventions file: the gate is
+// applied on its own by its integration test, so it has to carry what it uses.
+apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate-stamp.gradle')
+
+// One word of a name, as a reader reads it: a run of letters, parted at each
+// camel hump. This is what lets the gate judge an identifier and a sentence by
+// the same rule - `buildSectorMock` says the same three words the prose does -
+// while leaving `mockingbird` alone, since `mock` is not one of its words.
+//
+// Shares its shape with the package-vocabulary gate deliberately: a reader who
+// has understood one word list has understood both. Kept as its own copy rather
+// than hoisted to a shared script, because the two gates must be applicable one
+// at a time and in isolation by their integration tests.
+def nameWordPattern = ~/\p{Lu}?\p{Ll}+|\p{Lu}+(?!\p{Ll})/
+
+// The file types the vocabulary leaks into: code, and the markdown filed beside
+// it. Resources stay out of reach - a fixture column or a strings file is data
+// rather than prose, and player-facing copy answers to its own rules.
+def scannedFileIncludes = ['**/*.java', '**/*.kt', '**/*.md']
+
+// Words that carry no meaning outside a test. Each is banned on sight, because
+// there is no sentence about production behaviour that needs to say it.
+//
+// Spelt lower case and matched a whole word at a time, so `Mockito`, `mockito`
+// and `sectorMockito` are all the one word, while `mockup` is its own.
+//
+// `junit` catches the lower-case package form (`org.junit.jupiter`); the prose
+// spelling `JUnit` parts into `j` + `unit` at the camel hump, so it is carried
+// as a phrase below instead.
+def bannedWords = [
+    'mock', 'mocks', 'mocked', 'mocking', 'mockito', 'mockk',
+    'fake', 'fakes', 'faked',
+    'stubbing',
+    'junit', 'assertj',
+    'testfixtures',
+]
+
+// Words that mean something real in production, so only the phrases that pin
+// them to a test suite are banned.
+//
+// This is the whole reason the list is tiered rather than flat. A bare ban on
+// `test` is unusable: production prose says `hit-test`, `half-plane test` and
+// `feasibility test`, and `Predicate::test` is a JDK method no rename can
+// reach. Likewise `stub` names a placeholder awaiting implementation and
+// `assert` is ordinary English for what a name claims. Banning those outright
+// would fire on correct writing, and a gate that cries wolf trains its next
+// reader to reach for the allowlist instead of to read.
+//
+// So the trigger is adjacency: `test` next to a suite noun (`harness`, `case`,
+// `suite`, `double`, `fixture`) or next to the article or preposition that only
+// a suite takes (`the tests`, `in tests`, `for tests`). Each entry below was
+// measured against the production trees before it was added - it catches a real
+// leak and fires on nothing correct.
+//
+// Matched as a run of consecutive words, so a phrase is found whether it was
+// written as prose, wrapped across two lines by the column limit, or spelt as
+// part of a name (`unitTestHarness`).
+def bannedPhrases = [
+    'unit test', 'unit tests', 'unit tested', 'unit testing',
+    'test harness', 'test case', 'test cases', 'test suite', 'test suites',
+    'test double', 'test doubles', 'test fixture', 'test fixtures',
+    'the tests', 'in tests', 'for tests', 'tests can', 'tests assert',
+    'tests stub', 'tests which',
+    'assert that', 'j unit',
+]
+
+// The source sets a test vocabulary belongs to, exempt without a consumer
+// saying so. Gradle's own names for the two trees every JVM project may have;
+// a project that keeps fixtures anywhere else declares it.
+def defaultExemptSourceSets = ['test', 'testfixtures']
+
+// Answers whether a file sits at or under a package root, matched a whole
+// segment at a time so `kmlib.testfixturesold` is not read as living under
+// `kmlib.testfixtures`.
+//
+// Judged by directory rather than by the package a source file declares:
+// markdown carries no package declaration and is half of what the rule is
+// about, so the tree is the subject here rather than the compilation unit.
+def isUnderPackageRoot = { List pathSegments, String packageRoot ->
+
+    def rootSegments = packageRoot.tokenize('.')*.toLowerCase()
+    def lastStart = pathSegments.size() - rootSegments.size()
+
+    for (int start = 0; start <= lastStart; start++) {
+
+        def candidate = pathSegments.subList(start, start + rootSegments.size())
+
+        if (candidate*.toLowerCase() == rootSegments) {
+            return true
+        }
+    }
+    return false
+}
+
+// Every word the file says, in reading order, each paired with the line it sits
+// on. Collected across the whole file rather than per line so a phrase that
+// wraps in prose is still one phrase; the report names the line its first word
+// is on, which is where a reader starts looking.
+def readNameWords = { File sourceFile ->
+
+    def words = []
+
+    sourceFile.eachLine { line, lineNumber ->
+
+        def matcher = nameWordPattern.matcher(line)
+
+        while (matcher.find()) {
+            words << [text: matcher.group().toLowerCase(), line: lineNumber]
+        }
+    }
+    return words
+}
+
+// Reports one message per banned entry this file says. Single words and phrases
+// run through the same consecutive-word match, so a one-word entry is simply a
+// phrase of length one and the two tiers need no separate scan.
+def findTestVocabulary = { File sourceFile, String reportedPath, List entries ->
+
+    def found = []
+    def words = readNameWords(sourceFile)
+
+    entries.each { entry ->
+
+        if (entry.words.size() > words.size()) {
+            return
+        }
+        for (int start = 0; start <= words.size() - entry.words.size(); start++) {
+
+            def spoken = words
+                .subList(start, start + entry.words.size())
+                .collect { it.text }
+
+            if (spoken == entry.words) {
+
+                found << ("${reportedPath}:${words[start].line}: production "
+                    + "sources may not say \"${entry.declared}\"")
+            }
+        }
+    }
+    return found
+}
+
+// Filled by the consuming build through the task's own declarations, so they
+// are captured here rather than inside the task: the execution-time action
+// reads the same lists the declarations appended to.
+def exemptSourceSets = [] as Set
+def exemptPackages = []
+def allowances = []
+
+// Both tiers become one list of entries, each carrying the text it was declared
+// as so a report quotes what a reader would search the build for.
+def bannedEntries = (bannedWords + bannedPhrases).collect { String entry ->
+    [declared: entry, words: entry.toLowerCase().tokenize(' ')]
+}
+
+def enforceNoTestVocabulary = tasks.register('enforceNoTestVocabulary') {
+
+    description = ('Fails the build when production sources use the vocabulary '
+        + 'of a test suite (mock, fake, stubbing, unit test).')
+
+    group = 'verification'
+
+    // Exempts one whole source set, named as its directory under src/. For a
+    // tree that is test-adjacent without being src/test - a fixture set, or the
+    // hand-written bridge stubs that mirror a third party's API.
+    //
+    // Named arguments rather than positional ones throughout these
+    // declarations, matching the package-vocabulary gate: every value is plain
+    // text, so a transposition would otherwise be silently accepted.
+    ext.exemptSourceSet = { Map exemption ->
+
+        if (!exemption.name) {
+
+            throw new GradleException("exemptSourceSet needs 'name' (the "
+                + "directory under src/ that holds test-vocabulary "
+                + "sources); got: ${exemption}")
+        }
+        exemptSourceSets << exemption.name.toLowerCase()
+    }
+
+    // Exempts one package root wherever it sits. This is what a project whose
+    // fixtures ship in the production jar declares: the tree is main by source
+    // set but a fixture by purpose, and only the package says so.
+    ext.exemptPackage = { Map exemption ->
+
+        if (!exemption.root) {
+
+            throw new GradleException("exemptPackage needs 'root' (the package "
+                + "root that holds test-vocabulary sources); got: ${exemption}")
+        }
+        exemptPackages << exemption.root
+    }
+
+    // Exempts one file from one entry. Declared here rather than as a marker
+    // comment in the file itself, and that is the point: an entry is a line
+    // someone adds to the build and a reviewer reads in the diff, where an
+    // inline opt-out is invisible until somebody greps for it.
+    //
+    // The word is spelt exactly as the banned list declares it, phrases
+    // included ('tests can'), so an allowance and the rule it answers read
+    // alike. The path is project-relative, spelt as it is on disk.
+    ext.allowWord = { Map exemption ->
+
+        if (!exemption.word || !exemption.inFile) {
+
+            throw new GradleException("allowWord needs both 'word' (the entry "
+                + "being let through) and 'inFile' (the project-relative "
+                + "path it is allowed in); got: ${exemption}")
+        }
+        allowances << [word: exemption.word.toLowerCase(), inFile: exemption.inFile]
+    }
+
+    // Declared as the matched files rather than as the directories: an absent
+    // tree is then an empty scan rather than the configuration failure a
+    // declared-but-missing input directory would be.
+    def scannedSources = fileTree('src') {
+        include scannedFileIncludes
+    }
+
+    inputs.files(scannedSources).withPropertyName('scannedSources')
+
+    // The banned list is an input as much as the sources are - adding an entry
+    // has to re-run the gate rather than leave it UP-TO-DATE against the list
+    // it was last cleared under. Snapshotted as plain strings, since an input
+    // property's value has to be serialisable.
+    inputs.property('bannedEntries', bannedEntries.collect { it.declared }.sort())
+
+    // The exemptions are inputs for the same reason, and wrapped in providers
+    // because they are declared after this registration runs.
+    inputs.property('exemptSourceSets', providers.provider { exemptSourceSets.sort() })
+    inputs.property('exemptPackages', providers.provider { exemptPackages.sort() })
+
+    inputs.property('allowances', providers.provider {
+        allowances
+            .collect { "${it.word} in ${it.inFile}".toString() }
+            .sort()
+    })
+
+    doLast {
+
+        def violations = []
+        def scannedPaths = [] as Set
+        def exemptedPaths = [] as Set
+
+        scannedSources.visit { details ->
+
+            if (details.directory) {
+                return
+            }
+            // Reported and matched as one path spelling: project-relative with
+            // forward slashes, so an allowance reads the same on every machine
+            // and a report is clickable from the project root.
+            def reportedPath = 'src/' + details.path
+            def pathSegments = details.relativePath.segments as List
+
+            // The first segment under src/ is the source set's own directory,
+            // which is what makes src/test exempt without naming every package
+            // inside it.
+            def sourceSetName = pathSegments.first().toLowerCase()
+
+            if (sourceSetName in defaultExemptSourceSets
+                    || sourceSetName in exemptSourceSets) {
+
+                exemptedPaths << reportedPath
+                return
+            }
+
+            if (exemptPackages.any { isUnderPackageRoot(pathSegments, it) }) {
+
+                exemptedPaths << reportedPath
+                return
+            }
+
+            scannedPaths << reportedPath
+            // An allowance is per file and per entry, so a word let through one
+            // README is still banned in the file next to it - which is the whole
+            // of what makes the escape hatch narrow enough to keep.
+            def allowedWords = allowances
+                .findAll { it.inFile == reportedPath }
+                .collect { it.word }
+
+            def applicableEntries = bannedEntries.findAll {
+                !(it.declared.toLowerCase() in allowedWords)
+            }
+
+            violations.addAll(
+                findTestVocabulary(details.file, reportedPath, applicableEntries))
+        }
+        // An allowance naming a file the gate never judges is dead config: it
+        // exempts nothing, and the word it was written for is loose again the
+        // moment the file it meant comes back under another name. Reported as a
+        // violation rather than ignored, because a silent no-op is the exact
+        // failure this family of gates exists to remove - one level up.
+        //
+        // A path inside an exempt tree counts as stranded too: the whole tree is
+        // already through, so the allowance answers no rule.
+        def strandedAllowances = allowances.findAll { !(it.inFile in scannedPaths) }
+
+        strandedAllowances.each {
+
+            def reason = it.inFile in exemptedPaths
+                ? 'names a file in an exempt tree, which is already allowed'
+                : 'names a file this gate does not scan, so it allows nothing'
+
+            violations << "${it.inFile}: allowWord ${reason}: \"${it.word}\""
+        }
+        if (!violations.isEmpty()) {
+            // GradleException is the idiomatic build-failure signal; its clean
+            // message reads as the gate's verdict. The editor flags it as an
+            // unresolved class because an applied script has no Gradle API on
+            // its classpath - a known tooling false positive, not a defect, so
+            // do not "fix" it by swapping in a java.lang exception.
+            throw new GradleException("Test vocabulary in production sources:\n  "
+                + violations.join('\n  '))
+        }
+    }
+}
+
+// Give the gate an output so it can be skipped while the sources it reads are
+// unchanged; see lint-gate-stamp.gradle.
+declareLintGateStamp(enforceNoTestVocabulary)
+
+// Run the gate as part of the standard verification lifecycle so both a
+// local 'build'/'check' and CI's 'test jar' trip it before tests execute.
+tasks.matching { it.name in ['test', 'check'] }.configureEach {
+    dependsOn enforceNoTestVocabulary
+}

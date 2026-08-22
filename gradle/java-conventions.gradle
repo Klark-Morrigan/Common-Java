@@ -27,8 +27,8 @@ apply plugin: 'checkstyle'
 // Configuration time, so it prints for any invocation rather than only for the
 // tasks that happen to run.
 logger.lifecycle("Toolchain: Gradle ${gradle.gradleVersion}, "
-        + "JVM ${System.getProperty('java.version')} "
-        + "(${System.getProperty('java.vendor')})")
+    + "JVM ${System.getProperty('java.version')} "
+    + "(${System.getProperty('java.vendor')})")
 
 repositories {
     mavenCentral()
@@ -94,33 +94,40 @@ test {
     // be thread-safe. The two hooks live on a TestListener - the task's own
     // afterTest/afterSuite closures are removed in Gradle 10.
     def recordedTestDurations = java.util.Collections.synchronizedList(new ArrayList())
+
     addTestListener(new TestListener() {
+
         void beforeSuite(TestDescriptor suite) {}
-
         void beforeTest(TestDescriptor test) {}
-
         void afterTest(TestDescriptor descriptor, TestResult result) {
             recordedTestDurations << [
-                    name: "${descriptor.className}.${descriptor.name}",
-                    durationMillis: result.endTime - result.startTime]
+                name: "${descriptor.className}.${descriptor.name}",
+                durationMillis: result.endTime - result.startTime]
         }
 
         // Report at the root suite (the one with no parent), which fires once
         // the entire run completes - including failing runs, unlike a doLast
         // action a test failure would skip.
         void afterSuite(TestDescriptor descriptor, TestResult result) {
+
             if (descriptor.parent != null || recordedTestDurations.isEmpty()) {
                 return
             }
+
             logger.lifecycle('Top 10 longest tests:')
+
             recordedTestDurations
-                    .sort { -it.durationMillis }
-                    .take(10)
-                    .eachWithIndex { entry, index ->
+                .sort { -it.durationMillis }
+                .take(10)
+                .eachWithIndex {
+                    entry,
+                    index ->
                         logger.lifecycle(String.format(
-                                '%2d. %6d ms  %s',
-                                index + 1, entry.durationMillis, entry.name))
-                    }
+                            '%2d. %6d ms  %s',
+                            index + 1,
+                            entry.durationMillis,
+                            entry.name))
+                }
         }
     })
 
@@ -144,6 +151,7 @@ jacocoTestReport {
 // Single entry point for "run tests and produce coverage", so CI and local
 // runs invoke the same task name across every repo.
 tasks.register('coverage') {
+    
     group = 'verification'
     description = 'Runs tests and generates JaCoCo coverage reports.'
     dependsOn test, jacocoTestReport
@@ -151,16 +159,18 @@ tasks.register('coverage') {
 
 // Lint gates: generic code-quality, doc and test-structure checks no plain
 // build catches (blank-line runs, magic numbers on Kotlin, test-double naming,
-// method-visibility ordering, package layering and vocabulary, nested test
-// structure, broken doc links). Applied
+// test vocabulary in production sources, method-visibility ordering, package
+// layering and vocabulary, nested test structure, broken doc links). Applied
 // here so every consumer inherits them from one place, alongside checkstyle.
 // Resolved relative to THIS script's own gradle/ dir, the
 // same sibling-checkout convention checkstyle.xml uses. Magic numbers on Java
 // ride in checkstyle.xml above rather than as a separate gate.
 def lintTasksDir = new File(buildscript.sourceFile.parentFile, 'tasks/lint')
+
 apply from: new File(lintTasksDir, 'docs/enforce-doc-links-resolve.gradle')
 apply from: new File(lintTasksDir, 'formatting/enforce-single-blank-lines.gradle')
 apply from: new File(lintTasksDir, 'literals/enforce-no-magic-literals-kotlin.gradle')
+apply from: new File(lintTasksDir, 'naming/enforce-no-test-vocabulary.gradle')
 apply from: new File(lintTasksDir, 'naming/tests/enforce-suffix-on-fakes.gradle')
 apply from: new File(lintTasksDir, 'naming/tests/enforce-suffix-on-mocks.gradle')
 apply from: new File(lintTasksDir, 'structure/enforce-methods-ordered-by-visibility.gradle')
