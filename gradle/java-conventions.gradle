@@ -75,6 +75,22 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+// A project publishing test fixtures builds them against the same stack its own
+// tests run on, so a fixture and the suite standing on it cannot be written
+// against two different assertion or mocking libraries.
+//
+// Guarded on the plugin rather than applied outright: a project with nothing to
+// share declares no fixtures source set, and configurations that do not exist
+// cannot be populated. Mockito is internal to the fixtures rather than exposed,
+// since every consumer of a fixture is a test and already has the stack above.
+plugins.withId('java-test-fixtures') {
+    dependencies {
+        testFixturesImplementation platform('org.junit:junit-bom:5.13.1')
+        testFixturesImplementation 'org.assertj:assertj-core:3.27.7'
+        testFixturesImplementation 'org.mockito:mockito-core:5.18.0'
+    }
+}
+
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     // Java 17 is the baseline target. A consumer that wants a newer release
