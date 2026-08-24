@@ -36,6 +36,11 @@
             <property name="processJavadoc" value="true"/>
         </module>
 
+        <!-- A local declared and never read. Nothing else in the toolchain looks
+             for one: javac has no -Xlint category for it, so the declaration and
+             the work behind it survive every build in silence. -->
+        <module name="UnusedLocalVariable"/>
+
         <!-- Duplicate imports, imports from java.lang, or same-package imports. -->
         <module name="RedundantImport"/>
 
