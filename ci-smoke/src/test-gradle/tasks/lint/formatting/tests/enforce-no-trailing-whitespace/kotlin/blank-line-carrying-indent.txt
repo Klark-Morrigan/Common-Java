@@ -1,0 +1,7 @@
+class Sample {
+    fun first() {
+    }
+   
+    fun second() {
+    }
+}
