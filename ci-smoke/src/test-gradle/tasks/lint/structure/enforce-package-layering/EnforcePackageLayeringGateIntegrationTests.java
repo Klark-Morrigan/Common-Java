@@ -296,7 +296,7 @@ class EnforcePackageLayeringGateIntegrationTests {
     @Test
     void passesWhenTheBuildDeclaresNoEdge(@TempDir Path projectDir)
             throws IOException {
-                
+
         // Every consumer inherits the gate from the shared conventions, so a
         // build that never says what its layers are must check nothing rather
         // than guess at them.

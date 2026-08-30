@@ -27,6 +27,7 @@ sourceSets {
         def scriptTestDirs = [
             'src/test-gradle/tasks/format/align-javadoc-params',
             'src/test-gradle/tasks/lint/docs/enforce-doc-links-resolve',
+            'src/test-gradle/tasks/lint/formatting/tests/enforce-no-trailing-whitespace',
             'src/test-gradle/tasks/lint/formatting/tests/enforce-single-blank-lines',
             'src/test-gradle/tasks/lint/literals/tests/enforce-no-magic-literals-kotlin',
             'src/test-gradle/tasks/lint/naming/enforce-no-test-vocabulary',
@@ -153,6 +154,11 @@ def testGradle = tasks.register('testGradle', Test) {
         'singleBlankGateScript',
         'single.blank.gate.script.path',
         '../gradle/tasks/lint/formatting/enforce-single-blank-lines.gradle')
+
+    declareScriptUnderTest(
+        'trailingWhitespaceGateScript',
+        'trailing.whitespace.gate.script.path',
+        '../gradle/tasks/lint/formatting/enforce-no-trailing-whitespace.gradle')
 
     declareScriptUnderTest(
         'kotlinLiteralsGateScript',

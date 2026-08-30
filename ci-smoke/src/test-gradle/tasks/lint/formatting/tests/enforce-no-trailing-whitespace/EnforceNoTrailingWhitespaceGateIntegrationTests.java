@@ -12,19 +12,20 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Integration test for the shared enforce-single-blank-lines gate: it applies
-// the real gate script into a throwaway project and runs the task, asserting
-// the build outcome and the message a developer sees. Lives in the Common-Java ci-smoke project - the
-// gate script is shared by every consumer; the tests live here beside it.
+// Integration test for the shared enforce-no-trailing-whitespace gate: it
+// applies the real gate script into a throwaway project and runs the task,
+// asserting the build outcome and the message a developer sees. Lives in the
+// Common-Java ci-smoke project - the gate script is shared by every consumer;
+// the tests live here beside it.
 //
 // Violating fixtures are .txt files under java/ and kotlin/ subfolders rather
 // than sources. The gate scans every source set this project declares, and this
 // tree is one of them, so a violating line kept as source here would be a real
 // violation of the gate under test. Default package: the grouping folder is the
 // source root, and its kebab name cannot be a Java package.
-class EnforceSingleBlankLinesGateIntegrationTests {
+class EnforceNoTrailingWhitespaceGateIntegrationTests {
 
-    private static final String TASK_PATH = ":enforceSingleBlankLines";
+    private static final String TASK_PATH = ":enforceNoTrailingWhitespace";
 
     // A Kotlin tree reaches the gate the way it reaches the compiler: because a
     // source set declares it. The Kotlin plugin does that in a real Kotlin build;
@@ -44,10 +45,10 @@ class EnforceSingleBlankLinesGateIntegrationTests {
         "ext.formatterExcludedSourceSets = ['tooling']\n";
 
     @Test
-    void passesWhenBlankLinesAreSingleInJava(@TempDir Path projectDir)
+    void passesWhenNoLineEndsInWhitespaceInJava(@TempDir Path projectDir)
             throws IOException {
 
-        writeJavaSource(projectDir, "single-blank-separators");
+        writeJavaSource(projectDir, "clean-line-ends");
 
         var result = runGate(projectDir, false);
 
@@ -56,37 +57,54 @@ class EnforceSingleBlankLinesGateIntegrationTests {
     }
 
     @Test
-    void failsOnTwoConsecutiveBlankLinesInJava(@TempDir Path projectDir)
+    void failsOnABlankLineCarryingTheIndentAboveItInJava(@TempDir Path projectDir)
             throws IOException {
 
-        writeJavaSource(projectDir, "two-consecutive-blank-lines");
+        // The shape nearly every instance takes: an empty line between members
+        // that kept the indent an editor put there when Enter was pressed. It is
+        // what a reader never sees and every diff over that line does.
+        writeJavaSource(projectDir, "blank-line-carrying-indent");
 
         var result = runGate(projectDir, true);
 
         assertThat(result.getOutput())
-            .contains("consecutive blank line");
+            .contains("line ends in whitespace");
     }
 
     @Test
-    void treatsWhitespaceOnlyLineAsBlankInJava(@TempDir Path projectDir)
+    void failsOnACodeLineEndingInASpaceInJava(@TempDir Path projectDir)
             throws IOException {
 
-        // An empty line followed by a spaces-only line is two blanks in a row:
-        // the gate trims before testing emptiness, so the spaces-only line must
-        // count toward the run rather than reset it.
-        writeJavaSource(projectDir, "whitespace-only-line-counts-as-blank");
+        // The other shape: a line with code on it that trails a space, which no
+        // amount of reading the file will reveal.
+        writeJavaSource(projectDir, "code-line-ending-in-a-space");
 
         var result = runGate(projectDir, true);
 
         assertThat(result.getOutput())
-            .contains("consecutive blank line");
+            .contains("line ends in whitespace");
     }
 
     @Test
-    void passesWhenBlankLinesAreSingleInKotlin(@TempDir Path projectDir)
+    void failsOnALineEndingInATabInJava(@TempDir Path projectDir)
             throws IOException {
 
-        writeKotlinSource(projectDir, "single-blank-separators");
+        // A tab is whitespace the same way a space is, and is likelier still to
+        // be invisible - so the rule is stated over whitespace rather than over
+        // the space that happens to be the common case.
+        writeJavaSource(projectDir, "line-ending-in-a-tab");
+
+        var result = runGate(projectDir, true);
+
+        assertThat(result.getOutput())
+            .contains("line ends in whitespace");
+    }
+
+    @Test
+    void passesWhenNoLineEndsInWhitespaceInKotlin(@TempDir Path projectDir)
+            throws IOException {
+
+        writeKotlinSource(projectDir, "clean-line-ends");
 
         var result = runGate(projectDir, false, KOTLIN_TREE_ON_TEST_SOURCE_SET);
 
@@ -95,28 +113,16 @@ class EnforceSingleBlankLinesGateIntegrationTests {
     }
 
     @Test
-    void failsOnTwoConsecutiveBlankLinesInKotlin(@TempDir Path projectDir)
+    void failsOnABlankLineCarryingTheIndentAboveItInKotlin(@TempDir Path projectDir)
             throws IOException {
 
         // Doubles as the proof the scan reaches .kt, not only .java.
-        writeKotlinSource(projectDir, "two-consecutive-blank-lines");
+        writeKotlinSource(projectDir, "blank-line-carrying-indent");
 
         var result = runGate(projectDir, true, KOTLIN_TREE_ON_TEST_SOURCE_SET);
 
         assertThat(result.getOutput())
-            .contains("consecutive blank line");
-    }
-
-    @Test
-    void treatsWhitespaceOnlyLineAsBlankInKotlin(@TempDir Path projectDir)
-            throws IOException {
-
-        writeKotlinSource(projectDir, "whitespace-only-line-counts-as-blank");
-
-        var result = runGate(projectDir, true, KOTLIN_TREE_ON_TEST_SOURCE_SET);
-
-        assertThat(result.getOutput())
-            .contains("consecutive blank line");
+            .contains("line ends in whitespace");
     }
 
     @Test
@@ -130,23 +136,23 @@ class EnforceSingleBlankLinesGateIntegrationTests {
     }
 
     @Test
-    void failsOnTwoConsecutiveBlankLinesInASourceSetTheBuildDeclares(@TempDir Path projectDir)
+    void failsOnTrailingWhitespaceInASourceSetTheBuildDeclares(@TempDir Path projectDir)
             throws IOException {
 
         // The reason the gate reads source sets rather than a list of tree names.
         // Named trees cover main and test and silently stop there, so a source
         // set a build adds for itself accrues violations while the gate reports
-        // success - which is how a developer-tooling tree came to hold thirteen.
+        // success.
         writeSource(
             projectDir,
             "src/tooling/java",
             "Tool.java",
-            "java/two-consecutive-blank-lines");
+            "java/blank-line-carrying-indent");
 
         var result = runGate(projectDir, true, DECLARES_A_TOOLING_SOURCE_SET);
 
         assertThat(result.getOutput())
-            .contains("consecutive blank line");
+            .contains("line ends in whitespace");
     }
 
     @Test
@@ -154,13 +160,13 @@ class EnforceSingleBlankLinesGateIntegrationTests {
             throws IOException {
 
         // A source set held out of the formatter is held out of this too: it is
-        // exempt because its shape is not the repo's to choose, and blank lines
-        // are part of that shape.
+        // exempt because its shape is not the repo's to choose, and how its
+        // lines end is part of that shape.
         writeSource(
             projectDir,
             "src/tooling/java",
             "Tool.java",
-            "java/two-consecutive-blank-lines");
+            "java/blank-line-carrying-indent");
 
         var result = runGate(
             projectDir,
@@ -201,7 +207,7 @@ class EnforceSingleBlankLinesGateIntegrationTests {
         var runner = GradleRunner
             .create()
             .withProjectDir(projectDir.toFile())
-            .withArguments("enforceSingleBlankLines");
+            .withArguments("enforceNoTrailingWhitespace");
 
         return expectFailure
             ? runner.buildAndFail()
@@ -233,7 +239,7 @@ class EnforceSingleBlankLinesGateIntegrationTests {
     // assume a working directory; forward slashes keep it valid inside the
     // generated build script on Windows.
     private String scriptPath() {
-        return System.getProperty("single.blank.gate.script.path").replace('\\', '/');
+        return System.getProperty("trailing.whitespace.gate.script.path").replace('\\', '/');
     }
 
     // The fixture name carries its language subfolder (java/ or kotlin/), which

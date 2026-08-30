@@ -1,0 +1,101 @@
+// Trailing-whitespace gate, applied by java-conventions.gradle into every Java
+// consumer. Kept in its own script for the reason its blank-line sibling is:
+// the conventions file stays about classpath, version, and jar output, while
+// this owns one concern.
+//
+// The convention: no source line ends in whitespace. It is invisible where it
+// is written and visible everywhere the line is read afterwards - a diff, a
+// blame, a review - so it attaches noise to changes that never touched it, and
+// leaves a line reading as modified when nothing about it is. Nothing else in
+// the toolchain sees it: whitespace is erased by compilation, so no
+// bytecode-level tool can look, and a formatter that runs on demand only
+// reaches the files somebody thought to run it over.
+//
+// Nearly every instance is a blank line carrying the indent of the line above,
+// which is what an editor leaves behind on an empty line between members. That
+// is also why the rule is worth gating rather than trusting to care: it is
+// produced by pressing Enter, not by writing anything.
+//
+// Every source set the project declares, rather than a list of tree names, and
+// the formatter's own exemptions honoured - both for the reasons the blank-line
+// gate beside this one states at length.
+apply from: new File(
+    buildscript.sourceFile.parentFile,
+    '../lint-gate-stamp.gradle')
+
+apply from: new File(
+    buildscript.sourceFile.parentFile,
+    '../../format/formatted-source-sets.gradle')
+
+// Source sets are the java plugin's, so a build applying this gate on its own
+// has to have applied that plugin first. Refused here, in the terms of what the
+// gate needs, rather than left to surface as a missing-property failure from
+// inside the task - where the reader is looking at whitespace, not plugins.
+if (!project.pluginManager.hasPlugin('java')) {
+    throw new GradleException('enforceNoTrailingWhitespace needs the java plugin: it reads '
+        + "the project's source sets to find the trees it scans.")
+}
+
+def enforceNoTrailingWhitespace = tasks.register('enforceNoTrailingWhitespace') {
+
+    description = 'Fails the build when a source line ends in whitespace.'
+
+    group = 'verification'
+
+    // Resolved lazily, because a project declares its own source sets in a
+    // build script that runs after this one is applied - so a list taken now
+    // would see only the ones the java plugin starts with.
+    def scannedSources = project.provider {
+        selectFormattedSourceSets().collect { sourceSet ->
+            sourceSet.allSource.matching { include '**/*.java', '**/*.kt' }
+        }
+    }
+    // A file collection rather than declared directories: it resolves at
+    // execution time, so an absent tree is simply no files rather than the
+    // configuration failure a declared-but-missing input directory would be.
+    inputs.files(scannedSources).withPropertyName('scannedSources')
+
+    doLast {
+
+        def violations = []
+
+        scannedSources.get().each { sources ->
+
+            sources.each { sourceFile ->
+
+                // eachLine hands over lines with the terminator already
+                // stripped, CRLF included, so the carriage return of a
+                // Windows-authored file is never mistaken for the whitespace
+                // this is looking for.
+                sourceFile.eachLine { line, lineNumber ->
+
+                    if (!line.isEmpty()
+                            && Character.isWhitespace(line.charAt(line.length() - 1))) {
+
+                        violations << ("${sourceFile}:${lineNumber}: "
+                            + 'line ends in whitespace')
+                    }
+                }
+            }
+        }
+        if (!violations.isEmpty()) {
+            // GradleException is the idiomatic build-failure signal; its clean
+            // message reads as the gate's verdict. The editor flags it as an
+            // unresolved class because an applied script has no Gradle API on
+            // its classpath - a known tooling false positive, not a defect, so
+            // do not "fix" it by swapping in a java.lang exception.
+            throw new GradleException("Trailing-whitespace convention violated:\n  "
+                + violations.join('\n  '))
+        }
+    }
+}
+
+// Give the gate an output so it can be skipped while the sources it reads are
+// unchanged; see lint-gate-stamp.gradle.
+declareLintGateStamp(enforceNoTrailingWhitespace)
+
+// Run the gate as part of the standard verification lifecycle so both a
+// local 'build'/'check' and CI's 'test jar' trip it before tests execute.
+tasks.matching { it.name in ['test', 'check'] }.configureEach {
+    dependsOn enforceNoTrailingWhitespace
+}
