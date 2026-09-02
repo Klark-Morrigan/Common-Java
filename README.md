@@ -71,6 +71,7 @@ convention no compiler can see, and each runs as part of `check` and
 | `enforceNoMagicLiteralsKotlin` | Kotlin numbers are named; Java's ride in `checkstyle.xml` |
 | `enforcePackageLayering` | a package root does not import one the consumer declared it closed to |
 | `enforcePackageVocabulary` | a package root does not say a word the consumer declared it closed to |
+| `enforceRestrictedCalls` | a call a package root is closed to is made only in the types the consumer named |
 | `enforceSingleBlankLines` | at most one consecutive blank line |
 | `enforceSuffixOnFakes` | hand-written test doubles are suffixed `Fake` |
 | `enforceSuffixOnMocks` | Mockito mock variables are suffixed `Mock` |
@@ -134,6 +135,36 @@ to the build and a reviewer reads in the diff, where an inline opt-out is
 invisible until somebody greps for it. An allowance is per file and per
 word, and one naming a file the gate does not scan fails the build - a
 stale path exempts nothing while reading as though it does.
+
+`enforceRestrictedCalls` is the third of the family, one step finer than
+either: it says which *types* may make a particular call. That is the rule
+an architecture needs when one API is legitimate at a single seam and a
+defect everywhere else - an ambient global read contained at the adapter
+that hands what it found downward, while every other type takes it as an
+argument:
+
+```groovy
+enforceRestrictedCalls {
+    restrictCall call: 'Global.getSector()',
+            under: 'kmu.maplayers',
+            toTypes: ['MapLayerInstallations', 'PauseMenuMapCover']
+}
+```
+
+Stated over where a call may be made rather than over how many there are.
+A count pins whichever number the code was standing on and has to be
+edited by anyone adding a legitimate seam, which makes the edit invisible;
+a named list fails the build for a caller nobody declared, and adding one
+is a line a reviewer reads in the diff. Omitting `toTypes` closes the root
+to the call outright, so a mistyped key enforces the rule everywhere
+rather than allowing it everywhere.
+
+A type is named by the file it lives in, so a nested class rides on the
+name of the file holding it. The call is matched as literal text against
+the code, comments stripped first - a Javadoc explaining why a call is
+contained is prose about the rule, not a breach of it - while a string
+literal spelling the call does count, since hiding behind one must not be
+cheaper than declaring the seam.
 
 ## Formatting
 

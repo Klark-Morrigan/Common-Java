@@ -1,0 +1,5 @@
+package example.other.render;
+
+class Sample {
+    Object handle = Example.getGlobalHandle();
+}
