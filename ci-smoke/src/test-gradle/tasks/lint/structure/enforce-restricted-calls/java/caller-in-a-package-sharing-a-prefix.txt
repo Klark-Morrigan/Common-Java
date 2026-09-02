@@ -1,0 +1,5 @@
+package example.frameworkish.render;
+
+class Sample {
+    Object handle = Example.getGlobalHandle();
+}

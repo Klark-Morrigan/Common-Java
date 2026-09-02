@@ -1,0 +1,296 @@
+// Restricted-call gate, applied by java-conventions.gradle into every KM
+// project. Kept in its own script so the conventions file stays about
+// classpath, version, and test stack, while this owns one concern: the
+// verification rule.
+//
+// The convention: a call a package root is closed to is made only in the types
+// that root names, and nowhere else beneath it. It is the third of the
+// structure family, one step finer than its siblings. enforcePackageLayering
+// says which package may reach which; enforcePackageVocabulary says which words
+// a package may be written in; this one says which *types* may make a
+// particular call, which is the rule an architecture needs when a single API is
+// legitimate at one seam and a defect everywhere else.
+//
+// The shape it exists for: an ambient read that has to be contained at an
+// adapter. A framework's own API offers one global handle, so exactly one type
+// may reach it and hand what it found downward; every other type takes what it
+// needs as an argument. Nothing about that is compile-visible - the tenth caller
+// of the global compiles exactly like the first - so it is a convention on the
+// honour system until a gate counts it, which is why the whole family exists.
+//
+// Stated over *where* a call may be made rather than over how many there are.
+// A count pins whichever number the code happened to be standing on and has to
+// be edited by anyone who adds a legitimate seam, which makes the edit
+// invisible; a named list of types fails the build for a caller nobody
+// declared, and adding one is a line in the build a reviewer reads in the diff.
+//
+// A restriction is a per-project fact rather than a shared one, so this script
+// owns only the mechanism and the consuming build declares the calls:
+//
+//     enforceRestrictedCalls {
+//         restrictCall call: 'Global.getSector()',
+//             under: 'kmu.maplayers',
+//             toTypes: ['MapLayerInstallations', 'PauseMenuMapCover']
+//     }
+//
+// All three arrive in one call rather than through a fluent chain, for the
+// reason the layering gate gives: a half-declared rule is then never a state
+// anything can hold or a caller can forget to finish.
+//
+// 'toTypes' is optional, and omitting it closes the root to that call
+// altogether. It is optional rather than required so a total ban needs no empty
+// list, and the failure direction of a mistyped key is the safe one - the rule
+// is enforced everywhere instead of silently allowed everywhere.
+//
+// A type is named by the source file it lives in, so a nested or local class is
+// covered by the name of the file holding it. That is also what a reader of the
+// declaration expects: the list names the seams, and a seam is a file.
+//
+// An entry naming a type that no longer exists is left alone rather than
+// reported, because it cannot hide anything: it allows a name nothing is
+// written under. Renaming an allowed seam is caught by the gate itself - the
+// file under its new name is no longer named, so its call fails the build - and
+// deleting one leaves no call to allow.
+//
+// The call is matched as literal text against the file's code, with comments
+// stripped first - a Javadoc explaining why a call is contained is prose about
+// the rule, not a breach of it. Two consequences worth knowing: a spelling with
+// whitespace inside it is not the declared one and will not match, and a string
+// literal spelling the call does match, since a caller must not be able to hide
+// behind one.
+//
+// A build that declares no restriction inherits the task and checks nothing,
+// which is what lets the conventions file apply it everywhere rather than
+// leaving each consumer to opt in.
+
+// Applied by this script, not assumed from the conventions file: the gate is
+// applied on its own by its integration test, so it has to carry what it uses.
+apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate-stamp.gradle')
+
+// A package declaration, with or without the semicolon Kotlin leaves off.
+def packageDeclarationPattern = ~/^\s*package\s+([\w.]+)\s*;?\s*$/
+
+// Answers whether a dotted name sits at or under a package root. Compared a
+// whole segment at a time rather than as a bare string prefix, so
+// `kmu.maplayersextra` is not read as living under `kmu.maplayers`.
+def isAtOrUnderPackageRoot = { String dottedName, String packageRoot ->
+    return dottedName == packageRoot || dottedName.startsWith(packageRoot + '.')
+}
+
+// The file's lines with every comment blanked out, line numbering preserved so a
+// report still names the line a reader opens the file at.
+//
+// Blanked rather than dropped because prose is where a contained call is most
+// often written down: the one type allowed to make it explains why, and the
+// types forbidden to make it say what they do instead. A gate that read those
+// sentences as calls would fail the build for the documentation of its own rule.
+//
+// Both comment forms, and block comments spanning lines, since a Javadoc is the
+// most likely place of all. String literals are deliberately left in - a call
+// assembled as text is still a way of naming the seam, and hiding behind one
+// must not be cheaper than declaring it.
+def readCodeLines = { File sourceFile ->
+
+    def codeLines = []
+    def isInBlockComment = false
+
+    sourceFile.eachLine { line ->
+
+        def code = new StringBuilder()
+        int index = 0
+
+        while (index < line.length()) {
+
+            if (isInBlockComment) {
+
+                int commentEnd = line.indexOf('*/', index)
+
+                if (commentEnd < 0) {
+                    index = line.length()
+                    continue
+                }
+                isInBlockComment = false
+                index = commentEnd + 2
+                continue
+            }
+            int blockStart = line.indexOf('/*', index)
+            int lineStart = line.indexOf('//', index)
+
+            // Whichever opens first decides, so a '//' inside a block comment
+            // and a '/*' after a line comment are both read the way a compiler
+            // reads them.
+            if (lineStart >= 0 && (blockStart < 0 || lineStart < blockStart)) {
+
+                code.append(line, index, lineStart)
+                index = line.length()
+                continue
+            }
+            if (blockStart >= 0) {
+
+                code.append(line, index, blockStart)
+                isInBlockComment = true
+                index = blockStart + 2
+                continue
+            }
+            code.append(line, index, line.length())
+            index = line.length()
+        }
+        codeLines << code.toString()
+    }
+    return codeLines
+}
+
+// The type a source file declares, taken as the file's own name. Nested and
+// local classes are covered by it, which is what a declaration naming a seam
+// means by a type.
+def readDeclaredTypeName = { File sourceFile ->
+    return sourceFile.name.replaceFirst(/\.[^.]+$/, '')
+}
+
+// Reports one message per restricted call this file makes. The file's package is
+// read from its declaration rather than inferred from its path, since that is
+// what the code below it is compiled into - and a source root a consumer laid
+// out its own way would otherwise put every file in the wrong package.
+def findRestrictedCalls = { File sourceFile, String typeName, List restrictions ->
+
+    def found = []
+    def lines = sourceFile.readLines()
+    def declaredPackage = null
+
+    for (line in lines) {
+
+        def packageMatcher = packageDeclarationPattern.matcher(line)
+        if (packageMatcher.matches()) {
+
+            declaredPackage = packageMatcher.group(1)
+            break
+        }
+    }
+    if (declaredPackage == null) {
+        // The default package sits under no root, so no restriction names it.
+        return found
+    }
+    def applicableRestrictions = restrictions.findAll {
+
+        isAtOrUnderPackageRoot(declaredPackage, it.under) && !(typeName in it.toTypes)
+    }
+    if (applicableRestrictions.isEmpty()) {
+        return found
+    }
+    readCodeLines(sourceFile).eachWithIndex { codeLine, index ->
+
+        applicableRestrictions.each { restriction ->
+
+            if (codeLine.contains(restriction.call)) {
+
+                // Bracketed so the leading '+' continues this expression. Groovy
+                // ends a statement at a line break wherever the line already
+                // parses whole, and reads the next one as unary plus on a string
+                // - which fails at the call, not here.
+                found << ("${sourceFile}:${index + 1}: "
+                    + "${restriction.under} may call ${restriction.call} only in "
+                    + "${restriction.toTypes}: ${typeName}")
+            }
+        }
+    }
+    return found
+}
+
+// Filled by the consuming build through the task's own `restrictCall`, so it is
+// captured here rather than inside the task: the execution-time action reads the
+// same list the declarations appended to.
+def restrictions = []
+
+def enforceRestrictedCalls = tasks.register('enforceRestrictedCalls') {
+
+    group = 'verification'
+    // Bracketed for the same reason as the message above: without it the leading
+    // '+' is a statement of its own, and this one fails at configuration time in
+    // every consumer.
+    description = ('Fails the build when a package root makes a call outside '
+        + 'the types the consuming build restricted it to.')
+
+    // Declares one restricted call. Named arguments rather than positional ones
+    // because the call and the package root are both plain text, so a
+    // transposition would otherwise restrict a package name and still pass.
+    ext.restrictCall = { Map restriction ->
+
+        if (!restriction.call || !restriction.under) {
+
+            throw new GradleException("restrictCall needs both 'call' (the "
+                + "literal call text being contained) and 'under' (the package "
+                + "root it is contained within); got: ${restriction}")
+        }
+        restrictions << [
+            call: restriction.call,
+            under: restriction.under,
+            // Sorted so the message a developer reads, and the input snapshot
+            // below, do not turn on the order a build happened to list them in.
+            toTypes: (restriction.toTypes ?: []).sort(),
+        ]
+    }
+
+    // Every source set under src/, rather than main and test alone: a contained
+    // call that a dev-tooling or fixture tree may make freely is a call that is
+    // not contained, and such a tree compiles against the same API the code it
+    // is built from does.
+    //
+    // Declared as the matched files rather than as the directories: an absent
+    // tree is then an empty scan rather than the configuration failure a
+    // declared-but-missing input directory would be, and a resource edit does
+    // not re-run a gate that only reads code.
+    def scannedSources = fileTree('src') {
+        include '**/*.java', '**/*.kt'
+    }
+
+    inputs.files(scannedSources).withPropertyName('scannedSources')
+
+    // The restrictions are an input as much as the sources are - adding one has
+    // to re-run the gate rather than leave it UP-TO-DATE against the rule it was
+    // last cleared under. Wrapped in a provider because they are declared after
+    // this registration runs, and snapshotted as plain strings rather than as
+    // the maps themselves, since an input property's value has to be
+    // serialisable.
+    inputs.property('restrictions', providers.provider {
+
+        restrictions
+            .collect { "${it.under} !- ${it.call} except ${it.toTypes}".toString() }
+            .sort()
+    })
+
+    doLast {
+
+        if (restrictions.isEmpty()) {
+            return
+        }
+        def violations = []
+
+        scannedSources.each { sourceFile ->
+
+            violations.addAll(findRestrictedCalls(
+                sourceFile,
+                readDeclaredTypeName(sourceFile),
+                restrictions))
+        }
+
+        if (!violations.isEmpty()) {
+            // GradleException is the idiomatic build-failure signal; its clean
+            // message reads as the gate's verdict. The editor flags it as an
+            // unresolved class because an applied script has no Gradle API on
+            // its classpath - a known tooling false positive, not a defect, so
+            // do not "fix" it by swapping in a java.lang exception.
+            throw new GradleException("Restricted calls violated:\n  "
+                + violations.join('\n  '))
+        }
+    }
+}
+
+// Give the gate an output so it can be skipped while the sources it reads are
+// unchanged; see lint-gate-stamp.gradle.
+declareLintGateStamp(enforceRestrictedCalls)
+
+// Run the gate as part of the standard verification lifecycle so both a
+// local 'build'/'check' and CI's 'test jar' trip it before tests execute.
+tasks.matching { it.name in ['test', 'check'] }.configureEach {
+    dependsOn enforceRestrictedCalls
+}

@@ -1,0 +1,11 @@
+package example.framework.render;
+
+/**
+ * Takes its handle as an argument rather than reading Example.getGlobalHandle(),
+ * which only the adapter above it may do.
+ */
+class Sample {
+
+    // Reading Example.getGlobalHandle() here would draw the wrong one.
+    Object handle; /* not Example.getGlobalHandle() */
+}

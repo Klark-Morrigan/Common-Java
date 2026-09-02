@@ -1,0 +1,5 @@
+package example.framework.render
+
+class Sample {
+    val handle = Example.getGlobalHandle()
+}

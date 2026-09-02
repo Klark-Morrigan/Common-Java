@@ -193,4 +193,5 @@ apply from: new File(lintTasksDir, 'naming/tests/enforce-suffix-on-mocks.gradle'
 apply from: new File(lintTasksDir, 'structure/enforce-methods-ordered-by-visibility.gradle')
 apply from: new File(lintTasksDir, 'structure/enforce-package-layering.gradle')
 apply from: new File(lintTasksDir, 'structure/enforce-package-vocabulary.gradle')
+apply from: new File(lintTasksDir, 'structure/enforce-restricted-calls.gradle')
 apply from: new File(lintTasksDir, 'structure/tests/enforce-tests-nested.gradle')

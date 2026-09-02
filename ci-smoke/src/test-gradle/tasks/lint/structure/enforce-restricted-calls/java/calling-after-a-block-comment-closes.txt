@@ -1,0 +1,5 @@
+package example.framework.render;
+
+class Sample {
+    /* the adapter */ Object handle = Example.getGlobalHandle();
+}
