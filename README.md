@@ -212,7 +212,13 @@ apply from: "${rootDir}/../Common-Java/gradle/spotless-java.gradle"
 runner. It is language-agnostic (Java and Kotlin both build through
 `gradlew`, so there is no separate ci-java / ci-kotlin), with all variance
 expressed as inputs: `runner`, `gradle-tasks`, `setup-java`,
-`java-version`.
+`java-version`, `artifact-suffix`.
+
+Every run uploads its Gradle HTML test reports as a `test-reports`
+artifact, so the per-test detail behind a red check is reachable without
+access to the runner's disk. A caller that invokes the engine more than
+once in a workflow (a matrix over build variants) passes `artifact-suffix`
+to keep the names apart.
 
 ```yaml
 jobs:
