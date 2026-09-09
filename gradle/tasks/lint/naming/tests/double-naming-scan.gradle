@@ -105,8 +105,8 @@ ext.findDoubleNamingViolations = { Map spec ->
                     // for under its own name.
                     if (!typeName.endsWith(suffix) && !typeName.endsWith('Test')) {
 
-                        violations << "${sourceFile}:${lineNumber}: test-double type "
-                            + "'${typeName}' must be suffixed '${suffix}'"
+                        violations << "${sourceFile}:${lineNumber}: test-double type " +
+                            "'${typeName}' must be suffixed '${suffix}'"
                     }
                 }
             }
@@ -119,8 +119,8 @@ ext.findDoubleNamingViolations = { Map spec ->
                 def variableName = holderMatcher.group(1)
                 if (declaredNames.contains(variableName) && !variableName.endsWith(suffix)) {
 
-                    violations << "${sourceFile}:${lineNumber}: variable "
-                        + "'${variableName}' holds a ${doubleNoun} and must be suffixed '${suffix}'"
+                    violations << "${sourceFile}:${lineNumber}: variable " +
+                        "'${variableName}' holds a ${doubleNoun} and must be suffixed '${suffix}'"
                 }
             }
             def typedHolderMatcher = typedHolderPattern.matcher(line)
@@ -128,9 +128,9 @@ ext.findDoubleNamingViolations = { Map spec ->
 
                 def variableName = typedHolderMatcher.group(1)
                 if (!variableName.endsWith(suffix)) {
-                    
-                    violations << "${sourceFile}:${lineNumber}: variable "
-                        + "'${variableName}' holds a ${doubleNoun} and must be suffixed '${suffix}'"
+
+                    violations << "${sourceFile}:${lineNumber}: variable " +
+                        "'${variableName}' holds a ${doubleNoun} and must be suffixed '${suffix}'"
                 }
             }
         }
