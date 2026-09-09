@@ -211,7 +211,7 @@ class EnforceDocLinksResolveGateIntegrationTests {
             .holdingText(
                 "docs" + "/" + "other.md",
                 "# Other\n");
-                
+
         Files.writeString(projectDir.resolve("README.md"), "# Root\n");
         Files.createDirectories(projectDir.resolve("src/main/java"));
     }

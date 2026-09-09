@@ -166,7 +166,7 @@ class EnforceSuffixOnFakesGateIntegrationTests {
     }
 
     private static GateProject kotlinProject(Path projectDir, String fixture) {
-        
+
         return GateProject
             .driving(GATE, projectDir)
             .holdingFixture("src/test/kotlin/Sample.kt", "kotlin/" + fixture);
