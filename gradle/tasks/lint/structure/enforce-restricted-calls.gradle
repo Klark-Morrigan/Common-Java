@@ -67,17 +67,12 @@
 // applied on its own by its integration test, so it has to carry what it uses.
 apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate-stamp.gradle')
 
-// A package declaration, with or without the semicolon Kotlin leaves off.
-def packageDeclarationPattern = ~/^\s*package\s+([\w.]+)\s*;?\s*$/
+// How a package declaration is read, and what it means for one dotted name to
+// sit under another. Shared with enforcePackageLayering, which asks the same
+// question about the same syntax; see package-roots.gradle.
+apply from: new File(buildscript.sourceFile.parentFile, '../package-roots.gradle')
 
-// Answers whether a dotted name sits at or under a package root. Compared a
-// whole segment at a time rather than as a bare string prefix, so
-// `kmu.maplayersextra` is not read as living under `kmu.maplayers`.
-def isAtOrUnderPackageRoot = { String dottedName, String packageRoot ->
-    return dottedName == packageRoot || dottedName.startsWith(packageRoot + '.')
-}
-
-// The file's lines with every comment blanked out, line numbering preserved so a
+// The given lines with every comment blanked out, line numbering preserved so a
 // report still names the line a reader opens the file at.
 //
 // Blanked rather than dropped because prose is where a contained call is most
@@ -89,12 +84,12 @@ def isAtOrUnderPackageRoot = { String dottedName, String packageRoot ->
 // most likely place of all. String literals are deliberately left in - a call
 // assembled as text is still a way of naming the seam, and hiding behind one
 // must not be cheaper than declaring it.
-def readCodeLines = { File sourceFile ->
+def stripComments = { List<String> lines ->
 
     def codeLines = []
     def isInBlockComment = false
 
-    sourceFile.eachLine { line ->
+    lines.each { line ->
 
         def code = new StringBuilder()
         int index = 0
@@ -147,25 +142,13 @@ def readDeclaredTypeName = { File sourceFile ->
     return sourceFile.name.replaceFirst(/\.[^.]+$/, '')
 }
 
-// Reports one message per restricted call this file makes. The file's package is
-// read from its declaration rather than inferred from its path, since that is
-// what the code below it is compiled into - and a source root a consumer laid
-// out its own way would otherwise put every file in the wrong package.
+// Reports one message per restricted call this file makes.
 def findRestrictedCalls = { File sourceFile, String typeName, List restrictions ->
 
     def found = []
     def lines = sourceFile.readLines()
-    def declaredPackage = null
+    def declaredPackage = readDeclaredPackage(lines)
 
-    for (line in lines) {
-
-        def packageMatcher = packageDeclarationPattern.matcher(line)
-        if (packageMatcher.matches()) {
-
-            declaredPackage = packageMatcher.group(1)
-            break
-        }
-    }
     if (declaredPackage == null) {
         // The default package sits under no root, so no restriction names it.
         return found
@@ -177,7 +160,9 @@ def findRestrictedCalls = { File sourceFile, String typeName, List restrictions 
     if (applicableRestrictions.isEmpty()) {
         return found
     }
-    readCodeLines(sourceFile).eachWithIndex { codeLine, index ->
+    // Stripped from the lines already in hand rather than by reading the file a
+    // second time: the scan visits every source file in the project.
+    stripComments(lines).eachWithIndex { codeLine, index ->
 
         applicableRestrictions.each { restriction ->
 

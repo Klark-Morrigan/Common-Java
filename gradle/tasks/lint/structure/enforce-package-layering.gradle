@@ -49,41 +49,25 @@
 // applied on its own by its integration test, so it has to carry what it uses.
 apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate-stamp.gradle')
 
-// A package declaration, with or without the semicolon Kotlin leaves off.
-def packageDeclarationPattern = ~/^\s*package\s+([\w.]+)\s*;?\s*$/
+// How a package declaration is read, and what it means for one dotted name to
+// sit under another. Shared with enforceRestrictedCalls, which asks the same
+// question about the same syntax; see package-roots.gradle.
+apply from: new File(buildscript.sourceFile.parentFile, '../package-roots.gradle')
+
 // An import, static or not, aliased or not. The captured name runs to the
 // first character that cannot appear in one, so Java's trailing `;` and
 // Kotlin's trailing `as Alias` both fall outside it, and an on-demand
 // `import x.y.*` keeps its star - which still reads as being under `x.y`.
 def importDeclarationPattern = ~/^\s*import\s+(?:static\s+)?([\w.*]+)/
 
-// Answers whether a dotted name sits at or under a package root. Compared a
-// whole segment at a time rather than as a bare string prefix, so
-// `kmu.maplayers.baseline` is not read as living under `kmu.maplayers.base`.
-def isAtOrUnderPackageRoot = { String dottedName, String packageRoot ->
-    return dottedName == packageRoot || dottedName.startsWith(packageRoot + '.')
-}
-
 // Reports one message per import in this file that its own package is closed
-// to. The file's package is read from its declaration rather than inferred
-// from its path, since that is what the import statements below it are
-// resolved against - and a source root a consumer laid out its own way would
-// otherwise put every file in the wrong package.
+// to.
 def findForbiddenImports = { File sourceFile, List forbiddenEdges ->
 
     def forbidden = []
     def lines = sourceFile.readLines()
-    def declaredPackage = null
+    def declaredPackage = readDeclaredPackage(lines)
 
-    for (line in lines) {
-        
-        def packageMatcher = packageDeclarationPattern.matcher(line)
-        if (packageMatcher.matches()) {
-            
-            declaredPackage = packageMatcher.group(1)
-            break
-        }
-    }
     if (declaredPackage == null) {
         // The default package sits under no root, so no edge can name it.
         return forbidden

@@ -83,12 +83,16 @@ def testGradle = tasks.register('testGradle', Test) {
     // tests rather than leave them UP-TO-DATE against a stale version. The path
     // is also handed to the test so it does not assume a working directory. The
     // scripts live one directory up, under Common-Java/gradle/tasks.
-    // Two shared helpers are runtime inputs of these tests even though no test
-    // names either: every gate applies the stamp helper, and both formatter
-    // passes plus the blank-line gate apply the source-set selector. Editing one
-    // must re-run them.
+    // Three shared helpers are runtime inputs of these tests even though no test
+    // names any of them: every gate applies the stamp helper, both structure
+    // gates that judge a file by its declared package apply the package-root
+    // reader, and both formatter passes plus the blank-line gate apply the
+    // source-set selector. Editing one must re-run them.
     inputs.file(file('../gradle/tasks/lint/lint-gate-stamp.gradle'))
         .withPropertyName('lintGateStampScript')
+
+    inputs.file(file('../gradle/tasks/lint/package-roots.gradle'))
+        .withPropertyName('packageRootsScript')
 
     inputs.file(file('../gradle/tasks/format/formatted-source-sets.gradle'))
         .withPropertyName('formattedSourceSetsScript')

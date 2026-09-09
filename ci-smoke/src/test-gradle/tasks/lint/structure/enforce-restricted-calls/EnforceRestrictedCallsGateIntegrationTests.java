@@ -171,6 +171,27 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
+    void failsWhenTheCallSitsBelowEachCommentFormNestedInTheOther(@TempDir Path projectDir)
+            throws IOException {
+
+        // Whichever form opens first has to win, or the stripper leaves comment
+        // state set wrongly and blanks the real code below it - and a gate that
+        // blanks code passes silently, which is the failure direction that costs
+        // something. A '/*' inside a line comment opens nothing; a '//' inside a
+        // block comment ends nothing.
+        writeJavaSource(
+            projectDir,
+            "src/main/java",
+            ORDINARY_TYPE,
+            "calling-below-each-comment-form-nested-in-the-other");
+
+        var result = runGateExpectingFailure(projectDir, CONTAINED_TO_THE_ADAPTER);
+
+        assertThat(result.getOutput())
+            .contains("may call Example.getGlobalHandle() only in");
+    }
+
+    @Test
     void failsWhenTheAllowedTypeMakesACallContainedToNothing(@TempDir Path projectDir)
             throws IOException {
 

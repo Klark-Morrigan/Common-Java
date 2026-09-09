@@ -1,0 +1,7 @@
+package example.framework.render;
+
+/* a // inside a block comment, which ends nothing */
+class Sample {
+    // an opening /* inside a line comment, which starts nothing
+    Object handle = Example.getGlobalHandle();
+}

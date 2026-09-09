@@ -151,20 +151,16 @@ enforceRestrictedCalls {
 }
 ```
 
-Stated over where a call may be made rather than over how many there are.
-A count pins whichever number the code was standing on and has to be
-edited by anyone adding a legitimate seam, which makes the edit invisible;
-a named list fails the build for a caller nobody declared, and adding one
-is a line a reviewer reads in the diff. Omitting `toTypes` closes the root
-to the call outright, so a mistyped key enforces the rule everywhere
-rather than allowing it everywhere.
+Stated over where a call may be made rather than over how many there are:
+a count pins whichever number the code was standing on, where a named list
+fails the build for a caller nobody declared. Omitting `toTypes` closes
+the root to the call outright, so a mistyped key enforces the rule
+everywhere rather than allowing it everywhere.
 
-A type is named by the file it lives in, so a nested class rides on the
-name of the file holding it. The call is matched as literal text against
-the code, comments stripped first - a Javadoc explaining why a call is
-contained is prose about the rule, not a breach of it - while a string
-literal spelling the call does count, since hiding behind one must not be
-cheaper than declaring the seam.
+A type is named by the file it lives in. The call is matched as literal
+text against the code with comments stripped first, so a Javadoc
+explaining why a call is contained is prose about the rule rather than a
+breach of it.
 
 ## Formatting
 
