@@ -109,6 +109,18 @@ on:
         type: string
         required: false
         default: '17'
+      artifact-suffix:
+        # Artifact names must be unique within a workflow run, so a caller
+        # invoking this engine more than once (a matrix over build variants)
+        # has to tell the two runs apart. One value, not a whole artifact
+        # name: the caller chooses which leg it is, the engine still owns
+        # what the artifact is called.
+        description: >-
+          Suffix distinguishing this run's uploaded test report, for a caller
+          that invokes the engine several times in one workflow.
+        type: string
+        required: false
+        default: ''
     secrets:
       sibling_checkout_token:
         # Token with read access to private sibling repos. Optional: when
@@ -207,3 +219,29 @@ jobs:
         run: >-
           ./gradlew ${{ inputs.gradle-tasks }}
           --no-daemon --console=plain --warning-mode all
+
+      # Gradle's failure message points at the HTML report by file:// path,
+      # which on a self-hosted runner names a disk nobody reading the run can
+      # reach. Uploading it puts the per-test detail - full traces, standard
+      # output, the whole failing class rather than the summary line - one
+      # click from the red check.
+      #
+      # always(), so it survives the failing build that makes it worth having.
+      # A glob rather than one path: a multi-project build writes one report
+      # per project, and a project with a second Test task (a TestKit tree,
+      # say) writes one per task.
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-reports${{ inputs.artifact-suffix != ''
+            && format('-{0}', inputs.artifact-suffix) || '' }}
+          path: ${{ inputs.working-directory }}/**/build/reports/tests
+          # A build that died before any test ran has no report, which is an
+          # outcome rather than a fault: the compile error is already the
+          # failure, and a warning annotation over it would only mislead.
+          if-no-files-found: ignore
+          # These are read while the run is still fresh - a stale report says
+          # nothing the next run does not - so they expire early rather than
+          # occupying the account's artifact storage for the 90-day default.
+          retention-days: 7
