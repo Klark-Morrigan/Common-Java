@@ -80,6 +80,9 @@ def testGradle = tasks.register('testGradle', Test) {
     testLogging {
         events 'passed', 'skipped', 'failed'
     }
+    // The same end-of-run report 'test' prints, so a failing gate test is named at the bottom of
+    // the log rather than only where it ran.
+    reportTestOutcomesOf(it)
 
     // Each script under test is a runtime input the matching test reads by
     // path, so declare it as a task input: editing one must re-run these

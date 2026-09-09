@@ -98,14 +98,11 @@ tasks.withType(JavaCompile).configureEach {
     options.release = 17
 }
 
-test {
-    useJUnitPlatform()
-    testLogging {
-        events 'passed', 'skipped', 'failed'
-        // The per-test FAILED line is only useful with the assertion behind it,
-        // and a truncated trace hides the frame inside the code under test.
-        exceptionFormat = 'full'
-    }
+// Every Test task in a build reports the same two things at the end of its run, so the
+// listener is a helper a task takes rather than a block each task copies: a task registered
+// beside 'test' - a TestKit tree, say - would otherwise print its failures only where they
+// happened and re-list nothing, which is the one place a reader of a long CI log needs them.
+ext.reportTestOutcomesOf = { Test testTask ->
 
     // Surface the slowest tests on every run so a creeping suite runtime is
     // visible instead of hiding in the aggregate, and re-list the failures at
@@ -119,7 +116,7 @@ test {
     def recordedTestFailures = java.util.Collections.synchronizedList(new ArrayList())
     def maxFailureCauseChars = 200
 
-    addTestListener(new TestListener() {
+    testTask.addTestListener(new TestListener() {
 
         void beforeSuite(TestDescriptor suite) {}
         void beforeTest(TestDescriptor test) {}
@@ -220,6 +217,18 @@ test {
                 : flattened
         }
     })
+}
+
+test {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        // The per-test FAILED line is only useful with the assertion behind it,
+        // and a truncated trace hides the frame inside the code under test.
+        exceptionFormat = 'full'
+    }
+
+    reportTestOutcomesOf(it)
 
     finalizedBy jacocoTestReport
 }
