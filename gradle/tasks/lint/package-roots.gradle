@@ -1,0 +1,51 @@
+// Shared plumbing for the lint gates that judge a source file by the package it
+// declares: how that declaration is written, and what it means for one dotted
+// name to sit under another.
+//
+// Two gates read the same two facts - enforcePackageLayering, which asks whether
+// a file's package is closed to an import, and enforceRestrictedCalls, which
+// asks whether it is closed to a call. Both are the same question about the same
+// syntax, so they read it from one place: a pattern that drifted between them
+// would leave one gate silently scanning nothing while the other still fired.
+//
+// It lives in its own script, applied by each gate rather than by the
+// conventions file, for the reason the stamp helper gives: a gate has to stand
+// on its own, since its integration test applies that one script into a
+// throwaway project with no conventions script in sight.
+//
+// enforcePackageVocabulary deliberately does not use this. It judges by
+// directory rather than by declaration, because markdown carries no package
+// declaration and is half of what that rule is about - a different question that
+// only looks alike.
+//
+// Applying this more than once per project is harmless - each gate applies it,
+// and the assignments below simply overwrite identical values.
+
+// A package declaration, with or without the semicolon Kotlin leaves off.
+ext.packageDeclarationPattern = ~/^\s*package\s+([\w.]+)\s*;?\s*$/
+
+// The package a source file declares, or null for the default package - which
+// sits under no root, so no rule can name it.
+//
+// Read from the declaration rather than inferred from the path, since that is
+// what the code below it is compiled into: a source root a consumer laid out its
+// own way would otherwise put every file in the wrong package.
+ext.readDeclaredPackage = { List<String> lines ->
+
+    for (line in lines) {
+
+        def packageMatcher = packageDeclarationPattern.matcher(line)
+
+        if (packageMatcher.matches()) {
+            return packageMatcher.group(1)
+        }
+    }
+    return null
+}
+
+// Answers whether a dotted name sits at or under a package root. Compared a
+// whole segment at a time rather than as a bare string prefix, so
+// `kmu.maplayersextra` is not read as living under `kmu.maplayers`.
+ext.isAtOrUnderPackageRoot = { String dottedName, String packageRoot ->
+    return dottedName == packageRoot || dottedName.startsWith(packageRoot + '.')
+}
