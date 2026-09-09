@@ -102,23 +102,50 @@ test {
     useJUnitPlatform()
     testLogging {
         events 'passed', 'skipped', 'failed'
+        // The per-test FAILED line is only useful with the assertion behind it,
+        // and a truncated trace hides the frame inside the code under test.
+        exceptionFormat = 'full'
     }
 
     // Surface the slowest tests on every run so a creeping suite runtime is
-    // visible instead of hiding in the aggregate. Each test's wall-clock time
-    // is recorded as it finishes; forks may run in parallel, so the store must
-    // be thread-safe. The two hooks live on a TestListener - the task's own
+    // visible instead of hiding in the aggregate, and re-list the failures at
+    // the end: the inline FAILED lines print where each test happens to run,
+    // which on a suite of thousands leaves them scattered far above the point a
+    // log reader starts from. Each test's wall-clock time and failure is
+    // recorded as it finishes; forks may run in parallel, so the stores must be
+    // thread-safe. The two hooks live on a TestListener - the task's own
     // afterTest/afterSuite closures are removed in Gradle 10.
     def recordedTestDurations = java.util.Collections.synchronizedList(new ArrayList())
+    def recordedTestFailures = java.util.Collections.synchronizedList(new ArrayList())
+    def maxFailureCauseChars = 200
 
     addTestListener(new TestListener() {
 
         void beforeSuite(TestDescriptor suite) {}
         void beforeTest(TestDescriptor test) {}
         void afterTest(TestDescriptor descriptor, TestResult result) {
+
+            def testName = "${descriptor.className}.${descriptor.name}"
+
             recordedTestDurations << [
-                name: "${descriptor.className}.${descriptor.name}",
+                name: testName,
                 durationMillis: result.endTime - result.startTime]
+
+            if (result.resultType != TestResult.ResultType.FAILURE) {
+                return
+            }
+
+            // The first exception, flattened to one line: enough to tell the
+            // failures apart, with the full trace already printed inline above.
+            // The list is read through getExceptions() rather than
+            // getException(), which throws when a failure carries none.
+            def firstException = result.exceptions.isEmpty() ? null : result.exceptions.first()
+
+            recordedTestFailures << [
+                name: testName,
+                cause: firstException == null
+                    ? '(no exception recorded)'
+                    : flattenFailureCause(firstException)]
         }
 
         // Report at the root suite (the one with no parent), which fires once
@@ -126,7 +153,19 @@ test {
         // action a test failure would skip.
         void afterSuite(TestDescriptor descriptor, TestResult result) {
 
-            if (descriptor.parent != null || recordedTestDurations.isEmpty()) {
+            if (descriptor.parent != null) {
+                return
+            }
+
+            reportLongestTests()
+            // Last, so the failures sit directly above Gradle's own "there were
+            // failing tests" message rather than behind the timings block.
+            reportFailedTests()
+        }
+
+        private void reportLongestTests() {
+
+            if (recordedTestDurations.isEmpty()) {
                 return
             }
 
@@ -144,6 +183,41 @@ test {
                             entry.durationMillis,
                             entry.name))
                 }
+        }
+
+        private void reportFailedTests() {
+
+            if (recordedTestFailures.isEmpty()) {
+                return
+            }
+
+            logger.lifecycle("Failed tests (${recordedTestFailures.size()}):")
+
+            recordedTestFailures.eachWithIndex {
+                entry,
+                index ->
+                    logger.lifecycle(String.format('%2d. %s', index + 1, entry.name))
+                    logger.lifecycle(String.format('    %s', entry.cause))
+            }
+        }
+
+        // An assertion library puts its detail on the lines AFTER the header
+        // one - "expected: 2 / but was: 1" - so quoting the first line alone
+        // would summarise every assertion failure as its exception class. Every
+        // line joins into one instead, capped so a collection diff cannot push
+        // the block off the screen it was written to fit on.
+        private String flattenFailureCause(Throwable cause) {
+
+            def flattened = cause
+                .toString()
+                .readLines()
+                *.trim()
+                .findAll { !it.isEmpty() }
+                .join(' ')
+
+            return flattened.length() > maxFailureCauseChars
+                ? flattened.take(maxFailureCauseChars) + '...'
+                : flattened
         }
     })
 
