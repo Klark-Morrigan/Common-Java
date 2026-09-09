@@ -1,12 +1,9 @@
 import org.gradle.testkit.runner.BuildResult;
-import org.gradle.testkit.runner.GradleRunner;
 import org.gradle.testkit.runner.TaskOutcome;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -22,29 +19,38 @@ import static org.assertj.core.api.Assertions.assertThat;
 // the grouping folder is the source root, and its kebab name cannot be a Java
 // package.
 class EnforceDocLinksResolveGateIntegrationTests {
+
+    private static final GateUnderTest GATE =
+        new GateUnderTest("enforceDocLinksResolve", "doc.links.gate.script.path");
+
     private static final String TASK_PATH = ":enforceDocLinksResolve";
 
     @Test
     void passesWhenRelativeLinksResolve(@TempDir Path projectDir) throws IOException {
+
         writeLinkTargets(projectDir);
         writeDoc(projectDir, "resolving-relative-links");
 
         var result = runGate(projectDir, false);
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
     void failsWhenARelativeLinkTargetIsMissing(@TempDir Path projectDir) throws IOException {
+
         writeDoc(projectDir, "missing-relative-link");
 
         var result = runGate(projectDir, true);
 
-        assertThat(result.getOutput()).contains("link target does not exist: renamed/README.md");
+        assertThat(result.getOutput())
+            .contains("link target does not exist: renamed/README.md");
     }
 
     @Test
     void failsWhenALinkTargetIsSpeltInTheWrongCase(@TempDir Path projectDir) throws IOException {
+
         writeLinkTargets(projectDir);
         writeDoc(projectDir, "wrong-case-link");
 
@@ -57,7 +63,8 @@ class EnforceDocLinksResolveGateIntegrationTests {
         // and reports it missing. The link is wrong either way, and pinning one
         // wording would make this test pass only on the machine that wrote it -
         // the very asymmetry the gate exists to close.
-        assertThat(result.getOutput()).contains("Other.md");
+        assertThat(result.getOutput())
+            .contains("Other.md");
     }
 
     @Test
@@ -68,7 +75,8 @@ class EnforceDocLinksResolveGateIntegrationTests {
 
         var result = runGate(projectDir, false);
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
@@ -80,7 +88,8 @@ class EnforceDocLinksResolveGateIntegrationTests {
 
         var result = runGate(projectDir, true);
 
-        assertThat(result.getOutput()).contains("link target does not exist: missing.md#index");
+        assertThat(result.getOutput())
+            .contains("link target does not exist: missing.md#index");
     }
 
     @Test
@@ -92,7 +101,8 @@ class EnforceDocLinksResolveGateIntegrationTests {
 
         var result = runGate(projectDir, false);
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
@@ -107,8 +117,8 @@ class EnforceDocLinksResolveGateIntegrationTests {
         var result = runGate(projectDir, true);
 
         assertThat(result.getOutput())
-                .contains("link target does not exist: after-the-fence.md")
-                .doesNotContain("nowhere.md");
+            .contains("link target does not exist: after-the-fence.md")
+            .doesNotContain("nowhere.md");
     }
 
     @Test
@@ -119,7 +129,8 @@ class EnforceDocLinksResolveGateIntegrationTests {
 
         var result = runGate(projectDir, false);
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
@@ -131,81 +142,77 @@ class EnforceDocLinksResolveGateIntegrationTests {
         // addition to count.
         writeBrokenDocUnder(projectDir, "generated");
 
-        var result = runGateWithExtraConfiguration(projectDir, false,
-                "docLinkScanExcludedDirectoryNames << 'generated'\n");
+        var result = runGateWithExtraConfiguration(
+            projectDir,
+            false,
+            "docLinkScanExcludedDirectoryNames << 'generated'\n");
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
     void passesWhenThereAreNoMarkdownFiles(@TempDir Path projectDir) throws IOException {
+
         var result = runGate(projectDir, false);
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     private BuildResult runGate(Path projectDir, boolean expectFailure) throws IOException {
         return runGateWithExtraConfiguration(projectDir, expectFailure, "");
     }
 
-    // Only the exclusion seam needs to configure the gate after applying it, so
-    // the extra script stays out of every other case's call.
+    // Only the exclusion seam needs to configure the gate after applying it, so the extra
+    // script stays out of every other case's call.
     private BuildResult runGateWithExtraConfiguration(
-            Path projectDir, boolean expectFailure, String extraBuildScript) throws IOException {
-        // An explicit settings file stops Gradle walking up into a real build.
-        Files.writeString(projectDir.resolve("settings.gradle"),
-                "rootProject.name = 'gate-fixture'\n");
-        Files.writeString(projectDir.resolve("build.gradle"),
-                "apply from: '" + scriptPath() + "'\n" + extraBuildScript);
+            Path projectDir,
+            boolean expectFailure,
+            String extraBuildScript) {
 
-        var runner = GradleRunner.create()
-                .withProjectDir(projectDir.toFile())
-                .withArguments("enforceDocLinksResolve");
+        var project = GateProject
+            .driving(GATE, projectDir)
+            .configuringTheGate(extraBuildScript);
 
-        return expectFailure ? runner.buildAndFail() : runner.build();
+        return expectFailure
+            ? project.runExpectingFailure()
+            : project.runExpectingSuccess();
     }
 
     // A doc whose link is broken beyond doubt, so a case that expects success
     // is proving the directory was skipped rather than that the link was sound.
     private void writeBrokenDocUnder(Path projectDir, String directory) throws IOException {
-        var dir = projectDir.resolve(directory);
-        Files.createDirectories(dir);
-        Files.writeString(dir.resolve("guide.md"), loadFixture("markdown/missing-relative-link"));
+
+        GateProject
+            .driving(GATE, projectDir)
+            .holdingText(
+                directory + "/" + "guide.md",
+                GateProject.loadFixture("markdown/missing-relative-link"));
     }
 
     // The doc under test sits one directory down, so a fixture can exercise a
     // parent-relative target as well as a sibling one.
     private void writeDoc(Path projectDir, String fixture) throws IOException {
-        var dir = projectDir.resolve("docs");
-        Files.createDirectories(dir);
-        Files.writeString(dir.resolve("guide.md"), loadFixture("markdown/" + fixture));
+
+        GateProject
+            .driving(GATE, projectDir)
+            .holdingText(
+                "docs" + "/" + "guide.md",
+                GateProject.loadFixture("markdown/" + fixture));
     }
 
     // The three targets the resolving fixture links to: a sibling, a parent,
     // and a directory reached root-relatively.
     private void writeLinkTargets(Path projectDir) throws IOException {
-        var dir = projectDir.resolve("docs");
-        Files.createDirectories(dir);
-        Files.writeString(dir.resolve("other.md"), "# Other\n");
+
+        GateProject
+            .driving(GATE, projectDir)
+            .holdingText(
+                "docs" + "/" + "other.md",
+                "# Other\n");
+                
         Files.writeString(projectDir.resolve("README.md"), "# Root\n");
         Files.createDirectories(projectDir.resolve("src/main/java"));
-    }
-
-    // The gate script path is handed in by the test task so the test does not
-    // assume a working directory; forward slashes keep it valid inside the
-    // generated build script on Windows.
-    private String scriptPath() {
-        return System.getProperty("doc.links.gate.script.path").replace('\\', '/');
-    }
-
-    // The fixture name carries its markdown/ subfolder, which resolves under the
-    // classpath root the source set exposes for resources.
-    private String loadFixture(String name) throws IOException {
-        try (InputStream in = getClass().getResourceAsStream("/" + name + ".txt")) {
-            if (in == null) {
-                throw new IllegalStateException("Missing fixture: " + name);
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
     }
 }

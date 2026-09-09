@@ -27,6 +27,7 @@ sourceSets {
         def scriptTestDirs = [
             'src/test-gradle/tasks/format/align-javadoc-params',
             'src/test-gradle/tasks/lint/docs/enforce-doc-links-resolve',
+            'src/test-gradle/tasks/lint/lint-gate-stamp',
             'src/test-gradle/tasks/lint/formatting/tests/enforce-no-trailing-whitespace',
             'src/test-gradle/tasks/lint/formatting/tests/enforce-single-blank-lines',
             'src/test-gradle/tasks/lint/literals/tests/enforce-no-magic-literals-kotlin',
@@ -39,7 +40,9 @@ sourceSets {
             'src/test-gradle/tasks/lint/structure/enforce-restricted-calls',
             'src/test-gradle/tasks/lint/structure/tests/enforce-tests-nested',
         ]
-        java.srcDirs = scriptTestDirs
+        // The support root holds what every gate suite drives its gate through; it files no
+        // fixtures, so it joins the sources alone.
+        java.srcDirs = scriptTestDirs + 'src/test-gradle/support'
 
         resources.srcDirs = scriptTestDirs
         resources.exclude '**/*.java'
@@ -83,19 +86,20 @@ def testGradle = tasks.register('testGradle', Test) {
     // tests rather than leave them UP-TO-DATE against a stale version. The path
     // is also handed to the test so it does not assume a working directory. The
     // scripts live one directory up, under Common-Java/gradle/tasks.
-    // Three shared helpers are runtime inputs of these tests even though no test
-    // names any of them: every gate applies the stamp helper, both structure
-    // gates that judge a file by its declared package apply the package-root
-    // reader, and both formatter passes plus the blank-line gate apply the
-    // source-set selector. Editing one must re-run them.
-    inputs.file(file('../gradle/tasks/lint/lint-gate-stamp.gradle'))
-        .withPropertyName('lintGateStampScript')
+    // Shared helpers are runtime inputs of these tests: both structure gates that judge a file by
+    // its declared package apply the package-root reader, both formatter passes plus the blank-line
+    // gate apply the source-set selector, and both test-double gates apply the naming scan. Editing
+    // one must re-run them. The stamp helper is bound below instead, being the one with a test of
+    // its own.
 
     inputs.file(file('../gradle/tasks/lint/package-roots.gradle'))
         .withPropertyName('packageRootsScript')
 
     inputs.file(file('../gradle/tasks/format/formatted-source-sets.gradle'))
         .withPropertyName('formattedSourceSetsScript')
+
+    inputs.file(file('../gradle/tasks/lint/naming/tests/double-naming-scan.gradle'))
+        .withPropertyName('doubleNamingScanScript')
 
     // One script binds three ways - as a task input, under an
     // up-to-dateness property name, and as the system property its test reads
@@ -114,6 +118,11 @@ def testGradle = tasks.register('testGradle', Test) {
         'alignJavadocParamsScript',
         'align.javadoc.params.script.path',
         '../gradle/tasks/format/align-javadoc-params.gradle')
+
+    declareScriptUnderTest(
+        'lintGateStampScript',
+        'lint.gate.stamp.script.path',
+        '../gradle/tasks/lint/lint-gate-stamp.gradle')
 
     declareScriptUnderTest(
         'docLinksGateScript',

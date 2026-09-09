@@ -1,13 +1,8 @@
 import org.gradle.testkit.runner.BuildResult;
-import org.gradle.testkit.runner.GradleRunner;
 import org.gradle.testkit.runner.TaskOutcome;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,6 +23,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 // source under the name the declaration does or does not allow - that pairing is
 // the whole of what the gate decides.
 class EnforceRestrictedCallsGateIntegrationTests {
+
+    private static final GateUnderTest GATE =
+        new GateUnderTest("enforceRestrictedCalls", "restricted.calls.gate.script.path");
 
     private static final String TASK_PATH = ":enforceRestrictedCalls";
 
@@ -62,8 +60,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
         "call: '" + RESTRICTED_CALL + "'");
 
     @Test
-    void failsWhenProductionCodeOutsideTheAllowedTypesMakesTheCall(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenProductionCodeOutsideTheAllowedTypesMakesTheCall(@TempDir Path projectDir) {
 
         writeJavaSource(projectDir, "src/main/java", ORDINARY_TYPE, "caller-in-the-closed-root");
 
@@ -75,8 +72,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void failsWhenTestCodeMakesTheCall(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenTestCodeMakesTheCall(@TempDir Path projectDir) {
 
         // A suite reaching for the ambient handle is the shortest way to make a
         // case compile, and it is the same reach the rule exists to contain -
@@ -90,8 +86,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void failsWhenASourceSetBeyondMainAndTestMakesTheCall(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenASourceSetBeyondMainAndTestMakesTheCall(@TempDir Path projectDir) {
 
         // A mod's own extra source set - a dev tool, a stub tree - compiles
         // against the same API, so exempting it would leave the rule enforced
@@ -105,17 +100,13 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void failsWhenKotlinCodeMakesTheCall(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenKotlinCodeMakesTheCall(@TempDir Path projectDir) {
 
         // Kotlin leaves the semicolon off its package declaration, so the line
         // the package is read from differs from the Java shape.
-        var dir = projectDir.resolve("src/main/kotlin");
-
-        Files.createDirectories(dir);
-        Files.writeString(
-            dir.resolve(ORDINARY_TYPE + ".kt"),
-            loadFixture("kotlin/caller-in-the-closed-root"));
+        GateProject
+            .driving(GATE, projectDir)
+            .holdingText("src/main/kotlin" + "/" + ORDINARY_TYPE + ".kt", GateProject.loadFixture("kotlin/caller-in-the-closed-root"));
 
         var result = runGateExpectingFailure(projectDir, CONTAINED_TO_THE_ADAPTER);
 
@@ -124,13 +115,15 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void failsOnARestrictionBeyondTheFirstDeclared(@TempDir Path projectDir)
-            throws IOException {
+    void failsOnARestrictionBeyondTheFirstDeclared(@TempDir Path projectDir) {
 
         // Two restrictions, and the breach is of the second: a gate that
         // honoured only the first declaration would pass every case above.
         writeJavaSource(
-            projectDir, "src/main/java", ORDINARY_TYPE, "caller-of-the-second-restricted-call");
+            projectDir,
+            "src/main/java",
+            ORDINARY_TYPE,
+            "caller-of-the-second-restricted-call");
 
         var result = runGateExpectingFailure(projectDir, BOTH_CALLS_CONTAINED);
 
@@ -139,14 +132,16 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void failsWhenTheCallIsAssembledAsAStringLiteral(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenTheCallIsAssembledAsAStringLiteral(@TempDir Path projectDir) {
 
         // Prose about the rule is exempt; text that spells the call is not.
         // Reaching the ambient handle by name is the thing being contained, and
         // doing it through a string must not be cheaper than declaring the seam.
         writeJavaSource(
-            projectDir, "src/main/java", ORDINARY_TYPE, "calling-through-a-string-literal");
+            projectDir,
+            "src/main/java",
+            ORDINARY_TYPE,
+            "calling-through-a-string-literal");
 
         var result = runGateExpectingFailure(projectDir, CONTAINED_TO_THE_ADAPTER);
 
@@ -155,14 +150,16 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void failsWhenTheCallFollowsAClosedBlockCommentOnOneLine(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenTheCallFollowsAClosedBlockCommentOnOneLine(@TempDir Path projectDir) {
 
         // The other half of reading comments out: a stripper that ran to the end
         // of the line would blank real code sitting after the comment closes,
         // and every case above would still pass.
         writeJavaSource(
-            projectDir, "src/main/java", ORDINARY_TYPE, "calling-after-a-block-comment-closes");
+            projectDir,
+            "src/main/java",
+            ORDINARY_TYPE,
+            "calling-after-a-block-comment-closes");
 
         var result = runGateExpectingFailure(projectDir, CONTAINED_TO_THE_ADAPTER);
 
@@ -171,8 +168,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void failsWhenTheCallSitsBelowEachCommentFormNestedInTheOther(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenTheCallSitsBelowEachCommentFormNestedInTheOther(@TempDir Path projectDir) {
 
         // Whichever form opens first has to win, or the stripper leaves comment
         // state set wrongly and blanks the real code below it - and a gate that
@@ -192,8 +188,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void failsWhenTheAllowedTypeMakesACallContainedToNothing(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenTheAllowedTypeMakesACallContainedToNothing(@TempDir Path projectDir) {
 
         // A restriction with no allowed types closes the root to the call
         // outright, which is what a mistyped 'toTypes:' key silently becomes -
@@ -207,8 +202,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void failsWhenARestrictionIsDeclaredWithoutTheRootItAppliesUnder(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenARestrictionIsDeclaredWithoutTheRootItAppliesUnder(@TempDir Path projectDir) {
 
         // A half-declared restriction asserts nothing, so it must be rejected
         // where it is written rather than accepted as a rule that never fires.
@@ -221,8 +215,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void failsAgainAfterAPassingRunOnceARestrictionIsDeclared(@TempDir Path projectDir)
-            throws IOException {
+    void failsAgainAfterAPassingRunOnceARestrictionIsDeclared(@TempDir Path projectDir) {
 
         // The restrictions are a task input, not just a closure the action
         // reads. If they were not, this second run would be UP-TO-DATE against
@@ -237,8 +230,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void passesWhenTheAllowedTypeMakesTheCall(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenTheAllowedTypeMakesTheCall(@TempDir Path projectDir) {
 
         // The seam the whole rule exists to leave open. Without this the gate
         // could simply forbid the call outright and pass every failing case.
@@ -251,13 +243,15 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void passesWhenTheCallIsMadeOutsideTheClosedRoot(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenTheCallIsMadeOutsideTheClosedRoot(@TempDir Path projectDir) {
 
         // The rule is one root's, not the repo's: a package the consuming build
         // said nothing about is free to call whatever it likes.
         writeJavaSource(
-            projectDir, "src/main/java", ORDINARY_TYPE, "caller-outside-the-closed-root");
+            projectDir,
+            "src/main/java",
+            ORDINARY_TYPE,
+            "caller-outside-the-closed-root");
 
         var result = runGateExpectingSuccess(projectDir, CONTAINED_TO_THE_ADAPTER);
 
@@ -266,13 +260,15 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void passesWhenTheCallingPackageOnlySharesAPrefix(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenTheCallingPackageOnlySharesAPrefix(@TempDir Path projectDir) {
 
         // 'example.frameworkish' is not under 'example.framework', so the rule
         // does not reach it - only a whole-segment match may close a package.
         writeJavaSource(
-            projectDir, "src/main/java", ORDINARY_TYPE, "caller-in-a-package-sharing-a-prefix");
+            projectDir,
+            "src/main/java",
+            ORDINARY_TYPE,
+            "caller-in-a-package-sharing-a-prefix");
 
         var result = runGateExpectingSuccess(projectDir, CONTAINED_TO_THE_ADAPTER);
 
@@ -281,8 +277,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void passesWhenTheCallIsOnlyNamedInProse(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenTheCallIsOnlyNamedInProse(@TempDir Path projectDir) {
 
         // Where a contained call is most often written down: the types forbidden
         // to make it explain what they do instead. A gate reading those
@@ -297,8 +292,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void passesWhenTheCallingFileIsInTheDefaultPackage(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenTheCallingFileIsInTheDefaultPackage(@TempDir Path projectDir) {
 
         // A file with no package declaration sits under no root, so no
         // restriction names it - and reading its calls against one would be
@@ -312,8 +306,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void passesWhenNothingMakesTheRestrictedCall(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenNothingMakesTheRestrictedCall(@TempDir Path projectDir) {
 
         writeJavaSource(projectDir, "src/main/java", ORDINARY_TYPE, "calling-nothing-restricted");
 
@@ -324,8 +317,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void passesWhenTheBuildDeclaresNoRestriction(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenTheBuildDeclaresNoRestriction(@TempDir Path projectDir) {
 
         // Every consumer inherits the gate from the shared conventions, so a
         // build that never says what its seams are must check nothing rather
@@ -339,8 +331,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
     }
 
     @Test
-    void passesWhenThereIsNoSourceTree(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenThereIsNoSourceTree(@TempDir Path projectDir) {
 
         var result = runGateExpectingSuccess(projectDir, CONTAINED_TO_THE_ADAPTER);
 
@@ -356,41 +347,35 @@ class EnforceRestrictedCallsGateIntegrationTests {
         var declaration = new StringBuilder("enforceRestrictedCalls {\n");
 
         for (var argumentList : restrictCallArgumentLists) {
-            declaration.append("    restrictCall ").append(argumentList).append('\n');
+
+            declaration
+                .append("    restrictCall ")
+                .append(argumentList)
+                .append('\n');
         }
-        return declaration.append("}\n").toString();
+        return declaration
+            .append("}\n")
+            .toString();
     }
 
     // The expected outcome is in the method name rather than a flag, so a call
     // site reads as what it asserts. Both forward to one runner: the pair
     // differs only in which TestKit terminal it drives.
-    private BuildResult runGateExpectingFailure(Path projectDir, String restrictionDeclaration)
-            throws IOException {
+    private BuildResult runGateExpectingFailure(Path projectDir, String restrictionDeclaration) {
 
-        return buildRunner(projectDir, restrictionDeclaration).buildAndFail();
+        return buildProject(projectDir, restrictionDeclaration).runExpectingFailure();
     }
 
-    private BuildResult runGateExpectingSuccess(Path projectDir, String restrictionDeclaration)
-            throws IOException {
+    private BuildResult runGateExpectingSuccess(Path projectDir, String restrictionDeclaration) {
 
-        return buildRunner(projectDir, restrictionDeclaration).build();
+        return buildProject(projectDir, restrictionDeclaration).runExpectingSuccess();
     }
 
-    private GradleRunner buildRunner(Path projectDir, String restrictionDeclaration)
-            throws IOException {
+    private GateProject buildProject(Path projectDir, String declaration) {
 
-        // An explicit settings file stops Gradle walking up into a real build.
-        Files.writeString(
-            projectDir.resolve("settings.gradle"),
-            "rootProject.name = 'gate-fixture'\n");
-
-        Files.writeString(
-            projectDir.resolve("build.gradle"),
-            "apply from: '" + scriptPath() + "'\n" + restrictionDeclaration);
-
-        return GradleRunner.create()
-            .withProjectDir(projectDir.toFile())
-            .withArguments("enforceRestrictedCalls");
+        return GateProject
+            .driving(GATE, projectDir)
+            .configuringTheGate(declaration);
     }
 
     // The source root and the type name are both parameters: every source set is
@@ -400,31 +385,12 @@ class EnforceRestrictedCallsGateIntegrationTests {
             Path projectDir,
             String sourceRoot,
             String typeName,
-            String fixture) throws IOException {
+            String fixture) {
 
-        var dir = projectDir.resolve(sourceRoot);
-
-        Files.createDirectories(dir);
-        Files.writeString(dir.resolve(typeName + ".java"), loadFixture("java/" + fixture));
-    }
-
-    // The gate script path is handed in by the test task so the test does not
-    // assume a working directory; forward slashes keep it valid inside the
-    // generated build script on Windows.
-    private String scriptPath() {
-        return System.getProperty("restricted.calls.gate.script.path").replace('\\', '/');
-    }
-
-    // The fixture name carries its language subfolder (java/ or kotlin/), which
-    // resolves under the classpath root the source set exposes for resources.
-    private String loadFixture(String name)
-            throws IOException {
-
-        try (InputStream in = getClass().getResourceAsStream("/" + name + ".txt")) {
-            if (in == null) {
-                throw new IllegalStateException("Missing fixture: " + name);
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        GateProject
+            .driving(GATE, projectDir)
+            .holdingText(
+                sourceRoot + "/" + typeName + ".java",
+                GateProject.loadFixture("java/" + fixture));
     }
 }

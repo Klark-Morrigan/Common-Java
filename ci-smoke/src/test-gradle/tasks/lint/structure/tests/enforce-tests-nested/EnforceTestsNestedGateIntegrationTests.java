@@ -1,13 +1,7 @@
-import org.gradle.testkit.runner.BuildResult;
-import org.gradle.testkit.runner.GradleRunner;
 import org.gradle.testkit.runner.TaskOutcome;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,138 +19,118 @@ import static org.assertj.core.api.Assertions.assertThat;
 // grouping folder is the source root, and its kebab name cannot be a Java
 // package.
 class EnforceTestsNestedGateIntegrationTests {
+
+    private static final GateUnderTest GATE =
+        new GateUnderTest("enforceTestsNested", "nested.gate.script.path");
+
     private static final String TASK_PATH = ":enforceTestsNested";
-
     @Test
-    void passesWhenTestIsNestedInJava(@TempDir Path projectDir) throws IOException {
-        writeJavaSource(projectDir, "nested-test-passes");
+    void passesWhenTestIsNestedInJava(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, false);
+        var result = javaProject(projectDir, "nested-test-passes")
+            .runExpectingSuccess();
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
-    void failsWhenTestIsAtTopLevelInJava(@TempDir Path projectDir) throws IOException {
-        writeJavaSource(projectDir, "top-level-test-is-flagged");
+    void failsWhenTestIsAtTopLevelInJava(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, true);
+        var result = javaProject(projectDir, "top-level-test-is-flagged")
+            .runExpectingFailure();
 
-        assertThat(result.getOutput()).contains("must live inside a @Nested class");
+        assertThat(result.getOutput())
+            .contains("must live inside a @Nested class");
     }
 
     @Test
-    void ignoresAnnotationsAndBracesInLiteralsInJava(@TempDir Path projectDir) throws IOException {
-        writeJavaSource(projectDir, "literals-do-not-confuse-the-scan");
+    void ignoresAnnotationsAndBracesInLiteralsInJava(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, false);
+        var result = javaProject(projectDir, "literals-do-not-confuse-the-scan")
+            .runExpectingSuccess();
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
-    void passesWhenTestIsNestedInKotlin(@TempDir Path projectDir) throws IOException {
-        writeKotlinSource(projectDir, "nested-test-passes");
+    void passesWhenTestIsNestedInKotlin(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, false);
+        var result = kotlinProject(projectDir, "nested-test-passes")
+            .runExpectingSuccess();
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
-    void failsWhenTestIsAtTopLevelInKotlin(@TempDir Path projectDir) throws IOException {
-        writeKotlinSource(projectDir, "top-level-test-is-flagged");
+    void failsWhenTestIsAtTopLevelInKotlin(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, true);
+        var result = kotlinProject(projectDir, "top-level-test-is-flagged")
+            .runExpectingFailure();
 
-        assertThat(result.getOutput()).contains("must live inside a @Nested class");
+        assertThat(result.getOutput())
+            .contains("must live inside a @Nested class");
     }
 
     @Test
-    void ignoresAnnotationsAndBracesInLiteralsInKotlin(@TempDir Path projectDir) throws IOException {
+    void ignoresAnnotationsAndBracesInLiteralsInKotlin(@TempDir Path projectDir) {
         // The Kotlin fixture hides the stray braces and @Test inside a """ raw
         // string that spans lines, exercising the gate's cross-line raw-string
         // threading - the Java counterpart can only reach the single-line
         // string-literal path.
-        writeKotlinSource(projectDir, "literals-do-not-confuse-the-scan");
+        var result = kotlinProject(projectDir, "literals-do-not-confuse-the-scan")
+            .runExpectingSuccess();
 
-        var result = runGate(projectDir, false);
-
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
-    void failsWhenKotlinNestedClassIsNotInner(@TempDir Path projectDir) throws IOException {
+    void failsWhenKotlinNestedClassIsNotInner(@TempDir Path projectDir) {
         // A Kotlin @Nested class declared as a plain 'class' (not 'inner')
         // compiles but is silently skipped by JUnit5, so the gate must flag it
         // even though the @Test is technically inside a @Nested class.
-        writeKotlinSource(projectDir, "nested-without-inner-is-flagged");
+        var result = kotlinProject(projectDir, "nested-without-inner-is-flagged")
+            .runExpectingFailure();
 
-        var result = runGate(projectDir, true);
-
-        assertThat(result.getOutput()).contains("must be declared `inner class`");
+        assertThat(result.getOutput())
+            .contains("must be declared `inner class`");
     }
 
     @Test
-    void ignoresApostropheInKotlinBacktickTestName(@TempDir Path projectDir) throws IOException {
+    void ignoresApostropheInKotlinBacktickTestName(@TempDir Path projectDir) {
         // A Kotlin backtick test name can hold an apostrophe (calculator's),
         // which must not be read as a char-literal opener that swallows the
         // method brace and drifts the scan into flagging later nested tests.
-        writeKotlinSource(projectDir, "backtick-name-with-apostrophe-passes");
+        var result = kotlinProject(projectDir, "backtick-name-with-apostrophe-passes")
+            .runExpectingSuccess();
 
-        var result = runGate(projectDir, false);
-
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
-    void passesWhenThereIsNoTestTree(@TempDir Path projectDir) throws IOException {
-        var result = runGate(projectDir, false);
+    void passesWhenThereIsNoTestTree(@TempDir Path projectDir) {
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        var result = GateProject.driving(GATE, projectDir).runExpectingSuccess();
+
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
-    private BuildResult runGate(Path projectDir, boolean expectFailure) throws IOException {
-        // An explicit settings file stops Gradle walking up into a real build.
-        Files.writeString(projectDir.resolve("settings.gradle"),
-                "rootProject.name = 'gate-fixture'\n");
-        Files.writeString(projectDir.resolve("build.gradle"),
-                "apply from: '" + scriptPath() + "'\n");
+    private static GateProject javaProject(Path projectDir, String fixture) {
 
-        var runner = GradleRunner.create()
-                .withProjectDir(projectDir.toFile())
-                .withArguments("enforceTestsNested");
-
-        return expectFailure ? runner.buildAndFail() : runner.build();
+        return GateProject
+            .driving(GATE, projectDir)
+            .holdingFixture("src/test/java/Sample.java", "java/" + fixture);
     }
 
-    private void writeJavaSource(Path projectDir, String fixture) throws IOException {
-        var dir = projectDir.resolve("src/test/java");
-        Files.createDirectories(dir);
-        Files.writeString(dir.resolve("Sample.java"), loadFixture("java/" + fixture));
-    }
+    private static GateProject kotlinProject(Path projectDir, String fixture) {
 
-    private void writeKotlinSource(Path projectDir, String fixture) throws IOException {
-        var dir = projectDir.resolve("src/test/kotlin");
-        Files.createDirectories(dir);
-        Files.writeString(dir.resolve("Sample.kt"), loadFixture("kotlin/" + fixture));
-    }
-
-    // The gate script path is handed in by the test task so the test does not
-    // assume a working directory; forward slashes keep it valid inside the
-    // generated build script on Windows.
-    private String scriptPath() {
-        return System.getProperty("nested.gate.script.path").replace('\\', '/');
-    }
-
-    // The fixture name carries its language subfolder (java/ or kotlin/), which
-    // resolves under the classpath root the source set exposes for resources.
-    private String loadFixture(String name) throws IOException {
-        try (InputStream in = getClass().getResourceAsStream("/" + name + ".txt")) {
-            if (in == null) {
-                throw new IllegalStateException("Missing fixture: " + name);
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        return GateProject
+            .driving(GATE, projectDir)
+            .holdingFixture("src/test/kotlin/Sample.kt", "kotlin/" + fixture);
     }
 }

@@ -1,13 +1,8 @@
 import org.gradle.testkit.runner.BuildResult;
-import org.gradle.testkit.runner.GradleRunner;
 import org.gradle.testkit.runner.TaskOutcome;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,6 +20,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 // repo knows no consumer's layers. Default package: the grouping folder is the
 // source root, and its kebab name cannot be a Java package.
 class EnforcePackageLayeringGateIntegrationTests {
+
+    private static final GateUnderTest GATE =
+        new GateUnderTest("enforcePackageLayering", "package.layering.gate.script.path");
 
     private static final String TASK_PATH = ":enforcePackageLayering";
 
@@ -59,8 +57,7 @@ class EnforcePackageLayeringGateIntegrationTests {
             + "', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
 
     @Test
-    void failsWhenProductionCodeImportsTheForbiddenRoot(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenProductionCodeImportsTheForbiddenRoot(@TempDir Path projectDir) {
 
         writeJavaSource(projectDir, "src/main/java", "framework-importing-the-feature");
 
@@ -72,8 +69,7 @@ class EnforcePackageLayeringGateIntegrationTests {
     }
 
     @Test
-    void failsWhenTestCodeImportsTheForbiddenRoot(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenTestCodeImportsTheForbiddenRoot(@TempDir Path projectDir) {
 
         // The half most likely to slip: a suite reaching for a real type from
         // the far side is the shortest way to make it compile, and it inverts
@@ -87,8 +83,7 @@ class EnforcePackageLayeringGateIntegrationTests {
     }
 
     @Test
-    void failsWhenASourceSetBeyondMainAndTestImportsTheForbiddenRoot(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenASourceSetBeyondMainAndTestImportsTheForbiddenRoot(@TempDir Path projectDir) {
 
         // A mod's own extra source set - a dev tool, a stub tree - sits in the
         // same packages as the code it is built from, so exempting it would
@@ -102,8 +97,7 @@ class EnforcePackageLayeringGateIntegrationTests {
     }
 
     @Test
-    void failsWhenTheForbiddenRootArrivesByWildcardOrStaticImport(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenTheForbiddenRootArrivesByWildcardOrStaticImport(@TempDir Path projectDir) {
 
         // Two import forms the plain 'import x.y.Z;' pattern does not cover: an
         // on-demand import keeps a trailing star, and a static one carries a
@@ -118,17 +112,13 @@ class EnforcePackageLayeringGateIntegrationTests {
     }
 
     @Test
-    void failsWhenKotlinCodeImportsTheForbiddenRoot(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenKotlinCodeImportsTheForbiddenRoot(@TempDir Path projectDir) {
 
         // Kotlin leaves the semicolon off its package declaration and may alias
         // an import, so both ends of the line differ from the Java shape.
-        var dir = projectDir.resolve("src/main/kotlin");
-
-        Files.createDirectories(dir);
-        Files.writeString(
-            dir.resolve("Sample.kt"),
-            loadFixture("kotlin/framework-importing-the-feature"));
+        GateProject
+            .driving(GATE, projectDir)
+            .holdingText("src/main/kotlin" + "/" + "Sample.kt", GateProject.loadFixture("kotlin/framework-importing-the-feature"));
 
         var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURE);
 
@@ -137,8 +127,7 @@ class EnforcePackageLayeringGateIntegrationTests {
     }
 
     @Test
-    void failsOnAnEdgeBeyondTheFirstDeclared(@TempDir Path projectDir)
-            throws IOException {
+    void failsOnAnEdgeBeyondTheFirstDeclared(@TempDir Path projectDir) {
 
         // Two edges, and the violation is of the second: a gate that honoured
         // only the first declaration would pass every single-edge case above.
@@ -151,8 +140,7 @@ class EnforcePackageLayeringGateIntegrationTests {
     }
 
     @Test
-    void failsWhenAnEdgeIsDeclaredWithoutTheRootItCloses(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenAnEdgeIsDeclaredWithoutTheRootItCloses(@TempDir Path projectDir) {
 
         // A half-declared edge asserts nothing, so it must be rejected where it
         // is written rather than accepted as a rule that can never fire.
@@ -166,7 +154,7 @@ class EnforcePackageLayeringGateIntegrationTests {
 
     @Test
     void failsWhenTheClosedPackageItselfImportsTheForbiddenRootAtTheNarrowWidth(
-            @TempDir Path projectDir) throws IOException {
+            @TempDir Path projectDir) {
 
         // The package named is closed at either width; what differs is how far
         // the rule reaches beneath it.
@@ -181,7 +169,7 @@ class EnforcePackageLayeringGateIntegrationTests {
 
     @Test
     void failsWhenTheClosedPackageItselfImportsTheForbiddenRootAtTheWideWidth(
-            @TempDir Path projectDir) throws IOException {
+            @TempDir Path projectDir) {
 
         // The root of a closed subtree is inside it, so the wide width reaches
         // the same file the narrow one does - the two differ only below it.
@@ -194,8 +182,7 @@ class EnforcePackageLayeringGateIntegrationTests {
     }
 
     @Test
-    void failsWhenAnEdgeClosesItsRootAtBothWidthsAtOnce(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenAnEdgeClosesItsRootAtBothWidthsAtOnce(@TempDir Path projectDir) {
 
         // Two different rules over one pair of roots. Reading either and
         // ignoring the other would enforce something nobody declared.
@@ -208,8 +195,7 @@ class EnforcePackageLayeringGateIntegrationTests {
     }
 
     @Test
-    void failsAgainAfterAPassingRunOnceAnEdgeIsDeclared(@TempDir Path projectDir)
-            throws IOException {
+    void failsAgainAfterAPassingRunOnceAnEdgeIsDeclared(@TempDir Path projectDir) {
 
         // The edges are a task input, not just a closure the action reads. If
         // they were not, this second run would be UP-TO-DATE against the first
@@ -224,8 +210,7 @@ class EnforcePackageLayeringGateIntegrationTests {
     }
 
     @Test
-    void passesWhenNothingImportsTheForbiddenRoot(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenNothingImportsTheForbiddenRoot(@TempDir Path projectDir) {
 
         writeJavaSource(projectDir, "src/main/java", "framework-importing-nothing-forbidden");
 
@@ -237,7 +222,7 @@ class EnforcePackageLayeringGateIntegrationTests {
 
     @Test
     void passesWhenOnlyASubpackageOfTheNarrowlyClosedPackageImportsTheForbiddenRoot(
-            @TempDir Path projectDir) throws IOException {
+            @TempDir Path projectDir) {
 
         // The whole reason the narrow width exists. A package closed to one of
         // its own subpackages cannot be closed as a subtree, or the rule would
@@ -252,8 +237,7 @@ class EnforcePackageLayeringGateIntegrationTests {
     }
 
     @Test
-    void passesWhenTheImportingPackageOnlySharesAPrefix(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenTheImportingPackageOnlySharesAPrefix(@TempDir Path projectDir) {
 
         // 'example.frameworkish' is not under 'example.framework', so the rule
         // does not reach it - only a whole-segment match may close a package.
@@ -266,8 +250,7 @@ class EnforcePackageLayeringGateIntegrationTests {
     }
 
     @Test
-    void passesWhenTheImportedNameOnlySharesAPrefix(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenTheImportedNameOnlySharesAPrefix(@TempDir Path projectDir) {
 
         // The same segment rule on the other side: 'example.featureless' is a
         // different package from 'example.feature' despite the string prefix.
@@ -280,8 +263,7 @@ class EnforcePackageLayeringGateIntegrationTests {
     }
 
     @Test
-    void passesWhenTheImportingFileIsInTheDefaultPackage(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenTheImportingFileIsInTheDefaultPackage(@TempDir Path projectDir) {
 
         // A file with no package declaration sits under no root, so no edge can
         // name it - and reading its imports against one would be guesswork.
@@ -294,8 +276,7 @@ class EnforcePackageLayeringGateIntegrationTests {
     }
 
     @Test
-    void passesWhenTheBuildDeclaresNoEdge(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenTheBuildDeclaresNoEdge(@TempDir Path projectDir) {
 
         // Every consumer inherits the gate from the shared conventions, so a
         // build that never says what its layers are must check nothing rather
@@ -309,8 +290,7 @@ class EnforcePackageLayeringGateIntegrationTests {
     }
 
     @Test
-    void passesWhenThereIsNoSourceTree(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenThereIsNoSourceTree(@TempDir Path projectDir) {
 
         var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURE);
 
@@ -321,74 +301,47 @@ class EnforcePackageLayeringGateIntegrationTests {
     // One place owns the block's syntax, so a case that varies the edges varies
     // only the edges. Each argument is one 'forbidImport' argument list.
     private static String buildEdgeDeclaration(String... forbidImportArgumentLists) {
+
         var declaration = new StringBuilder("enforcePackageLayering {\n");
 
         for (var argumentList : forbidImportArgumentLists) {
-            declaration.append("    forbidImport ").append(argumentList).append('\n');
+
+            declaration
+                .append("    forbidImport ")
+                .append(argumentList)
+                .append('\n');
         }
-        return declaration.append("}\n").toString();
+        return declaration
+            .append("}\n")
+            .toString();
     }
 
     // The expected outcome is in the method name rather than a flag, so a call
     // site reads as what it asserts. Both forward to one runner: the pair
     // differs only in which TestKit terminal it drives.
-    private BuildResult runGateExpectingFailure(Path projectDir, String edgeDeclaration)
-            throws IOException {
+    private BuildResult runGateExpectingFailure(Path projectDir, String edgeDeclaration) {
 
-        return buildRunner(projectDir, edgeDeclaration).buildAndFail();
+        return buildProject(projectDir, edgeDeclaration).runExpectingFailure();
     }
 
-    private BuildResult runGateExpectingSuccess(Path projectDir, String edgeDeclaration)
-            throws IOException {
+    private BuildResult runGateExpectingSuccess(Path projectDir, String edgeDeclaration) {
 
-        return buildRunner(projectDir, edgeDeclaration).build();
+        return buildProject(projectDir, edgeDeclaration).runExpectingSuccess();
     }
 
-    private GradleRunner buildRunner(Path projectDir, String edgeDeclaration)
-            throws IOException {
+    private GateProject buildProject(Path projectDir, String declaration) {
 
-        // An explicit settings file stops Gradle walking up into a real build.
-        Files.writeString(
-            projectDir.resolve("settings.gradle"),
-            "rootProject.name = 'gate-fixture'\n");
-
-        Files.writeString(
-            projectDir.resolve("build.gradle"),
-            "apply from: '" + scriptPath() + "'\n" + edgeDeclaration);
-
-        return GradleRunner.create()
-            .withProjectDir(projectDir.toFile())
-            .withArguments("enforcePackageLayering");
+        return GateProject
+            .driving(GATE, projectDir)
+            .configuringTheGate(declaration);
     }
 
     // The source root is a parameter rather than fixed, because every source
     // set is a case of the same rule and the gate must read all of them.
-    private void writeJavaSource(Path projectDir, String sourceRoot, String fixture)
-            throws IOException {
+    private void writeJavaSource(Path projectDir, String sourceRoot, String fixture) {
 
-        var dir = projectDir.resolve(sourceRoot);
-
-        Files.createDirectories(dir);
-        Files.writeString(dir.resolve("Sample.java"), loadFixture("java/" + fixture));
-    }
-
-    // The gate script path is handed in by the test task so the test does not
-    // assume a working directory; forward slashes keep it valid inside the
-    // generated build script on Windows.
-    private String scriptPath() {
-        return System.getProperty("package.layering.gate.script.path").replace('\\', '/');
-    }
-
-    // The fixture name carries its language subfolder (java/ or kotlin/), which
-    // resolves under the classpath root the source set exposes for resources.
-    private String loadFixture(String name)
-            throws IOException {
-
-        try (InputStream in = getClass().getResourceAsStream("/" + name + ".txt")) {
-            if (in == null) {
-                throw new IllegalStateException("Missing fixture: " + name);
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        GateProject
+            .driving(GATE, projectDir)
+            .holdingText(sourceRoot + "/" + "Sample.java", GateProject.loadFixture("java/" + fixture));
     }
 }

@@ -1,13 +1,9 @@
 import org.gradle.testkit.runner.BuildResult;
-import org.gradle.testkit.runner.GradleRunner;
 import org.gradle.testkit.runner.TaskOutcome;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,6 +20,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 // Default package: the grouping folder is the source root, and its kebab name
 // cannot be a Java package.
 class EnforceNoTestVocabularyGateIntegrationTests {
+
+    private static final GateUnderTest GATE =
+        new GateUnderTest("enforceNoTestVocabulary", "test.vocabulary.gate.script.path");
 
     private static final String TASK_PATH = ":enforceNoTestVocabulary";
 
@@ -142,12 +141,10 @@ class EnforceNoTestVocabularyGateIntegrationTests {
 
         // Kotlin is half the production surface across the consuming mods, and
         // the leak arrives through KDoc exactly as it does through Javadoc.
-        var dir = projectDir.resolve("src/main/kotlin/" + PRODUCTION_PACKAGE_PATH);
-
-        Files.createDirectories(dir);
-        Files.writeString(
-            dir.resolve("Sample.kt"),
-            loadFixture("kotlin/production-saying-a-mock-word"));
+        GateProject.driving(GATE, projectDir)
+            .holdingFixture(
+                "src/main/kotlin/" + PRODUCTION_PACKAGE_PATH + "/Sample.kt",
+                "kotlin/production-saying-a-mock-word");
 
         var result = runGateExpectingFailure(projectDir, NOTHING_EXEMPT);
 
@@ -365,30 +362,20 @@ class EnforceNoTestVocabularyGateIntegrationTests {
     private BuildResult runGateExpectingFailure(Path projectDir, String declaration)
             throws IOException {
 
-        return buildRunner(projectDir, declaration).buildAndFail();
+        return buildProject(projectDir, declaration).runExpectingFailure();
     }
 
     private BuildResult runGateExpectingSuccess(Path projectDir, String declaration)
             throws IOException {
 
-        return buildRunner(projectDir, declaration).build();
+        return buildProject(projectDir, declaration).runExpectingSuccess();
     }
 
-    private GradleRunner buildRunner(Path projectDir, String declaration)
-            throws IOException {
+    private GateProject buildProject(Path projectDir, String declaration) {
 
-        // An explicit settings file stops Gradle walking up into a real build.
-        Files.writeString(
-            projectDir.resolve("settings.gradle"),
-            "rootProject.name = 'gate-fixture'\n");
-
-        Files.writeString(
-            projectDir.resolve("build.gradle"),
-            "apply from: '" + scriptPath() + "'\n" + declaration);
-
-        return GradleRunner.create()
-            .withProjectDir(projectDir.toFile())
-            .withArguments("enforceNoTestVocabulary");
+        return GateProject
+            .driving(GATE, projectDir)
+            .configuringTheGate(declaration);
     }
 
     // The source root and the package path are both parameters: which source
@@ -398,40 +385,21 @@ class EnforceNoTestVocabularyGateIntegrationTests {
             Path projectDir, String sourceRoot, String packagePath, String fixture)
             throws IOException {
 
-        var dir = projectDir.resolve(sourceRoot + "/" + packagePath);
-
-        Files.createDirectories(dir);
-        Files.writeString(dir.resolve("Sample.java"), loadFixture("java/" + fixture));
+        GateProject
+            .driving(GATE, projectDir)
+            .holdingText(
+                sourceRoot + "/" + packagePath + "/" + "Sample.java",
+                GateProject.loadFixture("java/" + fixture));
     }
 
     private void writeMarkdown(
             Path projectDir, String sourceRoot, String packagePath, String fixture)
             throws IOException {
 
-        var dir = projectDir.resolve(sourceRoot + "/" + packagePath);
-
-        Files.createDirectories(dir);
-        Files.writeString(dir.resolve("README.md"), loadFixture("markdown/" + fixture));
-    }
-
-    // The gate script path is handed in by the test task so the test does not
-    // assume a working directory; forward slashes keep it valid inside the
-    // generated build script on Windows.
-    private String scriptPath() {
-        return System.getProperty("test.vocabulary.gate.script.path").replace('\\', '/');
-    }
-
-    // The fixture name carries its language subfolder (java/, kotlin/,
-    // markdown/), which resolves under the classpath root the source set
-    // exposes for resources.
-    private String loadFixture(String name)
-            throws IOException {
-
-        try (InputStream in = getClass().getResourceAsStream("/" + name + ".txt")) {
-            if (in == null) {
-                throw new IllegalStateException("Missing fixture: " + name);
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        GateProject
+            .driving(GATE, projectDir)
+            .holdingText(
+                sourceRoot + "/" + packagePath + "/" + "README.md",
+                GateProject.loadFixture("markdown/" + fixture));
     }
 }

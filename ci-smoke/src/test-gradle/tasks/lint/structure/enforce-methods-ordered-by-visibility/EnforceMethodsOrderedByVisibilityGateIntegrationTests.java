@@ -1,13 +1,7 @@
-import org.gradle.testkit.runner.BuildResult;
-import org.gradle.testkit.runner.GradleRunner;
 import org.gradle.testkit.runner.TaskOutcome;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,149 +20,125 @@ import static org.assertj.core.api.Assertions.assertThat;
 // package: the grouping folder is the source root, and its kebab name cannot be
 // a Java package.
 class EnforceMethodsOrderedByVisibilityGateIntegrationTests {
+
+    private static final GateUnderTest GATE =
+        new GateUnderTest("enforceMethodsOrderedByVisibility", "methods.order.gate.script.path");
+
     private static final String TASK_PATH = ":enforceMethodsOrderedByVisibility";
-
     @Test
-    void passesWhenJavaMethodsDescendTheLadder(@TempDir Path projectDir) throws IOException {
-        writeJavaSource(projectDir, "ordered-ladder-passes");
+    void passesWhenJavaMethodsDescendTheLadder(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, false);
+        var result = javaProject(projectDir, "ordered-ladder-passes")
+            .runExpectingSuccess();
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
-    void failsWhenJavaPublicMethodSitsBelowPrivate(@TempDir Path projectDir) throws IOException {
-        writeJavaSource(projectDir, "public-below-private-is-flagged");
+    void failsWhenJavaPublicMethodSitsBelowPrivate(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, true);
+        var result = javaProject(projectDir, "public-below-private-is-flagged")
+            .runExpectingFailure();
 
         assertThat(result.getOutput())
-                .contains("public method declared below a private method");
+            .contains("public method declared below a private method");
     }
 
     @Test
-    void ignoresJavaConstructorsAndEnumConstants(@TempDir Path projectDir) throws IOException {
+    void ignoresJavaConstructorsAndEnumConstants(@TempDir Path projectDir) {
         // A public constructor placed below a private method would look like a
         // ladder violation, and an enum constant with an argument list looks like
         // a bare method - both must be skipped, so this ordered fixture passes.
-        writeJavaSource(projectDir, "constructor-and-enum-ignored-passes");
+        var result = javaProject(projectDir, "constructor-and-enum-ignored-passes")
+            .runExpectingSuccess();
 
-        var result = runGate(projectDir, false);
-
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
-    void ignoresJavaMultiLineFieldInitializers(@TempDir Path projectDir) throws IOException {
+    void ignoresJavaMultiLineFieldInitializers(@TempDir Path projectDir) {
         // A field whose value sits on the line after the '=' - a 'Type.factory(...)'
         // or a 'new Type(...)' - looks like a bare package-private method on that
         // continuation line, since the same-line '=' guard cannot see the '=' on the
         // previous line. The gate must skip a continuation line (its previous line
         // ends in '=') so the public methods below the fields are not flagged against
         // a phantom method.
-        writeJavaSource(projectDir, "multiline-factory-field-initializer-ignored-passes");
+        var result = javaProject(projectDir, "multiline-factory-field-initializer-ignored-passes")
+            .runExpectingSuccess();
 
-        var result = runGate(projectDir, false);
-
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
-    void flagsJavaInterfaceImplicitPublicBelowPrivate(@TempDir Path projectDir) throws IOException {
+    void flagsJavaInterfaceImplicitPublicBelowPrivate(@TempDir Path projectDir) {
         // A no-modifier method is package-private in a class but public in an
         // interface. This fixture only fails if the gate ranks the bare interface
         // method as public and so sees it jump above the private method above it.
-        writeJavaSource(projectDir, "interface-implicit-public-below-private-is-flagged");
-
-        var result = runGate(projectDir, true);
+        var result = javaProject(projectDir, "interface-implicit-public-below-private-is-flagged")
+            .runExpectingFailure();
 
         assertThat(result.getOutput())
-                .contains("public (implicit) method declared below a private method");
+            .contains("public (implicit) method declared below a private method");
     }
 
     @Test
-    void passesWhenKotlinMethodsDescendTheLadder(@TempDir Path projectDir) throws IOException {
-        writeKotlinSource(projectDir, "ordered-ladder-passes");
+    void passesWhenKotlinMethodsDescendTheLadder(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, false);
+        var result = kotlinProject(projectDir, "ordered-ladder-passes")
+            .runExpectingSuccess();
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
-    void failsWhenKotlinPublicMethodSitsBelowPrivate(@TempDir Path projectDir) throws IOException {
+    void failsWhenKotlinPublicMethodSitsBelowPrivate(@TempDir Path projectDir) {
         // A bare Kotlin 'fun' is public, so it must not appear below a private
         // one; the gate reports it as an implicit-public method.
-        writeKotlinSource(projectDir, "public-below-private-is-flagged");
-
-        var result = runGate(projectDir, true);
+        var result = kotlinProject(projectDir, "public-below-private-is-flagged")
+            .runExpectingFailure();
 
         assertThat(result.getOutput())
-                .contains("public (implicit) method declared below a private method");
+            .contains("public (implicit) method declared below a private method");
     }
 
     @Test
-    void ignoresKotlinLocalFunctionsAndPropertyInitializers(@TempDir Path projectDir)
-            throws IOException {
+    void ignoresKotlinLocalFunctionsAndPropertyInitializers(@TempDir Path projectDir) {
         // A 'fun' nested in a method body sits deeper than the class-body depth,
         // and a 'fun' following '=' is a function-expression property value -
         // neither is a member declaration, so this ordered fixture passes.
-        writeKotlinSource(projectDir, "local-fun-and-property-init-ignored-passes");
+        var result = kotlinProject(projectDir, "local-fun-and-property-init-ignored-passes")
+            .runExpectingSuccess();
 
-        var result = runGate(projectDir, false);
-
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
-    void passesWhenThereIsNoMainTree(@TempDir Path projectDir) throws IOException {
-        var result = runGate(projectDir, false);
+    void passesWhenThereIsNoMainTree(@TempDir Path projectDir) {
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        var result = GateProject
+            .driving(GATE, projectDir)
+            .runExpectingSuccess();
+
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
-    private BuildResult runGate(Path projectDir, boolean expectFailure) throws IOException {
-        // An explicit settings file stops Gradle walking up into a real build.
-        Files.writeString(projectDir.resolve("settings.gradle"),
-                "rootProject.name = 'gate-fixture'\n");
-        Files.writeString(projectDir.resolve("build.gradle"),
-                "apply from: '" + scriptPath() + "'\n");
+    private static GateProject javaProject(Path projectDir, String fixture) {
 
-        var runner = GradleRunner.create()
-                .withProjectDir(projectDir.toFile())
-                .withArguments("enforceMethodsOrderedByVisibility");
-
-        return expectFailure ? runner.buildAndFail() : runner.build();
+        return GateProject
+            .driving(GATE, projectDir)
+            .holdingFixture("src/main/java/Sample.java", "java/" + fixture);
     }
 
-    private void writeJavaSource(Path projectDir, String fixture) throws IOException {
-        var dir = projectDir.resolve("src/main/java");
-        Files.createDirectories(dir);
-        Files.writeString(dir.resolve("Sample.java"), loadFixture("java/" + fixture));
-    }
+    private static GateProject kotlinProject(Path projectDir, String fixture) {
 
-    private void writeKotlinSource(Path projectDir, String fixture) throws IOException {
-        var dir = projectDir.resolve("src/main/kotlin");
-        Files.createDirectories(dir);
-        Files.writeString(dir.resolve("Sample.kt"), loadFixture("kotlin/" + fixture));
-    }
-
-    // The gate script path is handed in by the test task so the test does not
-    // assume a working directory; forward slashes keep it valid inside the
-    // generated build script on Windows.
-    private String scriptPath() {
-        return System.getProperty("methods.order.gate.script.path").replace('\\', '/');
-    }
-
-    // The fixture name carries its language subfolder (java/ or kotlin/), which
-    // resolves under the classpath root the source set exposes for resources.
-    private String loadFixture(String name) throws IOException {
-        try (InputStream in = getClass().getResourceAsStream("/" + name + ".txt")) {
-            if (in == null) {
-                throw new IllegalStateException("Missing fixture: " + name);
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        return GateProject
+            .driving(GATE, projectDir)
+            .holdingFixture("src/main/kotlin/Sample.kt", "kotlin/" + fixture);
     }
 }

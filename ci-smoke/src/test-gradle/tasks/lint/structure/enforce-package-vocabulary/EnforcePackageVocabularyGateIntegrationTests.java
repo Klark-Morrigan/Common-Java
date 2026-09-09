@@ -1,13 +1,8 @@
 import org.gradle.testkit.runner.BuildResult;
-import org.gradle.testkit.runner.GradleRunner;
 import org.gradle.testkit.runner.TaskOutcome;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,6 +21,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 // repo knows no consumer's vocabulary. Default package: the grouping folder is
 // the source root, and its kebab name cannot be a Java package.
 class EnforcePackageVocabularyGateIntegrationTests {
+
+    private static final GateUnderTest GATE =
+        new GateUnderTest("enforcePackageVocabulary", "package.vocabulary.gate.script.path");
 
     private static final String TASK_PATH = ":enforcePackageVocabulary";
 
@@ -63,8 +61,7 @@ class EnforcePackageVocabularyGateIntegrationTests {
         "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "'");
 
     @Test
-    void failsWhenACommentSaysAForbiddenWord(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenACommentSaysAForbiddenWord(@TempDir Path projectDir) {
 
         writeJavaSource(projectDir, "src/main/java", FRAMEWORK_PACKAGE_PATH,
             "framework-saying-a-forbidden-word");
@@ -76,8 +73,7 @@ class EnforcePackageVocabularyGateIntegrationTests {
     }
 
     @Test
-    void failsWhenAMethodNameSaysAForbiddenPhrase(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenAMethodNameSaysAForbiddenPhrase(@TempDir Path projectDir) {
 
         // The case a hand sweep misses, and the reason this gate exists rather
         // than a checklist: the words are spelt in camel case, so searching for
@@ -92,8 +88,7 @@ class EnforcePackageVocabularyGateIntegrationTests {
     }
 
     @Test
-    void failsWhenAMarkdownFileBesideTheCodeSaysAForbiddenWord(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenAMarkdownFileBesideTheCodeSaysAForbiddenWord(@TempDir Path projectDir) {
 
         // The README filed in the package is the surface a reader of a
         // framework reads first, and it carries no imports for any other gate
@@ -108,8 +103,7 @@ class EnforcePackageVocabularyGateIntegrationTests {
     }
 
     @Test
-    void failsWhenProseWrapsAForbiddenPhraseAcrossTwoLines(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenProseWrapsAForbiddenPhraseAcrossTwoLines(@TempDir Path projectDir) {
 
         // Prose wraps where the column runs out rather than where the phrase
         // ends, so a per-line scan would miss half the prose uses of any
@@ -124,8 +118,7 @@ class EnforcePackageVocabularyGateIntegrationTests {
     }
 
     @Test
-    void failsWhenASourceSetBeyondMainAndTestSaysAForbiddenWord(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenASourceSetBeyondMainAndTestSaysAForbiddenWord(@TempDir Path projectDir) {
 
         // A dev-tooling or fixture source set is written in prose like any
         // other - it is simply prose nobody sweeps, which is exactly where the
@@ -140,15 +133,11 @@ class EnforcePackageVocabularyGateIntegrationTests {
     }
 
     @Test
-    void failsWhenKotlinCodeSaysAForbiddenWord(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenKotlinCodeSaysAForbiddenWord(@TempDir Path projectDir) {
 
-        var dir = projectDir.resolve("src/main/kotlin/" + FRAMEWORK_PACKAGE_PATH);
-
-        Files.createDirectories(dir);
-        Files.writeString(
-            dir.resolve("Sample.kt"),
-            loadFixture("kotlin/framework-saying-a-forbidden-word"));
+        GateProject
+            .driving(GATE, projectDir)
+            .holdingText("src/main/kotlin/" + FRAMEWORK_PACKAGE_PATH + "/" + "Sample.kt", GateProject.loadFixture("kotlin/framework-saying-a-forbidden-word"));
 
         var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURES_WORDS);
 
@@ -157,8 +146,7 @@ class EnforcePackageVocabularyGateIntegrationTests {
     }
 
     @Test
-    void failsWhenAnAllowedWordIsSaidInAnotherFile(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenAnAllowedWordIsSaidInAnotherFile(@TempDir Path projectDir) {
 
         // An allowance is per file: letting one README make its argument must
         // not unlock the word for the code sitting next to it.
@@ -178,8 +166,7 @@ class EnforcePackageVocabularyGateIntegrationTests {
     }
 
     @Test
-    void failsWhenAnAllowanceNamesAFileTheGateDoesNotScan(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenAnAllowanceNamesAFileTheGateDoesNotScan(@TempDir Path projectDir) {
 
         // A stale path exempts nothing while reading in the build as though it
         // does, which is the silent no-op this whole family exists to remove.
@@ -193,8 +180,7 @@ class EnforcePackageVocabularyGateIntegrationTests {
     }
 
     @Test
-    void failsWhenWordsAreDeclaredWithoutTheRootTheyAreClosedTo(@TempDir Path projectDir)
-            throws IOException {
+    void failsWhenWordsAreDeclaredWithoutTheRootTheyAreClosedTo(@TempDir Path projectDir) {
 
         // A half-declared rule asserts nothing, so it must be rejected where it
         // is written rather than accepted as a rule that can never fire.
@@ -208,15 +194,18 @@ class EnforcePackageVocabularyGateIntegrationTests {
     }
 
     @Test
-    void failsAgainAfterAPassingRunOnceAWordIsDeclared(@TempDir Path projectDir)
-            throws IOException {
+    void failsAgainAfterAPassingRunOnceAWordIsDeclared(@TempDir Path projectDir) {
 
         // The declarations are a task input, not just a closure the action
         // reads. If they were not, this second run would be UP-TO-DATE against
         // the first and a newly forbidden word would silently never be looked
         // for.
-        writeJavaSource(projectDir, "src/main/java", FRAMEWORK_PACKAGE_PATH,
+        writeJavaSource(
+            projectDir,
+            "src/main/java",
+            FRAMEWORK_PACKAGE_PATH,
             "framework-saying-a-forbidden-word");
+
         runGateExpectingSuccess(projectDir, NO_WORDS_DECLARED);
 
         var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURES_WORDS);
@@ -226,14 +215,16 @@ class EnforcePackageVocabularyGateIntegrationTests {
     }
 
     @Test
-    void passesWhenAWordMerelyCarriesAForbiddenOneAsAPrefix(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenAWordMerelyCarriesAForbiddenOneAsAPrefix(@TempDir Path projectDir) {
 
         // The rule that keeps the list usable: words are matched whole, parted
         // at camel humps, so 'blocks' and 'blockade' are their own words. A
         // gate firing on these would train its next reader to allowlist rather
         // than to read.
-        writeJavaSource(projectDir, "src/main/java", FRAMEWORK_PACKAGE_PATH,
+        writeJavaSource(
+            projectDir,
+            "src/main/java",
+            FRAMEWORK_PACKAGE_PATH,
             "framework-saying-a-word-containing-a-forbidden-one");
 
         var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURES_WORDS);
@@ -243,10 +234,12 @@ class EnforcePackageVocabularyGateIntegrationTests {
     }
 
     @Test
-    void passesWhenTheWordIsAllowedInTheFileThatSaysIt(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenTheWordIsAllowedInTheFileThatSaysIt(@TempDir Path projectDir) {
 
-        writeMarkdown(projectDir, "src/main/java", FRAMEWORK_PACKAGE_PATH,
+        writeMarkdown(
+            projectDir,
+            "src/main/java",
+            FRAMEWORK_PACKAGE_PATH,
             "framework-readme-saying-an-allowed-word");
 
         var result = runGateExpectingSuccess(projectDir, CLOSED_BUT_ALLOWING_THE_README);
@@ -256,12 +249,14 @@ class EnforcePackageVocabularyGateIntegrationTests {
     }
 
     @Test
-    void passesWhenTheFileSitsOutsideTheClosedRoot(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenTheFileSitsOutsideTheClosedRoot(@TempDir Path projectDir) {
 
         // The feature's own tree is where these words are the subject. A rule
         // that reached it would forbid a package from saying what it is about.
-        writeJavaSource(projectDir, "src/main/java", "example/feature",
+        writeJavaSource(
+            projectDir,
+            "src/main/java",
+            "example/feature",
             "feature-saying-its-own-word");
 
         var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURES_WORDS);
@@ -271,12 +266,14 @@ class EnforcePackageVocabularyGateIntegrationTests {
     }
 
     @Test
-    void passesWhenThePackageOnlySharesAPrefixWithTheClosedRoot(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenThePackageOnlySharesAPrefixWithTheClosedRoot(@TempDir Path projectDir) {
 
         // 'example.frameworkish' is not under 'example.framework': only a
         // whole-segment match may close a package.
-        writeJavaSource(projectDir, "src/main/java", "example/frameworkish",
+        writeJavaSource(
+            projectDir,
+            "src/main/java",
+            "example/frameworkish",
             "prefixed-package-saying-a-forbidden-word");
 
         var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURES_WORDS);
@@ -286,13 +283,15 @@ class EnforcePackageVocabularyGateIntegrationTests {
     }
 
     @Test
-    void passesWhenTheBuildDeclaresNoWord(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenTheBuildDeclaresNoWord(@TempDir Path projectDir) {
 
         // Every consumer inherits the gate from the shared conventions, so a
         // build that never says what its vocabulary is must check nothing
         // rather than guess at it.
-        writeJavaSource(projectDir, "src/main/java", FRAMEWORK_PACKAGE_PATH,
+        writeJavaSource(
+            projectDir,
+            "src/main/java",
+            FRAMEWORK_PACKAGE_PATH,
             "framework-saying-a-forbidden-word");
 
         var result = runGateExpectingSuccess(projectDir, NO_WORDS_DECLARED);
@@ -302,8 +301,7 @@ class EnforcePackageVocabularyGateIntegrationTests {
     }
 
     @Test
-    void passesWhenThereIsNoSourceTree(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenThereIsNoSourceTree(@TempDir Path projectDir) {
 
         var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURES_WORDS);
 
@@ -314,52 +312,49 @@ class EnforcePackageVocabularyGateIntegrationTests {
     // One place owns the block's syntax, so a case that varies the declarations
     // varies only the declarations. Each argument is one whole call.
     private static String buildDeclaration(String... calls) {
+
         var declaration = new StringBuilder("enforcePackageVocabulary {\n");
 
         for (var call : calls) {
-            declaration.append("    ").append(call).append('\n');
+
+            declaration
+                .append("    ")
+                .append(call)
+                .append('\n');
         }
-        return declaration.append("}\n").toString();
+        return declaration
+            .append("}\n")
+            .toString();
     }
 
     // The expected outcome is in the method name rather than a flag, so a call
     // site reads as what it asserts. Both forward to one runner: the pair
     // differs only in which TestKit terminal it drives.
-    private BuildResult runGateExpectingFailure(Path projectDir, String declaration)
-            throws IOException {
+    private BuildResult runGateExpectingFailure(Path projectDir, String declaration) {
 
-        return buildRunner(projectDir, declaration).buildAndFail();
+        return buildProject(projectDir, declaration).runExpectingFailure();
     }
 
-    private BuildResult runGateExpectingSuccess(Path projectDir, String declaration)
-            throws IOException {
+    private BuildResult runGateExpectingSuccess(Path projectDir, String declaration) {
 
-        return buildRunner(projectDir, declaration).build();
+        return buildProject(projectDir, declaration).runExpectingSuccess();
     }
 
-    private GradleRunner buildRunner(Path projectDir, String declaration)
-            throws IOException {
+    private GateProject buildProject(Path projectDir, String declaration) {
 
-        // An explicit settings file stops Gradle walking up into a real build.
-        Files.writeString(
-            projectDir.resolve("settings.gradle"),
-            "rootProject.name = 'gate-fixture'\n");
-
-        Files.writeString(
-            projectDir.resolve("build.gradle"),
-            "apply from: '" + scriptPath() + "'\n" + declaration);
-
-        return GradleRunner.create()
-            .withProjectDir(projectDir.toFile())
-            .withArguments("enforcePackageVocabulary");
+        return GateProject
+            .driving(GATE, projectDir)
+            .configuringTheGate(declaration);
     }
 
     // The source root and the package path are both parameters: this gate reads
     // every source set, and which package a file sits in is the whole of what
     // decides whether a rule reaches it.
     private void writeJavaSource(
-            Path projectDir, String sourceRoot, String packagePath, String fixture)
-            throws IOException {
+            Path projectDir,
+            String sourceRoot,
+            String packagePath,
+            String fixture) {
 
         writeJavaSource(projectDir, sourceRoot, packagePath, fixture, "Sample.java", "");
     }
@@ -367,44 +362,30 @@ class EnforcePackageVocabularyGateIntegrationTests {
     // The appended text is how a case puts one extra line into an otherwise
     // clean fixture, rather than growing a near-duplicate .txt beside it.
     private void writeJavaSource(
-            Path projectDir, String sourceRoot, String packagePath, String fixture,
-            String fileName, String appendedText)
-            throws IOException {
+            Path projectDir,
+            String sourceRoot,
+            String packagePath,
+            String fixture,
+            String fileName,
+            String appendedText) {
 
-        var dir = projectDir.resolve(sourceRoot + "/" + packagePath);
-
-        Files.createDirectories(dir);
-        Files.writeString(dir.resolve(fileName), loadFixture("java/" + fixture) + appendedText);
+        GateProject
+            .driving(GATE, projectDir)
+            .holdingText(
+                sourceRoot + "/" + packagePath + "/" + fileName,
+                GateProject.loadFixture("java/" + fixture) + appendedText);
     }
 
     private void writeMarkdown(
-            Path projectDir, String sourceRoot, String packagePath, String fixture)
-            throws IOException {
+            Path projectDir,
+            String sourceRoot,
+            String packagePath,
+            String fixture) {
 
-        var dir = projectDir.resolve(sourceRoot + "/" + packagePath);
-
-        Files.createDirectories(dir);
-        Files.writeString(dir.resolve("README.md"), loadFixture("markdown/" + fixture));
-    }
-
-    // The gate script path is handed in by the test task so the test does not
-    // assume a working directory; forward slashes keep it valid inside the
-    // generated build script on Windows.
-    private String scriptPath() {
-        return System.getProperty("package.vocabulary.gate.script.path").replace('\\', '/');
-    }
-
-    // The fixture name carries its language subfolder (java/, kotlin/,
-    // markdown/), which resolves under the classpath root the source set
-    // exposes for resources.
-    private String loadFixture(String name)
-            throws IOException {
-
-        try (InputStream in = getClass().getResourceAsStream("/" + name + ".txt")) {
-            if (in == null) {
-                throw new IllegalStateException("Missing fixture: " + name);
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        GateProject
+            .driving(GATE, projectDir)
+            .holdingText(
+                sourceRoot + "/" + packagePath + "/" + "README.md",
+                GateProject.loadFixture("markdown/" + fixture));
     }
 }
