@@ -98,7 +98,11 @@ def enforceSuffixOnFakes = tasks.register('enforceSuffixOnFakes') {
                 def typeMatcher = typePattern.matcher(line)
                 while (typeMatcher.find()) {
                     def typeName = typeMatcher.group(1)
-                    if (!typeName.endsWith('Fake')) {
+                    // A suite over a fake is named for what it covers, so it carries the
+                    // fake's whole name and 'Test' after it. It is the one thing holding
+                    // 'Fake' that is not a double, and the alternative to letting it
+                    // through is a fixture nobody may write a suite for under its own name.
+                    if (!typeName.endsWith('Fake') && !typeName.endsWith('Test')) {
                         violations << "${sourceFile}:${lineNumber}: test-double type " +
                                 "'${typeName}' must be suffixed 'Fake'"
                     }
