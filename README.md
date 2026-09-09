@@ -69,6 +69,8 @@ convention no compiler can see, and each runs as part of `check` and
 | `enforceDocLinksResolve` | a relative link in a `.md` file points at something that exists |
 | `enforceMethodsOrderedByVisibility` | production methods run most-public-first |
 | `enforceNoMagicLiteralsKotlin` | Kotlin numbers are named; Java's ride in `checkstyle.xml` |
+| `enforceNoTestVocabulary` | production code is not written in the words of the suites that test it |
+| `enforceNoTrailingWhitespace` | no line ends in whitespace |
 | `enforcePackageLayering` | a package root does not import one the consumer declared it closed to |
 | `enforcePackageVocabulary` | a package root does not say a word the consumer declared it closed to |
 | `enforceRestrictedCalls` | a call a package root is closed to is made only in the types the consumer named |

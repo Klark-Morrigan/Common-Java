@@ -1,13 +1,8 @@
 import org.gradle.testkit.runner.BuildResult;
-import org.gradle.testkit.runner.GradleRunner;
 import org.gradle.testkit.runner.TaskOutcome;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,6 +19,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 // violation of the gate under test. Default package: the grouping folder is the
 // source root, and its kebab name cannot be a Java package.
 class EnforceNoTrailingWhitespaceGateIntegrationTests {
+
+    private static final GateUnderTest GATE =
+        new GateUnderTest("enforceNoTrailingWhitespace", "trailing.whitespace.gate.script.path");
 
     private static final String TASK_PATH = ":enforceNoTrailingWhitespace";
 
@@ -45,8 +43,7 @@ class EnforceNoTrailingWhitespaceGateIntegrationTests {
         "ext.formatterExcludedSourceSets = ['tooling']\n";
 
     @Test
-    void passesWhenNoLineEndsInWhitespaceInJava(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenNoLineEndsInWhitespaceInJava(@TempDir Path projectDir) {
 
         writeJavaSource(projectDir, "clean-line-ends");
 
@@ -57,8 +54,7 @@ class EnforceNoTrailingWhitespaceGateIntegrationTests {
     }
 
     @Test
-    void failsOnABlankLineCarryingTheIndentAboveItInJava(@TempDir Path projectDir)
-            throws IOException {
+    void failsOnABlankLineCarryingTheIndentAboveItInJava(@TempDir Path projectDir) {
 
         // The shape nearly every instance takes: an empty line between members
         // that kept the indent an editor put there when Enter was pressed. It is
@@ -72,8 +68,7 @@ class EnforceNoTrailingWhitespaceGateIntegrationTests {
     }
 
     @Test
-    void failsOnACodeLineEndingInASpaceInJava(@TempDir Path projectDir)
-            throws IOException {
+    void failsOnACodeLineEndingInASpaceInJava(@TempDir Path projectDir) {
 
         // The other shape: a line with code on it that trails a space, which no
         // amount of reading the file will reveal.
@@ -86,8 +81,7 @@ class EnforceNoTrailingWhitespaceGateIntegrationTests {
     }
 
     @Test
-    void failsOnALineEndingInATabInJava(@TempDir Path projectDir)
-            throws IOException {
+    void failsOnALineEndingInATabInJava(@TempDir Path projectDir) {
 
         // A tab is whitespace the same way a space is, and is likelier still to
         // be invisible - so the rule is stated over whitespace rather than over
@@ -101,8 +95,7 @@ class EnforceNoTrailingWhitespaceGateIntegrationTests {
     }
 
     @Test
-    void passesWhenNoLineEndsInWhitespaceInKotlin(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenNoLineEndsInWhitespaceInKotlin(@TempDir Path projectDir) {
 
         writeKotlinSource(projectDir, "clean-line-ends");
 
@@ -113,8 +106,7 @@ class EnforceNoTrailingWhitespaceGateIntegrationTests {
     }
 
     @Test
-    void failsOnABlankLineCarryingTheIndentAboveItInKotlin(@TempDir Path projectDir)
-            throws IOException {
+    void failsOnABlankLineCarryingTheIndentAboveItInKotlin(@TempDir Path projectDir) {
 
         // Doubles as the proof the scan reaches .kt, not only .java.
         writeKotlinSource(projectDir, "blank-line-carrying-indent");
@@ -126,8 +118,7 @@ class EnforceNoTrailingWhitespaceGateIntegrationTests {
     }
 
     @Test
-    void passesWhenThereIsNoTestTree(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenThereIsNoTestTree(@TempDir Path projectDir) {
 
         var result = runGate(projectDir, false);
 
@@ -136,8 +127,7 @@ class EnforceNoTrailingWhitespaceGateIntegrationTests {
     }
 
     @Test
-    void failsOnTrailingWhitespaceInASourceSetTheBuildDeclares(@TempDir Path projectDir)
-            throws IOException {
+    void failsOnTrailingWhitespaceInASourceSetTheBuildDeclares(@TempDir Path projectDir) {
 
         // The reason the gate reads source sets rather than a list of tree names.
         // Named trees cover main and test and silently stop there, so a source
@@ -145,8 +135,7 @@ class EnforceNoTrailingWhitespaceGateIntegrationTests {
         // success.
         writeSource(
             projectDir,
-            "src/tooling/java",
-            "Tool.java",
+            "src/tooling/java/Tool.java",
             "java/blank-line-carrying-indent");
 
         var result = runGate(projectDir, true, DECLARES_A_TOOLING_SOURCE_SET);
@@ -156,16 +145,14 @@ class EnforceNoTrailingWhitespaceGateIntegrationTests {
     }
 
     @Test
-    void passesWhenTheOffendingSourceSetIsExemptFromTheFormatter(@TempDir Path projectDir)
-            throws IOException {
+    void passesWhenTheOffendingSourceSetIsExemptFromTheFormatter(@TempDir Path projectDir) {
 
         // A source set held out of the formatter is held out of this too: it is
         // exempt because its shape is not the repo's to choose, and how its
         // lines end is part of that shape.
         writeSource(
             projectDir,
-            "src/tooling/java",
-            "Tool.java",
+            "src/tooling/java/Tool.java",
             "java/blank-line-carrying-indent");
 
         var result = runGate(
@@ -177,81 +164,39 @@ class EnforceNoTrailingWhitespaceGateIntegrationTests {
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
-    private BuildResult runGate(Path projectDir, boolean expectFailure)
-            throws IOException {
-
+    private BuildResult runGate(Path projectDir, boolean expectFailure) {
         return runGate(projectDir, expectFailure, "");
     }
 
+    // The java plugin, because the gate finds its trees by reading the project's source sets -
+    // which is also how it reaches one a build declares for itself. Applied before the gate, as a
+    // real consumer's conventions file does.
     private BuildResult runGate(
             Path projectDir,
             boolean expectFailure,
-            String extraConfiguration)
-                throws IOException {
+            String extraConfiguration) {
 
-        // An explicit settings file stops Gradle walking up into a real build.
-        Files.writeString(
-            projectDir.resolve("settings.gradle"),
-            "rootProject.name = 'gate-fixture'\n");
-
-        // The java plugin, because the gate finds its trees by reading the
-        // project's source sets - which is also how it reaches one a build
-        // declares for itself. Applied before the gate, as a real consumer's
-        // conventions file does.
-        Files.writeString(
-            projectDir.resolve("build.gradle"),
-            "apply plugin: 'java'\n"
-                + extraConfiguration
-                + "apply from: '" + scriptPath() + "'\n");
-
-        var runner = GradleRunner
-            .create()
-            .withProjectDir(projectDir.toFile())
-            .withArguments("enforceNoTrailingWhitespace");
+        var project = GateProject
+            .driving(GATE, projectDir)
+            .applyingTheJavaPlugin()
+            .withBuildPreamble(extraConfiguration);
 
         return expectFailure
-            ? runner.buildAndFail()
-            : runner.build();
+            ? project.runExpectingFailure()
+            : project.runExpectingSuccess();
     }
 
-    private void writeJavaSource(Path projectDir, String fixture)
-            throws IOException {
-
-        writeSource(projectDir, "src/test/java", "Sample.java", "java/" + fixture);
+    private void writeJavaSource(Path projectDir, String fixture) {
+        writeSource(projectDir, "src/test/java/Sample.java", "java/" + fixture);
     }
 
-    private void writeKotlinSource(Path projectDir, String fixture)
-            throws IOException {
-
-        writeSource(projectDir, "src/test/kotlin", "Sample.kt", "kotlin/" + fixture);
+    private void writeKotlinSource(Path projectDir, String fixture) {
+        writeSource(projectDir, "src/test/kotlin/Sample.kt", "kotlin/" + fixture);
     }
 
-    private void writeSource(Path projectDir, String tree, String fileName, String fixture)
-            throws IOException {
-
-        var dir = projectDir.resolve(tree);
-
-        Files.createDirectories(dir);
-        Files.writeString(dir.resolve(fileName), loadFixture(fixture));
-    }
-
-    // The gate script path is handed in by the test task so the test does not
-    // assume a working directory; forward slashes keep it valid inside the
-    // generated build script on Windows.
-    private String scriptPath() {
-        return System.getProperty("trailing.whitespace.gate.script.path").replace('\\', '/');
-    }
-
-    // The fixture name carries its language subfolder (java/ or kotlin/), which
-    // resolves under the classpath root the source set exposes for resources.
-    private String loadFixture(String name) throws IOException {
-
-        try (InputStream in = getClass().getResourceAsStream("/" + name + ".txt")) {
-
-            if (in == null) {
-                throw new IllegalStateException("Missing fixture: " + name);
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+    private void writeSource(Path projectDir, String filePath, String fixture) {
+        GateProject
+            .driving(GATE, projectDir)
+            .holdingFixture(filePath, fixture);
     }
 }

@@ -1,13 +1,7 @@
-import org.gradle.testkit.runner.BuildResult;
-import org.gradle.testkit.runner.GradleRunner;
 import org.gradle.testkit.runner.TaskOutcome;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,179 +18,160 @@ import static org.assertj.core.api.Assertions.assertThat;
 // syntax with no Java analogue. Default package: the grouping folder is the
 // source root, and its kebab name cannot be a Java package.
 class EnforceSuffixOnMocksGateIntegrationTests {
+
+    private static final GateUnderTest GATE =
+        new GateUnderTest("enforceSuffixOnMocks", "mock.gate.script.path");
+
     private static final String TASK_PATH = ":enforceSuffixOnMocks";
-
     @Test
-    void passesWhenMockVariablesAreSuffixedInJava(@TempDir Path projectDir) throws IOException {
-        writeJavaSource(projectDir, "mock-variables-are-suffixed");
+    void passesWhenMockVariablesAreSuffixedInJava(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, false);
+        var result = javaProject(projectDir, "mock-variables-are-suffixed")
+            .runExpectingSuccess();
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
-    void failsWhenMockVariableIsBareNamedInJava(@TempDir Path projectDir) throws IOException {
-        writeJavaSource(projectDir, "mock-variable-is-bare-named");
+    void failsWhenMockVariableIsBareNamedInJava(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, true);
+        var result = javaProject(projectDir, "mock-variable-is-bare-named")
+            .runExpectingFailure();
 
         assertThat(result.getOutput())
-                .contains("'sector'")
-                .contains("holds a mock");
+            .contains("'sector'")
+            .contains("holds a mock");
     }
 
     @Test
-    void failsWhenStaticMockIsBareNamedInJava(@TempDir Path projectDir) throws IOException {
-        writeJavaSource(projectDir, "static-mock-is-bare-named");
+    void failsWhenStaticMockIsBareNamedInJava(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, true);
+        var result = javaProject(projectDir, "static-mock-is-bare-named")
+            .runExpectingFailure();
 
         assertThat(result.getOutput())
-                .contains("'global'")
-                .contains("holds a mock");
+            .contains("'global'")
+            .contains("holds a mock");
     }
 
     @Test
-    void passesWhenMockVariablesAreSuffixedInKotlin(@TempDir Path projectDir) throws IOException {
-        writeKotlinSource(projectDir, "mock-variables-are-suffixed");
+    void passesWhenMockVariablesAreSuffixedInKotlin(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, false);
+        var result = kotlinProject(projectDir, "mock-variables-are-suffixed")
+            .runExpectingSuccess();
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
-    void failsWhenMockVariableIsBareNamedInKotlin(@TempDir Path projectDir) throws IOException {
-        writeKotlinSource(projectDir, "mock-variable-is-bare-named");
+    void failsWhenMockVariableIsBareNamedInKotlin(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, true);
+        var result = kotlinProject(projectDir, "mock-variable-is-bare-named")
+            .runExpectingFailure();
 
         assertThat(result.getOutput())
-                .contains("'sector'")
-                .contains("holds a mock");
+            .contains("'sector'")
+            .contains("holds a mock");
     }
 
     @Test
-    void failsWhenStaticMockIsBareNamedInKotlin(@TempDir Path projectDir) throws IOException {
-        writeKotlinSource(projectDir, "static-mock-is-bare-named");
+    void failsWhenStaticMockIsBareNamedInKotlin(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, true);
+        var result = kotlinProject(projectDir, "static-mock-is-bare-named")
+            .runExpectingFailure();
 
         assertThat(result.getOutput())
-                .contains("'global'")
-                .contains("holds a mock");
+            .contains("'global'")
+            .contains("holds a mock");
     }
 
     @Test
-    void failsWhenKotlinLateinitFieldIsBareNamed(@TempDir Path projectDir) throws IOException {
-        writeKotlinSource(projectDir, "lateinit-field-is-bare-named");
+    void failsWhenKotlinLateinitFieldIsBareNamed(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, true);
+        var result = kotlinProject(projectDir, "lateinit-field-is-bare-named")
+            .runExpectingFailure();
 
         assertThat(result.getOutput())
-                .contains("'sector'")
-                .contains("holds a mock");
+            .contains("'sector'")
+            .contains("holds a mock");
     }
 
     // A type annotation puts the type, not the holder, before '=' - the gate
     // must still read the declared name and flag it.
     @Test
-    void failsWhenKotlinTypedDeclarationIsBareNamed(@TempDir Path projectDir) throws IOException {
-        writeKotlinSource(projectDir, "typed-declaration-is-bare-named");
+    void failsWhenKotlinTypedDeclarationIsBareNamed(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, true);
+        var result = kotlinProject(projectDir, "typed-declaration-is-bare-named")
+            .runExpectingFailure();
 
         assertThat(result.getOutput())
-                .contains("'sector'")
-                .contains("holds a mock");
+            .contains("'sector'")
+            .contains("holds a mock");
     }
 
     // The mockito-kotlin reified 'mock<T>()' form ends the call with '<', not
     // '(' - the gate's factory anchor admits both.
     @Test
-    void failsWhenKotlinReifiedMockIsBareNamed(@TempDir Path projectDir) throws IOException {
-        writeKotlinSource(projectDir, "reified-mock-is-bare-named");
+    void failsWhenKotlinReifiedMockIsBareNamed(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, true);
+        var result = kotlinProject(projectDir, "reified-mock-is-bare-named")
+            .runExpectingFailure();
 
         assertThat(result.getOutput())
-                .contains("'faction'")
-                .contains("holds a mock");
+            .contains("'faction'")
+            .contains("holds a mock");
     }
 
     // A Kotlin named argument reuses the 'name = mock(...)' shape but names a
     // constructor parameter, not a holder the test can rename - the gate must
     // leave it alone.
     @Test
-    void passesWhenMockIsANamedArgument(@TempDir Path projectDir) throws IOException {
-        writeKotlinSource(projectDir, "mock-as-named-argument-is-ignored");
+    void passesWhenMockIsANamedArgument(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, false);
+        var result = kotlinProject(projectDir, "mock-as-named-argument-is-ignored")
+            .runExpectingSuccess();
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     // 'intel = mock(...)' inside an apply block sets a production property on a
     // domain object; the name is not the test's to rename, so the gate ignores
     // it even though the value is a mock.
     @Test
-    void passesWhenMockIsSetOnAnAppliedProperty(@TempDir Path projectDir) throws IOException {
-        writeKotlinSource(projectDir, "mock-on-applied-property-is-ignored");
+    void passesWhenMockIsSetOnAnAppliedProperty(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, false);
+        var result = kotlinProject(projectDir, "mock-on-applied-property-is-ignored")
+            .runExpectingSuccess();
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
     @Test
-    void passesWhenThereIsNoTestTree(@TempDir Path projectDir) throws IOException {
-        var result = runGate(projectDir, false);
+    void passesWhenThereIsNoTestTree(@TempDir Path projectDir) {
 
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
+        var result = GateProject
+            .driving(GATE, projectDir)
+            .runExpectingSuccess();
+
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
-    private BuildResult runGate(Path projectDir, boolean expectFailure) throws IOException {
-        // An explicit settings file stops Gradle walking up into a real build.
-        Files.writeString(projectDir.resolve("settings.gradle"),
-                "rootProject.name = 'gate-fixture'\n");
-        Files.writeString(projectDir.resolve("build.gradle"),
-                "apply from: '" + scriptPath() + "'\n");
+    private static GateProject javaProject(Path projectDir, String fixture) {
 
-        var runner = GradleRunner.create()
-                .withProjectDir(projectDir.toFile())
-                .withArguments("enforceSuffixOnMocks");
-
-        return expectFailure ? runner.buildAndFail() : runner.build();
+        return GateProject
+            .driving(GATE, projectDir)
+            .holdingFixture("src/test/java/Sample.java", "java/" + fixture);
     }
 
-    private void writeJavaSource(Path projectDir, String fixture) throws IOException {
-        var dir = projectDir.resolve("src/test/java");
-        Files.createDirectories(dir);
-        Files.writeString(dir.resolve("Sample.java"), loadFixture("java/" + fixture));
-    }
+    private static GateProject kotlinProject(Path projectDir, String fixture) {
 
-    private void writeKotlinSource(Path projectDir, String fixture) throws IOException {
-        var dir = projectDir.resolve("src/test/kotlin");
-        Files.createDirectories(dir);
-        Files.writeString(dir.resolve("Sample.kt"), loadFixture("kotlin/" + fixture));
-    }
-
-    // The gate script path is handed in by the test task so the test does not
-    // assume a working directory; forward slashes keep it valid inside the
-    // generated build script on Windows.
-    private String scriptPath() {
-        return System.getProperty("mock.gate.script.path").replace('\\', '/');
-    }
-
-    // The fixture name carries its language subfolder (java/ or kotlin/), which
-    // resolves under the classpath root the source set exposes for resources.
-    private String loadFixture(String name) throws IOException {
-        try (InputStream in = getClass().getResourceAsStream("/" + name + ".txt")) {
-            if (in == null) {
-                throw new IllegalStateException("Missing fixture: " + name);
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        return GateProject
+            .driving(GATE, projectDir)
+            .holdingFixture("src/test/kotlin/Sample.kt", "kotlin/" + fixture);
     }
 }

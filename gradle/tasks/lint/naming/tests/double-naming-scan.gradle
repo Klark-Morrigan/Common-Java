@@ -1,0 +1,139 @@
+// The source-text scan both test-double naming gates are made of, so the rule each states is the
+// only thing each script holds.
+//
+// A double is named in two places and neither survives compilation: local-variable names are
+// erased, and the scan must read Kotlin as well as Java. So both gates are source-text passes over
+// the test tree, and everything about how that pass reads a file is the same for either kind of
+// double - what differs is one regex fragment naming the call a double is born from, and the word
+// the name must end in.
+//
+// What the pass knows, and why:
+//
+// A holder is a binding the test itself declares. 'name = XFake(...)' alone is too broad in Kotlin,
+// where the same shape is a named argument ('dialog = XFake(...)' in a constructor call) or a
+// property set on a domain object inside an apply block ('intel = XFake(...)'). The value is a
+// double, but the name is a parameter or a production property the test cannot rename - neither is
+// a holder. So a first pass collects every 'val'/'var' and every typed Java declaration in the
+// file, and a bare assignment counts only when it targets one of those. Java has neither named
+// arguments nor apply blocks, so this only narrows Kotlin.
+//
+// A Kotlin declaration may annotate the type before the initialiser ('val market: EditableMarket =
+// EditableMarketFake()'); there the token before '=' is the type, not the holder, so a second
+// pattern reads the name from after 'val'/'var' and skips the ': Type' annotation. A declaration is
+// inherently a holder, so that one is checked directly rather than through the declared names. The
+// untyped 'val x = XFake()' is already caught, since the name sits before '='.
+//
+// A line ending in ',' is a multi-line call argument, never a holder declaration - which guards the
+// rare named argument whose parameter name collides with a binding declared elsewhere in the file.
+//
+// Every gate built on this is a heuristic, and knowingly so: it keys off the call a double is made
+// by, so a double obtained some other way - a helper returning one, an anonymous
+// 'new SomeInterface() { ... }' - names neither and is invisible to it.
+//
+// Applied by each gate rather than by the conventions file, on the same reasoning
+// lint-gate-stamp.gradle states: a gate is applied on its own by its integration test, so it has to
+// carry what it uses. Applying this more than once per project is harmless - the assignment below
+// simply overwrites an identical closure.
+
+/**
+ * Scans a test tree for doubles whose names do not end in the required suffix.
+ *
+ * Named arguments rather than a positional list: three of the four are strings and patterns that
+ * would read alike in any order at a call site.
+ *
+ * - testRoot     the directory to scan; an absent one yields no violations
+ * - suffix       the word a double's name must end in ('Fake'), which is also the noun a message
+ *                calls it by in lower case
+ * - factoryCall  a regex fragment matching the call a double is born from, up to but not including
+ *                its opening bracket
+ * - typePattern  a pattern whose one group is a declared type name to check, or null where the kind
+ *                of double has no source type to name (Mockito generates one at runtime)
+ */
+ext.findDoubleNamingViolations = { Map spec ->
+
+    File testRoot = spec.testRoot
+    String suffix = spec.suffix
+    String factoryCall = spec.factoryCall
+
+    def typePattern = spec.typePattern
+    def violations = []
+
+    if (!testRoot.exists()) {
+        return violations
+    }
+
+    // What a message calls the double, taken from the suffix so the two cannot drift apart.
+    def doubleNoun = suffix.toLowerCase()
+
+    // The identifier assigned from that call, with the bracket anchoring on the call itself so a
+    // same-prefixed method ('mockMap(', a 'makeFakeable(') stays out of scope.
+    def holderPattern = ~/(\w+)\s*=\s*${factoryCall}\s*[(<]/
+    def typedHolderPattern = ~/\b(?:val|var)\s+(\w+)\s*:\s*[^=]+?=\s*${factoryCall}\s*[(<]/
+
+    // The names the test itself declares: a Kotlin/Java 'val'/'var' (covering locals and lateinit
+    // fields) and a typed Java field or local.
+    def kotlinOrVarDeclPattern = ~/\b(?:val|var)\s+(\w+)/
+    def javaTypedDeclPattern = ~/\b[A-Za-z_]\w*(?:\s*<[^>]*>)?(?:\[\])?\s+(\w+)\s*[=;]/
+
+    fileTree(testRoot).matching { include '**/*.java', '**/*.kt' }.each { sourceFile ->
+
+        def declaredNames = [] as Set
+
+        sourceFile.eachLine { line, lineNumber ->
+
+            def kotlinDecl = kotlinOrVarDeclPattern.matcher(line)
+            while (kotlinDecl.find()) {
+                declaredNames << kotlinDecl.group(1)
+            }
+            def javaDecl = javaTypedDeclPattern.matcher(line)
+            while (javaDecl.find()) {
+                declaredNames << javaDecl.group(1)
+            }
+        }
+        sourceFile.eachLine { line, lineNumber ->
+
+            if (typePattern != null) {
+
+                def typeMatcher = typePattern.matcher(line)
+                while (typeMatcher.find()) {
+
+                    def typeName = typeMatcher.group(1)
+
+                    // A suite over a double is named for what it covers, so it carries the double's
+                    // whole name and 'Test' after it. It is the one type holding the word that is
+                    // not a double, and flagging it would leave a fixture nobody may write a suite
+                    // for under its own name.
+                    if (!typeName.endsWith(suffix) && !typeName.endsWith('Test')) {
+
+                        violations << "${sourceFile}:${lineNumber}: test-double type " +
+                            "'${typeName}' must be suffixed '${suffix}'"
+                    }
+                }
+            }
+            if (line.trim().endsWith(',')) {
+                return
+            }
+            def holderMatcher = holderPattern.matcher(line)
+            while (holderMatcher.find()) {
+
+                def variableName = holderMatcher.group(1)
+                if (declaredNames.contains(variableName) && !variableName.endsWith(suffix)) {
+
+                    violations << "${sourceFile}:${lineNumber}: variable " +
+                        "'${variableName}' holds a ${doubleNoun} and must be suffixed '${suffix}'"
+                }
+            }
+            def typedHolderMatcher = typedHolderPattern.matcher(line)
+            while (typedHolderMatcher.find()) {
+
+                def variableName = typedHolderMatcher.group(1)
+                if (!variableName.endsWith(suffix)) {
+
+                    violations << "${sourceFile}:${lineNumber}: variable " +
+                        "'${variableName}' holds a ${doubleNoun} and must be suffixed '${suffix}'"
+                }
+            }
+        }
+    }
+    return violations
+}

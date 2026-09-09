@@ -1,13 +1,7 @@
-import org.gradle.testkit.runner.BuildResult;
-import org.gradle.testkit.runner.GradleRunner;
 import org.gradle.testkit.runner.TaskOutcome;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,63 +21,40 @@ import static org.assertj.core.api.Assertions.assertThat;
 // pure-Groovy gate tests. Default package: the grouping folder is the source
 // root, and its kebab name cannot be a Java package.
 class EnforceNoMagicLiteralsKotlinGateIntegrationTests {
+
+    private static final GateUnderTest GATE =
+        new GateUnderTest(
+            "enforceNoMagicLiteralsKotlin",
+            "kotlin.literals.gate.script.path");
+
     private static final String TASK_PATH = ":enforceNoMagicLiteralsKotlin";
+    @Test
+    void flagsAnInlineMagicNumber(@TempDir Path projectDir) {
+
+        var result = kotlinProject(projectDir, "inline-number-is-flagged")
+            .runExpectingFailure();
+
+        assertThat(result.getOutput())
+            .contains("MagicNumber");
+    }
 
     @Test
-    void flagsAnInlineMagicNumber(@TempDir Path projectDir) throws IOException {
-        writeKotlinSource(projectDir, "inline-number-is-flagged");
+    void passesWhenNumbersAreNamed(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, true);
+        var result = kotlinProject(projectDir, "named-numbers-pass")
+            .runExpectingSuccess();
 
-        assertThat(result.getOutput()).contains("MagicNumber");
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
     }
 
-    @Test
-    void passesWhenNumbersAreNamed(@TempDir Path projectDir) throws IOException {
-        writeKotlinSource(projectDir, "named-numbers-pass");
-
-        var result = runGate(projectDir, false);
-
-        assertThat(result.task(TASK_PATH).getOutcome()).isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    private BuildResult runGate(Path projectDir, boolean expectFailure) throws IOException {
-        // An explicit settings file stops Gradle walking up into a real build.
-        Files.writeString(projectDir.resolve("settings.gradle"),
-                "rootProject.name = 'gate-fixture'\n");
-        // mavenCentral is the one piece of the real chain the gate needs: it
-        // resolves the detekt CLI the gate runs. Nothing else is required - the
-        // gate scans Kotlin source text, no compile or plugin.
-        Files.writeString(projectDir.resolve("build.gradle"),
-                "repositories { mavenCentral() }\n"
-                + "apply from: '" + scriptPath() + "'\n");
-
-        var runner = GradleRunner.create()
-                .withProjectDir(projectDir.toFile())
-                .withArguments("enforceNoMagicLiteralsKotlin");
-
-        return expectFailure ? runner.buildAndFail() : runner.build();
-    }
-
-    private void writeKotlinSource(Path projectDir, String fixture) throws IOException {
-        var dir = projectDir.resolve("src/main/kotlin");
-        Files.createDirectories(dir);
-        Files.writeString(dir.resolve("Sample.kt"), loadFixture("kotlin/" + fixture));
-    }
-
-    // The gate script path is handed in by the test task so the test does not
-    // assume a working directory; forward slashes keep it valid inside the
-    // generated build script on Windows.
-    private String scriptPath() {
-        return System.getProperty("kotlin.literals.gate.script.path").replace('\\', '/');
-    }
-
-    private String loadFixture(String name) throws IOException {
-        try (InputStream in = getClass().getResourceAsStream("/" + name + ".txt")) {
-            if (in == null) {
-                throw new IllegalStateException("Missing fixture: " + name);
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+    private static GateProject kotlinProject(Path projectDir, String fixture) {
+        // mavenCentral is the one piece of the real chain the gate needs: it resolves the detekt
+        // CLI the gate runs. Nothing else is required - the gate scans Kotlin source text, no
+        // compile or plugin.
+        return GateProject
+            .driving(GATE, projectDir)
+            .withBuildPreamble("repositories { mavenCentral() }\n")
+            .holdingFixture("src/main/kotlin/Sample.kt", "kotlin/" + fixture);
     }
 }
