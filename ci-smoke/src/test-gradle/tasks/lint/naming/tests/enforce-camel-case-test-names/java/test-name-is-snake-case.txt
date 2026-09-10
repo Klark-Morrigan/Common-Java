@@ -1,0 +1,5 @@
+class Sample {
+    @Test
+    void reads_the_owner_off_the_market() {
+    }
+}

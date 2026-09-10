@@ -66,6 +66,7 @@ convention no compiler can see, and each runs as part of `check` and
 
 | Task | Rule |
 | --- | --- |
+| `enforceCamelCaseTestNames` | test methods are named in camelCase, not snake_case |
 | `enforceDocLinksResolve` | a relative link in a `.md` file points at something that exists |
 | `enforceMethodsOrderedByVisibility` | production methods run most-public-first |
 | `enforceNoMagicLiteralsKotlin` | Kotlin numbers are named; Java's ride in `checkstyle.xml` |

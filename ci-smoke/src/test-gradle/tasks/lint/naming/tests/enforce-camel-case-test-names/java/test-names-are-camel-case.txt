@@ -1,0 +1,7 @@
+class Sample {
+    @Test
+    void readsTheOwnerOffTheMarket() {
+        var factionId = "luddic_church";
+        buildColony(factionId);
+    }
+}

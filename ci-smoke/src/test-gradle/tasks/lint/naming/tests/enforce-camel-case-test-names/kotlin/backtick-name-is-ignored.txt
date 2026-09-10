@@ -1,0 +1,5 @@
+class Sample {
+    @Test
+    fun `reads the owner off the market`() {
+    }
+}

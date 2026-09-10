@@ -269,7 +269,8 @@ tasks.register('coverage') {
 }
 
 // Lint gates: generic code-quality, doc and test-structure checks no plain
-// build catches (blank-line runs, magic numbers on Kotlin, test-double naming,
+// build catches (blank-line runs, magic numbers on Kotlin, test-method and
+// test-double naming,
 // test vocabulary in production sources, method-visibility ordering, package
 // layering and vocabulary, nested test structure, broken doc links). Applied
 // here so every consumer inherits them from one place, alongside checkstyle.
@@ -283,6 +284,7 @@ apply from: new File(lintTasksDir, 'formatting/enforce-no-trailing-whitespace.gr
 apply from: new File(lintTasksDir, 'formatting/enforce-single-blank-lines.gradle')
 apply from: new File(lintTasksDir, 'literals/enforce-no-magic-literals-kotlin.gradle')
 apply from: new File(lintTasksDir, 'naming/enforce-no-test-vocabulary.gradle')
+apply from: new File(lintTasksDir, 'naming/tests/enforce-camel-case-test-names.gradle')
 apply from: new File(lintTasksDir, 'naming/tests/enforce-suffix-on-fakes.gradle')
 apply from: new File(lintTasksDir, 'naming/tests/enforce-suffix-on-mocks.gradle')
 apply from: new File(lintTasksDir, 'structure/enforce-methods-ordered-by-visibility.gradle')
