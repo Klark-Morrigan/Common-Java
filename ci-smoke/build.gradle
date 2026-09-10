@@ -32,6 +32,7 @@ sourceSets {
             'src/test-gradle/tasks/lint/formatting/tests/enforce-single-blank-lines',
             'src/test-gradle/tasks/lint/literals/tests/enforce-no-magic-literals-kotlin',
             'src/test-gradle/tasks/lint/naming/enforce-no-test-vocabulary',
+            'src/test-gradle/tasks/lint/naming/tests/enforce-camel-case-test-names',
             'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes',
             'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks',
             'src/test-gradle/tasks/lint/structure/enforce-methods-ordered-by-visibility',
@@ -131,6 +132,11 @@ def testGradle = tasks.register('testGradle', Test) {
         'docLinksGateScript',
         'doc.links.gate.script.path',
         '../gradle/tasks/lint/docs/enforce-doc-links-resolve.gradle')
+
+    declareScriptUnderTest(
+        'camelCaseTestNamesGateScript',
+        'camel.case.test.names.gate.script.path',
+        '../gradle/tasks/lint/naming/tests/enforce-camel-case-test-names.gradle')
 
     declareScriptUnderTest(
         'fakeGateScript',

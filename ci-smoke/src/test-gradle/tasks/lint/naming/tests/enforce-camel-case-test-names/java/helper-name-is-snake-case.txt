@@ -1,0 +1,9 @@
+class Sample {
+    @Test
+    void readsTheOwnerOffTheMarket() {
+        build_colony("hegemony");
+    }
+
+    private void build_colony(String factionId) {
+    }
+}
