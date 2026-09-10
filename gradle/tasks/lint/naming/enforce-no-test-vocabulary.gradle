@@ -242,6 +242,24 @@ def enforceNoTestVocabulary = tasks.register('enforceNoTestVocabulary') {
         allowances << [word: exemption.word.toLowerCase(), inFile: exemption.inFile]
     }
 
+    // The same allowance for several entries in one file, which is the shape a
+    // README documenting test-facing artefacts takes: it cannot describe them
+    // without saying what they are. One declaration rather than a run of
+    // near-identical lines, so the file path is stated once and a reviewer sees
+    // one exemption in the diff instead of six.
+    ext.allowWords = { Map exemption ->
+
+        if (!exemption.words || !exemption.inFile) {
+
+            throw new GradleException("allowWords needs both 'words' (the "
+                + "entries being let through) and 'inFile' (the "
+                + "project-relative path they are allowed in); got: ${exemption}")
+        }
+        exemption.words.each { word ->
+            allowWord word: word, inFile: exemption.inFile
+        }
+    }
+
     // Declared as the matched files rather than as the directories: an absent
     // tree is then an empty scan rather than the configuration failure a
     // declared-but-missing input directory would be.
