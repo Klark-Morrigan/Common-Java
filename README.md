@@ -101,8 +101,16 @@ half-stated rule is never a thing that exists:
 ```groovy
 enforcePackageLayering {
     forbidImport under: 'kmu.maplayers.base', of: 'kmu.maplayers.politicalmap'
+    forbidImport under: 'kmu.maplayers.base.tooltip.detail',
+                    of: ['kmu.maplayers.base.tooltip.content',
+                        'kmu.maplayers.base.tooltip.layout']
 }
 ```
+
+`of` takes one package root or a list of them, since a root is usually
+closed to several at once - the siblings it must not reach into. Each
+entry is still its own edge; the list only spares the closed side from
+being restated once per pair.
 
 Every source set is scanned, not `main` and `test` alone: a layering rule
 that exempts a tree is a layering rule with a hole in it. Test sources
@@ -119,11 +127,17 @@ layering rule, the vocabulary is a per-project fact this repo cannot know:
 ```groovy
 enforcePackageVocabulary {
     forbidWords under: 'kmu.maplayers.base',
-            words: ['territory', 'territories', 'bloc']
+                words: ['territory', 'territories', 'bloc']
     allowWord word: 'bloc',
             inFile: 'src/main/java/kmu/maplayers/base/theme/README.md'
+    allowWords words: ['territory', 'territories'],
+            inFile: 'src/utils/java/kmu/maplayers/base/geometry/ui/Viewer.java'
 }
 ```
+
+`allowWords` is the same allowance for several words in one file - the
+shape a README explaining a rule takes, since it has to name every word
+the rule bans. `enforceNoTestVocabulary` takes both spellings too.
 
 Words are matched whole and parted at camel humps, so `blocks` is its own
 word and `clipInsideTheNationalBorder` says `national border`. A plural is

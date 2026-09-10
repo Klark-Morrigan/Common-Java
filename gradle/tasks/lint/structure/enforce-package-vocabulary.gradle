@@ -158,6 +158,21 @@ def enforcePackageVocabulary = tasks.register('enforcePackageVocabulary') {
         allowances << [word: exemption.word.toLowerCase(), inFile: exemption.inFile]
     }
 
+    // The same allowance for several words in one file, which is the shape a
+    // README explaining a rule takes: it has to name every word the rule bans.
+    // One declaration rather than a run of near-identical lines, so the file
+    // path is stated once and a reader sees one exemption instead of five.
+    ext.allowWords = { Map exemption ->
+        if (!exemption.words || !exemption.inFile) {
+            throw new GradleException("allowWords needs both 'words' (the " +
+                    "words being let through) and 'inFile' (the " +
+                    "project-relative path they are allowed in); got: ${exemption}")
+        }
+        exemption.words.each { word ->
+            allowWord word: word, inFile: exemption.inFile
+        }
+    }
+
     // Every source set under src/, rather than main and test alone: a
     // vocabulary rule that exempts a tree is a vocabulary rule with a hole in
     // it, and a dev-tooling or fixture source set is written in prose like any

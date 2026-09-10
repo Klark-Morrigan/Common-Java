@@ -142,18 +142,26 @@ def enforcePackageLayering = tasks.register('enforcePackageLayering') {
                 + "it, or 'exactly' for that one package - and 'of' (the "
                 + "package root it may not import); got: ${edge}")
         }
+        // 'of' takes one package root or a list of them. A root is usually
+        // closed to several at once - the siblings it must not reach into - and
+        // spelling one declaration per pair states the closed side over and over
+        // for a rule a reader holds as one.
+        def forbiddenImports = edge.of instanceof Collection ? edge.of : [edge.of]
+
         // The label carries the width into every message the edge produces,
         // including the input-property snapshot below: the two widths are
         // different rules over the same pair of roots, so a run cleared under
         // one must not read as UP-TO-DATE under the other.
-        forbiddenEdges << [
-            closedRoot: closedRoot,
-            isClosedExactly: edge.exactly as boolean,
-            closedSideLabel: edge.exactly
-                ? "${closedRoot} itself"
-                : closedRoot,
-            of: edge.of,
-        ]
+        forbiddenImports.each { forbiddenImport ->
+            forbiddenEdges << [
+                closedRoot: closedRoot,
+                isClosedExactly: edge.exactly as boolean,
+                closedSideLabel: edge.exactly
+                    ? "${closedRoot} itself"
+                    : closedRoot,
+                of: forbiddenImport,
+            ]
+        }
     }
 
     // Every source set under src/, rather than main and test alone: a layering
