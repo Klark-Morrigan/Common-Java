@@ -1,0 +1,16 @@
+package example.production;
+
+/**
+ * The one place a command was pointed at: the place named by the id it is
+ * addressed by, or the nearest qualifying one when no id was typed.
+ */
+final class Sample {
+
+    private static final int FIRST = 1;
+
+    // Keyed on the whole key rather than on the id, so two places sharing an
+    // id are two entries rather than one being handed the other's value.
+    int readFirst() {
+        return FIRST;
+    }
+}

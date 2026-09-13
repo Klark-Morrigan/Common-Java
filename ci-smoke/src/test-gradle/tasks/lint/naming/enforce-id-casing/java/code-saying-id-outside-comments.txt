@@ -1,0 +1,22 @@
+package example.production;
+
+import java.util.Map;
+
+final class Sample {
+
+    private static final String ID = "id";
+
+    private final Map<String, String> byId;
+
+    Sample(Map<String, String> byId) {
+        this.byId = byId;
+    }
+
+    String getId() {
+        return byId.get(ID);
+    }
+
+    String readColumnNamed(String id) {
+        return byId.getOrDefault(id, ID);
+    }
+}

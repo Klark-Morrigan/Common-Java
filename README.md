@@ -68,6 +68,7 @@ convention no compiler can see, and each runs as part of `check` and
 | --- | --- |
 | `enforceCamelCaseTestNames` | test methods are named in camelCase, not snake_case |
 | `enforceDocLinksResolve` | a relative link in a `.md` file points at something that exists |
+| `enforceIdCasing` | prose spells the abbreviation `ID`, not `id` |
 | `enforceMethodsOrderedByVisibility` | production methods run most-public-first |
 | `enforceNoMagicLiteralsKotlin` | Kotlin numbers are named; Java's ride in `checkstyle.xml` |
 | `enforceNoTestVocabulary` | production code is not written in the words of the suites that test it |
@@ -178,6 +179,37 @@ A type is named by the file it lives in. The call is matched as literal
 text against the code with comments stripped first, so a Javadoc
 explaining why a call is contained is prose about the rule rather than a
 breach of it.
+
+`enforceIdCasing` keeps `ID` spelt as English rather than as a field name.
+The two spellings are not a style toss-up: `ID` abbreviates
+*identification*, while `id` is how a symbol is spelt. Prose drifts to the
+lower-case form on its own, because a sentence written beside
+`market.getId()` borrows the casing of the symbol it describes - and left
+alone the drift wins on volume.
+
+Unlike the vocabulary gates it owns its rule outright, since the correct
+spelling of an abbreviation is not a per-project fact. A consumer declares
+only what to leave alone:
+
+```groovy
+enforceIdCasing {
+    exemptPath glob: 'docs/vendor/**/*.md'
+}
+```
+
+Nearly all of the gate is spent *not* firing, which is what makes a rule
+about a two-letter word usable at all. A backticked `` `id` ``, a
+`{@code}` span, a `<pre>` sample and a fenced block are source being
+quoted and keep the casing the source has; the token after `@param` is a
+parameter's name; `mod-id`, `market.id` and `field_id` are file, path and
+column spellings. In code only comment text is read, so no identifier,
+literal or CSV column can ever be reported - the gate cannot ask for a
+rename, only for a word to be written properly or backticked.
+
+Markdown is scanned across the whole project rather than under `src/`,
+because a repository's longest prose is its root README. An `exemptPath`
+matching no file fails the build, on the same reasoning as a stranded
+allowance above.
 
 ## Formatting
 

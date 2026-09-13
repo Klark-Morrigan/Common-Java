@@ -31,6 +31,7 @@ sourceSets {
             'src/test-gradle/tasks/lint/formatting/tests/enforce-no-trailing-whitespace',
             'src/test-gradle/tasks/lint/formatting/tests/enforce-single-blank-lines',
             'src/test-gradle/tasks/lint/literals/tests/enforce-no-magic-literals-kotlin',
+            'src/test-gradle/tasks/lint/naming/enforce-id-casing',
             'src/test-gradle/tasks/lint/naming/enforce-no-test-vocabulary',
             'src/test-gradle/tasks/lint/naming/tests/enforce-camel-case-test-names',
             'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes',
@@ -147,6 +148,11 @@ def testGradle = tasks.register('testGradle', Test) {
         'mockGateScript',
         'mock.gate.script.path',
         '../gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks.gradle')
+
+    declareScriptUnderTest(
+        'idCasingGateScript',
+        'id.casing.gate.script.path',
+        '../gradle/tasks/lint/naming/enforce-id-casing.gradle')
 
     declareScriptUnderTest(
         'testVocabularyGateScript',

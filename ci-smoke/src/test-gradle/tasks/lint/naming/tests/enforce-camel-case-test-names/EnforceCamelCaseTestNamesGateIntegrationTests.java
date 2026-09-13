@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 // src/test-gradle, deliberately out of its reach.
 //
 // The two cases that matter most are the ones about what the gate must NOT read: snake_case is how
-// the game names its own data, so a faction id in a string and a method named in a comment both
+// the game names its own data, so a faction ID in a string and a method named in a comment both
 // have to pass, and Kotlin's backtick-quoted test names are the language's own idiom rather than an
 // identifier a camelCase rule can be stated over. Default package: the grouping folder is the
 // source root, and its kebab name cannot be a Java package.

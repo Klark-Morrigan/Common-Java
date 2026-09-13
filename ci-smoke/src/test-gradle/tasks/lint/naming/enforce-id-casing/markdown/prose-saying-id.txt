@@ -1,0 +1,7 @@
+# Sample
+
+A caller that must account for every place in a modded sector needs more than
+the id the engine answers with,
+because two places may be listed under one id.
+
+- Anything keyed on the id keeps one of a colliding set and drops the rest.

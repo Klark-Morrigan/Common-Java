@@ -1,0 +1,19 @@
+# Sample
+
+- [IDs that reach in from outside](#ids-that-reach-in-from-outside)
+
+A place is addressed by the ID the engine answers with, read off it as `id`
+and written into `mod-id.version` beside the name.
+
+The `<id>` a usage line prints is the same value, and so is the "id" column of
+the shipped table at https://example.invalid/schema#id.
+
+```json
+{ "id": "sample", "name": "Sample" }
+```
+
+    { "id": "sample" }
+
+## IDs that reach in from outside
+
+Anything keyed on the whole key rather than the ID keeps both.

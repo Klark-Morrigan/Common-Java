@@ -1,0 +1,30 @@
+package example.production;
+
+/**
+ * The one place a command was pointed at, found by the ID it is addressed by.
+ *
+ * <p>A sample is source rather than prose, so what it spells stays as it is:
+ *
+ * <pre>
+ * String id = run.get(SPEC.id);
+ * if (id == null) {
+ *     return NONE;
+ * }
+ * </pre>
+ *
+ * <p>So is a {@code id} span, a `id` in backticks, a "id" in quotes, and the
+ * &lt;id&gt; placeholder a usage line prints. A mod-id names a file on disk,
+ * market.id a dotted path, and field_id a column.
+ */
+final class Sample {
+
+    /**
+     * Reads the place off the sector.
+     *
+     * @param id the value the command was given
+     * @return the place it names
+     */
+    String findPlaceOf(String id) {
+        return id;
+    }
+}

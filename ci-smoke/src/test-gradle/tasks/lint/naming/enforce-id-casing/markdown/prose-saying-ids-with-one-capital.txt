@@ -1,0 +1,6 @@
+# Sample
+
+## Ids that reach in from outside
+
+Id is the abbreviation a heading reaches for when the shift key is only half
+pressed, and it is the same error wearing a capital.
