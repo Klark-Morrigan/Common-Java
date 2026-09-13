@@ -29,11 +29,12 @@
 // spelling of an abbreviation is the same in every repository, so a consuming
 // build declares only the paths it wants left alone.
 //
-// A consuming build declares only its exemptions:
+// A consuming build declares only its exemptions, which is what a tree of
+// vendored or generated prose takes - text the repository carries but does not
+// author, and so cannot restyle:
 //
 //     enforceIdCasing {
-//         exemptPath glob: 'docs/dev/implementation/**/plan.md'
-//         exemptPath glob: 'docs/dev/implementation/**/problem.md'
+//         exemptPath glob: 'docs/vendor/**/*.md'
 //     }
 //
 // A build that declares nothing still gets the gate, which is what lets the
@@ -232,9 +233,9 @@ def enforceIdCasing = tasks.register('enforceIdCasing') {
     group = 'verification'
 
     // Exempts every file a path glob matches. A glob rather than a single path
-    // because the case this exists for is a family of files - the landed
-    // plan.md and problem.md under each implementation folder, which are frozen
-    // records of a decision rather than live prose to restyle.
+    // because the case this exists for is a family of files - a vendored or
+    // generated tree the repository carries without authoring, where restyling
+    // the text would edit somebody else's copy.
     //
     // Named arguments rather than positional ones, matching the sibling gates:
     // every value is plain text, so a transposition would otherwise be silently

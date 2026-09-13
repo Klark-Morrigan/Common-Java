@@ -38,15 +38,14 @@ class EnforceIdCasingGateIntegrationTests {
     // because a repository's longest prose is its root README.
     private static final String ROOT_README_PATH = "README.md";
 
-    private static final String FROZEN_DOCUMENT_PATH =
-        "docs/dev/implementation/001-sample/plan.md";
+    private static final String VENDORED_DOCUMENT_PATH = "docs/vendor/upstream/guide.md";
 
     private static final String NOTHING_EXEMPT = "";
 
-    // The case the exemption exists for: a landed plan is a frozen record of a
-    // decision rather than live prose to restyle.
-    private static final String EXEMPTING_THE_FROZEN_DOCUMENTS =
-        buildDeclaration("exemptPath glob: 'docs/dev/implementation/**/plan.md'");
+    // The case the exemption exists for: a tree the repository carries without
+    // authoring, where restyling the text would edit somebody else's copy.
+    private static final String EXEMPTING_THE_VENDORED_DOCUMENTS =
+        buildDeclaration("exemptPath glob: 'docs/vendor/**/*.md'");
 
     // An exemption for a path no tree holds - the shape one left behind by a
     // rename or a move takes.
@@ -174,9 +173,9 @@ class EnforceIdCasingGateIntegrationTests {
     void passesWhenTheFileIsUnderAnExemptPath(@TempDir Path projectDir)
             throws IOException {
 
-        writeMarkdown(projectDir, FROZEN_DOCUMENT_PATH, "prose-saying-id");
+        writeMarkdown(projectDir, VENDORED_DOCUMENT_PATH, "prose-saying-id");
 
-        var result = runGateExpectingSuccess(projectDir, EXEMPTING_THE_FROZEN_DOCUMENTS);
+        var result = runGateExpectingSuccess(projectDir, EXEMPTING_THE_VENDORED_DOCUMENTS);
 
         assertThat(result.task(TASK_PATH).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
