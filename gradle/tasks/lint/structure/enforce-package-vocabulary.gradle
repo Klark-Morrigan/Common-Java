@@ -38,7 +38,7 @@
 
 // Applied by this script, not assumed from the conventions file: the gate is
 // applied on its own by its integration test, so it has to carry what it uses.
-apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate-stamp.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
 
 // One word of a name, as a reader reads it: a run of letters, parted at each
 // camel hump. This is what lets the gate judge an identifier and a sentence by
@@ -264,12 +264,6 @@ def enforcePackageVocabulary = tasks.register('enforcePackageVocabulary') {
     }
 }
 
-// Give the gate an output so it can be skipped while the sources it reads are
-// unchanged; see lint-gate-stamp.gradle.
-declareLintGateStamp(enforcePackageVocabulary)
-
-// Run the gate as part of the standard verification lifecycle so both a
-// local 'build'/'check' and CI's 'test jar' trip it before tests execute.
-tasks.matching { it.name in ['test', 'check'] }.configureEach {
-    dependsOn enforcePackageVocabulary
-}
+// Make it a gate: an output so it can be skipped while what it reads is
+// unchanged, and a place in the verification lifecycle; see lint-gate.gradle.
+installLintGate(enforcePackageVocabulary)

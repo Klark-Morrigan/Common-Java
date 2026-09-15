@@ -1,0 +1,71 @@
+// Shared plumbing for the lint gates: what every gate needs to be a gate, past
+// the rule it actually asserts.
+//
+// There are two such things, and they were written out at the foot of each gate
+// until the family reached fifteen copies of them. Both are about how a gate
+// meets Gradle rather than about any gate's subject, so neither is a decision a
+// gate author should be making again - and an author reaching for a sibling to
+// copy the shape from is how a gate ends up with one of the two and not the
+// other, which fails silently in both directions: a gate nothing depends on
+// never runs, and a gate with no output runs on every build forever.
+//
+// It lives in its own script, applied by each gate rather than by the
+// conventions file, because a gate has to stand on its own: its integration
+// test applies that one script into a throwaway project and runs the task, with
+// no conventions script in sight. Defining the helpers anywhere else would make
+// every gate silently depend on being applied in company.
+//
+// Applying this more than once per project is harmless - each gate applies it,
+// and the assignments below simply overwrite identical closures.
+
+// Gives a gate an output so Gradle can skip it while the sources it reads are
+// unchanged.
+//
+// A gate reads source text and asserts a convention; it produces no artifact,
+// and a task with actions but no declared output can never be UP-TO-DATE, so
+// every gate would re-scan every source file on every build even when nothing
+// changed. A stamp file closes that: the gate's inputs are already declared, so
+// Gradle skips it while those sources are unchanged, and a gate that fails
+// leaves no stamp behind and therefore runs again next time.
+ext.declareLintGateStamp = { taskProvider ->
+    def stampFile = layout.buildDirectory.file("lint/${taskProvider.name}.stamp")
+    taskProvider.configure {
+        outputs.file(stampFile)
+        // The stamp is the whole result - it says "these exact sources passed
+        // this gate" - so it is safe to replay from the build cache, which is
+        // what keeps a clean build or a branch switch from re-scanning sources
+        // that some earlier run already cleared.
+        outputs.cacheIf { true }
+        // Appended after the gate's own action, so the stamp records a pass:
+        // when the check throws, this never runs and the gate stays out of date.
+        doLast {
+            def stamp = stampFile.get().asFile
+            stamp.parentFile.mkdirs()
+            stamp.text = "${taskProvider.name} passed\n"
+        }
+    }
+}
+
+// Runs a gate as part of the standard verification lifecycle, so both a local
+// 'build'/'check' and CI's 'test jar' trip it before tests execute.
+//
+// Matched by name rather than taken from the java plugin's own task, because a
+// gate is applied before any plugin is guaranteed to be: a live match picks the
+// tasks up whenever they arrive, where naming one directly would fail in a
+// project that has not applied the plugin yet.
+ext.runLintGateWithVerification = { taskProvider ->
+    tasks.matching { it.name in ['test', 'check'] }.configureEach {
+        dependsOn taskProvider
+    }
+}
+
+// Both of the above, which is what a gate wants: it is the whole of being a
+// gate rather than a task somebody happens to have written.
+//
+// Published beside the two halves rather than in place of them, so a gate with
+// a reason to take only one still can - and so the pair a reader is looking at
+// has names, instead of being two anonymous lines inside this one.
+ext.installLintGate = { taskProvider ->
+    declareLintGateStamp(taskProvider)
+    runLintGateWithVerification(taskProvider)
+}

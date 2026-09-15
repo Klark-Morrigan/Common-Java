@@ -20,7 +20,7 @@
 // applied on its own by its integration test, so it has to carry what it uses.
 apply from: new File(
     buildscript.sourceFile.parentFile,
-    '../lint-gate-stamp.gradle')
+    '../lint-gate.gradle')
 
 apply from: new File(
     buildscript.sourceFile.parentFile,
@@ -103,12 +103,6 @@ def enforceSingleBlankLines = tasks.register('enforceSingleBlankLines') {
     }
 }
 
-// Give the gate an output so it can be skipped while the sources it reads are
-// unchanged; see lint-gate-stamp.gradle.
-declareLintGateStamp(enforceSingleBlankLines)
-
-// Run the gate as part of the standard verification lifecycle so both a
-// local 'build'/'check' and CI's 'test jar' trip it before tests execute.
-tasks.matching { it.name in ['test', 'check'] }.configureEach {
-    dependsOn enforceSingleBlankLines
-}
+// Make it a gate: an output so it can be skipped while what it reads is
+// unchanged, and a place in the verification lifecycle; see lint-gate.gradle.
+installLintGate(enforceSingleBlankLines)

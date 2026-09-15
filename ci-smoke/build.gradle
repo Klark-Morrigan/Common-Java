@@ -118,9 +118,9 @@ def testGradle = tasks.register('testGradle', Test) {
         '../gradle/tasks/format/align-javadoc-params.gradle')
 
     declareScriptUnderTest(
-        'lintGateStampScript',
-        'lint.gate.stamp.script.path',
-        '../gradle/tasks/lint/lint-gate-stamp.gradle')
+        'lintGateScript',
+        'lint.gate.script.path',
+        '../gradle/tasks/lint/lint-gate.gradle')
 
     declareScriptUnderTest(
         'docLinksGateScript',

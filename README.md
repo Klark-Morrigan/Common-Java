@@ -85,7 +85,18 @@ to, for the reason given below:
 
 A gate only ever reports, which is what makes inheriting them everywhere
 free. Each carries its own TestKit integration test in `ci-smoke/` that
-applies the one script into a throwaway project and drives a real build.
+applies the one script into a throwaway project and drives a real build,
+and `verifyEveryGateHasASuite` counts the scripts against those suites: a
+gate whose suite was never written, or whose folder was renamed out from
+under the tree that collects them, is a gate nothing runs - which is
+exactly what a passing build looks like.
+
+Neither half of being a gate is written out per script. `lint-gate.gradle`
+owns both: the stamp that lets Gradle skip a gate whose sources have not
+changed, and the `test`/`check` dependency that makes a build run it at
+all. A gate takes them in one call, `installLintGate(taskProvider)`, so
+there is no second thing for the next gate's author to remember - and
+forgetting either was silent in both directions.
 
 `enforceDocLinksResolve` skips version-control and build-tool directories
 by name, which is all this repo knows about. A consumer whose own tooling

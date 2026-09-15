@@ -31,7 +31,7 @@
 // 'new SomeInterface() { ... }' - names neither and is invisible to it.
 //
 // Applied by each gate rather than by the conventions file, on the same reasoning
-// lint-gate-stamp.gradle states: a gate is applied on its own by its integration test, so it has to
+// lint-gate.gradle states: a gate is applied on its own by its integration test, so it has to
 // carry what it uses. Applying this more than once per project is harmless - the assignment below
 // simply overwrites an identical closure.
 
