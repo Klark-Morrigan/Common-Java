@@ -60,9 +60,10 @@ the list.
 
 `java-conventions.gradle` also applies the gates under
 [gradle/tasks/lint/](gradle/tasks/lint/), so a consumer inherits them from
-one place alongside checkstyle. Each is a source-text pass asserting one
-convention no compiler can see, and each runs as part of `check` and
-`test`:
+one place alongside checkstyle. Each asserts one convention no compiler
+reports, and each runs as part of `check` and `test`. All but one read
+source text; `enforceReferencedTypes` reads the classes that text compiled
+to, for the reason given below:
 
 | Task | Rule |
 | --- | --- |
@@ -75,6 +76,7 @@ convention no compiler can see, and each runs as part of `check` and
 | `enforceNoTrailingWhitespace` | no line ends in whitespace |
 | `enforcePackageLayering` | a package root does not import one the consumer declared it closed to |
 | `enforcePackageVocabulary` | a package root does not say a word the consumer declared it closed to |
+| `enforceReferencedTypes` | compiled code names a type from an unstable namespace only where the consumer declared that type stable |
 | `enforceRestrictedCalls` | a call a package root is closed to is made only in the types the consumer named |
 | `enforceSingleBlankLines` | at most one consecutive blank line |
 | `enforceSuffixOnFakes` | hand-written test doubles are suffixed `Fake` |
@@ -179,6 +181,43 @@ A type is named by the file it lives in. The call is matched as literal
 text against the code with comments stripped first, so a Javadoc
 explaining why a call is contained is prose about the rule rather than a
 breach of it.
+
+`enforceReferencedTypes` is the fourth, and the only gate that reads
+compiled classes. It asks which of a namespace's type names the build is
+allowed to carry, for a library whose published surface is stable and
+whose internals are not - one shipped per platform, a shaded
+redistribution, an obfuscated release whose non-public names are
+regenerated. Code compiled against one spelling then fails to link against
+another, and it fails at the call rather than at load:
+
+```groovy
+enforceReferencedTypes {
+    restrictReferences namespace: 'example.library',
+        allowingPackages: ['example.library.api'],
+        allowingTypes: ['example.library.internal.Seam']
+}
+```
+
+It reads classes because a source pass cannot see the reference that
+matters. A file that never names a type still compiles one into a
+descriptor wherever an inferred local takes a returned value, or the
+compiler writes a bridge for an inherited method - and the descriptor is
+what the runtime resolves. Both cases are real: one shipped a crash, the
+other sits in a consumer that extends a library base class and names
+nothing.
+
+A package allowance covers everything beneath it; a type allowance covers
+that type and the types nested inside it, which are declared with it and
+renamed with it. A sibling in the same package is its own declaration.
+Omitting both closes the namespace outright, so a mistyped key closes it
+rather than opening it.
+
+Classes compiled into the namespace itself are passed over: a class filed
+under a library's own package is written to that library's internals by
+definition, and it is the one place the promise does not apply. A
+violation names the class and the type it referenced, with no line
+number - a class file records which types a method touches, not where
+each was written.
 
 `enforceIdCasing` keeps `ID` spelt as English rather than as a field name.
 The two spellings are not a style toss-up: `ID` abbreviates

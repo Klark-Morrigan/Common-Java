@@ -39,6 +39,7 @@ sourceSets {
             'src/test-gradle/tasks/lint/structure/enforce-methods-ordered-by-visibility',
             'src/test-gradle/tasks/lint/structure/enforce-package-layering',
             'src/test-gradle/tasks/lint/structure/enforce-package-vocabulary',
+            'src/test-gradle/tasks/lint/structure/enforce-referenced-types',
             'src/test-gradle/tasks/lint/structure/enforce-restricted-calls',
             'src/test-gradle/tasks/lint/structure/tests/enforce-tests-nested',
         ]
@@ -178,6 +179,11 @@ def testGradle = tasks.register('testGradle', Test) {
         'restrictedCallsGateScript',
         'restricted.calls.gate.script.path',
         '../gradle/tasks/lint/structure/enforce-restricted-calls.gradle')
+
+    declareScriptUnderTest(
+        'referencedTypesGateScript',
+        'referenced.types.gate.script.path',
+        '../gradle/tasks/lint/structure/enforce-referenced-types.gradle')
 
     declareScriptUnderTest(
         'nestedGateScript',

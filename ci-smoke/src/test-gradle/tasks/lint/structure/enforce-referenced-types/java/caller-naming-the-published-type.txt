@@ -1,0 +1,11 @@
+package example.consumer;
+
+import example.library.api.Published;
+
+/**
+ * Names only what the library publishes, which is what a consumer is meant to be built on.
+ */
+public class Caller {
+
+    public Published held;
+}

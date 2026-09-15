@@ -1,0 +1,11 @@
+package example.consumer;
+
+import example.library.internal.Renamed;
+
+/**
+ * Names the unpromised type outright, which is the plain form of the same defect.
+ */
+public class Caller {
+
+    public Renamed held;
+}
