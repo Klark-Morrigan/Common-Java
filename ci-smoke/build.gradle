@@ -24,25 +24,17 @@ sourceSets {
         // folder's hyphens) and the fixtures resolve under the shared classpath
         // root - the language prefix plus distinct names keep them from
         // colliding there.
-        def scriptTestDirs = [
-            'src/test-gradle/tasks/format/align-javadoc-params',
-            'src/test-gradle/tasks/lint/docs/enforce-doc-links-resolve',
-            'src/test-gradle/tasks/lint/lint-gate-stamp',
-            'src/test-gradle/tasks/lint/formatting/tests/enforce-no-trailing-whitespace',
-            'src/test-gradle/tasks/lint/formatting/tests/enforce-single-blank-lines',
-            'src/test-gradle/tasks/lint/literals/tests/enforce-no-magic-literals-kotlin',
-            'src/test-gradle/tasks/lint/naming/enforce-id-casing',
-            'src/test-gradle/tasks/lint/naming/enforce-no-test-vocabulary',
-            'src/test-gradle/tasks/lint/naming/tests/enforce-camel-case-test-names',
-            'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes',
-            'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks',
-            'src/test-gradle/tasks/lint/structure/enforce-methods-ordered-by-visibility',
-            'src/test-gradle/tasks/lint/structure/enforce-package-layering',
-            'src/test-gradle/tasks/lint/structure/enforce-package-vocabulary',
-            'src/test-gradle/tasks/lint/structure/enforce-referenced-types',
-            'src/test-gradle/tasks/lint/structure/enforce-restricted-calls',
-            'src/test-gradle/tasks/lint/structure/tests/enforce-tests-nested',
-        ]
+        // Read off the tree rather than listed, because a list is a second place
+        // to remember: a suite added without its entry here is never compiled
+        // and never run, and a suite that never runs is indistinguishable from
+        // one that passes. Every folder holding a suite is a source root, which
+        // is the same rule the paragraph above states, now stated once.
+        def scriptTestDirs = fileTree('src/test-gradle/tasks') { include '**/*.java' }
+            .files
+            *.parentFile
+            .unique()
+            .collect { projectDir.toPath().relativize(it.toPath()).toString().replace('\\', '/') }
+            .sort()
         // The support root holds what every gate suite drives its gate through; it files no
         // fixtures, so it joins the sources alone.
         java.srcDirs = scriptTestDirs + 'src/test-gradle/support'
