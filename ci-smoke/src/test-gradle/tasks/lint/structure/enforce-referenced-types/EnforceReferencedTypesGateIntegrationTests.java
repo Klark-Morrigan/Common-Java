@@ -168,6 +168,25 @@ class EnforceReferencedTypesGateIntegrationTests {
     }
 
     @Test
+    void failsWhenAnAllowedTypeIsNamedByNothing(@TempDir Path projectDir) {
+
+        // The same defect from the other end, and the one the scan alone cannot
+        // show: the allowance reads as a dependency this project has, and
+        // whoever writes the next reference to that type finds it pre-approved.
+        // Failed rather than warned because a warning here is read by nobody -
+        // the gate is skipped while its inputs hold, so it would be said once.
+        var result = buildProject(projectDir, PUBLISHED_PACKAGE_AND_THE_SEAM)
+            .holdingFixture(
+                "src/main/java/example/consumer/Caller.java",
+                "java/caller-naming-the-published-type")
+            .runExpectingFailure();
+
+        assertThat(result.getOutput())
+            .contains(SEAM_TYPE + " is allowed for " + NAMESPACE
+                + " and nothing compiled here names it");
+    }
+
+    @Test
     void passesWhenNoNamespaceIsDeclared(@TempDir Path projectDir) {
 
         // What every consumer that never declares one inherits, which is what
@@ -196,24 +215,27 @@ class EnforceReferencedTypesGateIntegrationTests {
     }
 
     @Test
-    void saysSoWhenAClassCarriesAConstantPoolTagItCannotFollow(@TempDir Path projectDir) {
+    void failsWhenAClassCarriesAConstantPoolTagItCannotFollow(@TempDir Path projectDir) {
 
         // The gate's own gap rather than the code's: a tag from a class-file
         // version this walk does not know leaves it reading the class as holding
-        // nothing, which is indistinguishable from a class that passed. Warned
-        // rather than failed, since the build is not what is behind.
+        // nothing, which is indistinguishable from a class that passed. Failed
+        // rather than warned all the same - a gate that cannot read a class
+        // cannot promise the one thing it exists to promise, and what it guards
+        // against only shows up on a machine the author does not have.
+        //
         // Staged into a tree no compile task owns, so the file is still there
         // when the gate reads: Gradle clears the stale outputs of a task that
         // owns a directory, which would take a staged file with them. It is
         // scanned all the same, the gate taking the build's class output whole.
-        var result = buildProject(projectDir, PUBLISHED_PACKAGE_AND_THE_SEAM)
+        var result = buildProject(projectDir, THE_PUBLISHED_PACKAGE_ALONE)
             .holdingBytes(
                 "build/classes/java/staged/example/consumer/Odd.class",
                 buildClassFileCarryingAnUnknownTag())
-            .runExpectingSuccess();
+            .runExpectingFailure();
 
         assertThat(result.getOutput())
-            .contains("read no constants from 1 class(es)")
+            .contains("Classes this gate could not read")
             .contains("example/consumer/Odd");
     }
 

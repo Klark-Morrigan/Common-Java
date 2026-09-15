@@ -126,8 +126,9 @@ def DOUBLE_WIDTH_CONSTANTS = [CONSTANT_LONG, CONSTANT_DOUBLE]
 // the class can refer to, so there is nothing after it worth the walk.
 //
 // Answers null for a file the walk cannot follow, which is a different thing
-// from a file that names nothing: the caller reports those rather than passing
-// them silently, since a class read as empty is a class nothing was checked in.
+// from a file that names nothing: the caller fails the build over those rather
+// than passing them silently, since a class read as empty is a class nothing was
+// checked in and that is indistinguishable from a class that passed.
 def readTextConstants = { File classFile ->
 
     def texts = []
@@ -342,6 +343,17 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
         def unreadableClasses = []
         def classesDir = layout.buildDirectory.dir('classes').get().asFile
 
+        // What was named, gathered per rule as the scan goes, so the allowances
+        // can be judged against it once the whole build has been read.
+        def referencedTypesByNamespace = namespaceRules
+            .collectEntries { [(it.namespace): new TreeSet<String>()] }
+
+        // Whether anything was read at all, which decides whether the allowances
+        // can be judged. A build with nothing compiled - a fresh checkout, a
+        // module that produces no classes - names nothing, and reporting every
+        // allowance as unused there would be reporting the absence of a build.
+        def hasReadAnyClass = false
+
         scannedClasses.each { classFile ->
 
             def compiledClass = readCompiledClass(classFile, classesDir)
@@ -362,10 +374,13 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
                 unreadableClasses << compiledClass.binaryName
                 return
             }
+            hasReadAnyClass = true
 
             applicableRules.each { namespaceRule ->
 
                 findReferencedTypes(texts, namespaceRule).each { referencedType ->
+
+                    referencedTypesByNamespace[namespaceRule.namespace] << referencedType
 
                     if (!isTypeAllowed(referencedType, namespaceRule)) {
 
@@ -377,17 +392,69 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
             }
         }
 
-        // Said rather than swallowed, and said once with a count rather than per
-        // class: a class the walk could not follow is a class nothing was
-        // checked in, which reads exactly like a class that passed. It is a
-        // warning and not a failure because the cause is this gate falling
-        // behind a class-file version, not the code under it doing anything -
-        // failing the build would stop a consumer over a tool's own gap.
+        // An allowance nothing names is the same defect as an undeclared
+        // reference, seen from the other end, and it is the one the scan alone
+        // cannot show: it reads as "this project depends on that type" when the
+        // project does not, and whoever writes the next reference to it finds it
+        // already approved for reasons nobody checked.
+        //
+        // Failed rather than warned, for the reason the whole family states its
+        // rules as named lists: an entry is a line a reviewer reads in the diff,
+        // and a warning about one is a line nobody reads at all - the gate is
+        // skipped while its inputs hold, so it would be said once and then never
+        // again. Nothing legitimate is caught by it: a package allowance is a
+        // policy about a whole tree and is not judged here, and a type allowance
+        // exists because some class names that type.
+        if (hasReadAnyClass) {
+
+            namespaceRules.each { namespaceRule ->
+
+                def referencedTypes = referencedTypesByNamespace[namespaceRule.namespace]
+
+                namespaceRule.allowedTypes.each { allowedType ->
+
+                    def isNamed = referencedTypes.any {
+                        it == allowedType || it.startsWith(allowedType + '$')
+                    }
+
+                    if (!isNamed) {
+
+                        // Named back in the spelling it was declared in, unlike a
+                        // reference: what a reader does with this is open the
+                        // build file and delete the line, and the line is written
+                        // in source names. A reference has no declaration to
+                        // match and is reported as the class file spells it.
+                        violations << ("${allowedType.replace('/', '.')} is allowed for"
+                            + " ${namespaceRule.namespace} and nothing compiled here names it,"
+                            + " so the allowance says a dependency exists where none does")
+                    }
+                }
+            }
+        }
+
+        // Raised before the references are reported, and raised at all rather
+        // than warned about.
+        //
+        // A class the walk could not follow is a class nothing was checked in,
+        // which reads from the outside exactly like a class that passed. The
+        // cause is this gate falling behind a class-file version rather than
+        // anything the code under it did - but a gate that cannot read a class
+        // cannot honour the one thing it promises, and the whole reason it exists
+        // is a failure that only appears on a machine the author does not have.
+        // Passing quietly there is the failure mode, not the remedy.
+        //
+        // First, because the reference findings below are incomplete while this
+        // holds: the tag is taught to the walk, and then the build says what it
+        // actually found. A count with a few names rather than the whole list,
+        // since the condition is a version rather than a class - when it fires at
+        // all it tends to fire for everything compiled.
         if (!unreadableClasses.isEmpty()) {
 
-            logger.warn("enforceReferencedTypes read no constants from "
-                + "${unreadableClasses.size()} class(es) carrying a constant-pool tag it does "
-                + "not know, so nothing was checked in them: ${unreadableClasses.sort().take(5)}")
+            throw new GradleException("Classes this gate could not read, so nothing in them was"
+                + " checked - each carries a constant-pool tag the walk does not know, which is a"
+                + " tag to add to it rather than anything in the code:\n  "
+                + "${unreadableClasses.size()} class(es), including "
+                + "${unreadableClasses.sort().take(5)}")
         }
 
         if (!violations.isEmpty()) {

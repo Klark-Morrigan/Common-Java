@@ -223,12 +223,30 @@ renamed with it. A sibling in the same package is its own declaration.
 Omitting both closes the namespace outright, so a mistyped key closes it
 rather than opening it.
 
+The check runs both ways. A type allowance that nothing compiled names
+fails the build too: it reads as a dependency the project has, and whoever
+writes the next reference to that type finds it already approved for
+reasons nobody checked. That is a failure rather than a warning for the
+reason the whole family states its rules as named lists - an entry is a
+line a reviewer reads in the diff, and a gate skipped while its inputs
+hold would say a warning once and then never again. Package allowances are
+not judged this way, being a policy about a whole tree rather than a claim
+about what is used.
+
 Classes compiled into the namespace itself are passed over: a class filed
 under a library's own package is written to that library's internals by
 definition, and it is the one place the promise does not apply. A
 violation names the class and the type it referenced, with no line
 number - a class file records which types a method touches, not where
 each was written.
+
+A class the walk cannot follow - one carrying a constant-pool tag from a
+class-file version newer than the walk knows - fails the build ahead of
+any of that, and says which classes and how many. The cause is the gate
+falling behind rather than anything in the code, and the fix is a tag
+added to its table; but a gate that cannot read a class cannot promise
+what it exists to promise, and a class read as empty is indistinguishable
+from a class that passed.
 
 `enforceIdCasing` keeps `ID` spelt as English rather than as a field name.
 The two spellings are not a style toss-up: `ID` abbreviates
