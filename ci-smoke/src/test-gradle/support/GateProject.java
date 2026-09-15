@@ -31,9 +31,14 @@ final class GateProject {
     private String buildPreamble = "";
     private String gateConfiguration = "";
 
+    // The gate's own task unless a case says otherwise, that being what all but a handful of them
+    // are about: a rule is asserted by running the task that asserts it.
+    private String requestedTask;
+
     private GateProject(GateUnderTest gate, Path projectDir) {
         this.gate = gate;
         this.projectDir = projectDir;
+        this.requestedTask = gate.taskName();
     }
 
     /**
@@ -132,6 +137,28 @@ final class GateProject {
     }
 
     /**
+     * Writes a file of raw bytes into the project, for a gate that reads something no editor
+     * produces. A case posing one states the bytes, there being nothing to read in a fixture file
+     * of them.
+     *
+     * @param filePath where it goes, relative to the project root
+     * @param content  what it holds
+     */
+    GateProject holdingBytes(String filePath, byte[] content) {
+
+        try {
+            var file = projectDir.resolve(filePath);
+
+            Files.createDirectories(file.getParent());
+            Files.write(file, content);
+
+        } catch (IOException cannotWrite) {
+            throw new UncheckedIOException(cannotWrite);
+        }
+        return this;
+    }
+
+    /**
      * Makes a directory in the project, for a case whose fixture needs one to exist without
      * anything in it - a link target being the common one.
      *
@@ -145,6 +172,18 @@ final class GateProject {
         } catch (IOException cannotCreate) {
             throw new UncheckedIOException(cannotCreate);
         }
+        return this;
+    }
+
+    /**
+     * Runs a task other than the gate, for a case about what the gate is wired into rather than
+     * about the rule it asserts - whether asking for the lifecycle brings the gate with it.
+     *
+     * @param taskName the task to ask for
+     */
+    GateProject runningTask(String taskName) {
+
+        requestedTask = taskName;
         return this;
     }
 
@@ -172,6 +211,6 @@ final class GateProject {
 
         return GradleRunner.create()
             .withProjectDir(projectDir.toFile())
-            .withArguments(gate.taskName());
+            .withArguments(requestedTask);
     }
 }

@@ -203,8 +203,51 @@ def testGradle = tasks.register('testGradle', Test) {
     inputs.file(file('../gradle/detekt.yml')).withPropertyName('detektConfig')
 }
 
+// Every script that registers a task has a suite driving it.
+//
+// The one failure the suites cannot catch themselves. A gate whose suite was
+// never written, or whose suite folder was renamed out from under the tree that
+// collects them, is a gate nothing runs - and nothing runs is what a passing
+// build looks like. So the scripts are counted against the folders, and a script
+// with no folder of its own name fails this build.
+//
+// Registering a task is what makes a script a gate rather than a helper: the
+// helpers next to them define closures for the gates to use, are exercised
+// through whichever gate applies them, and are bound above as inputs so editing
+// one re-runs those. A helper that grows a task of its own becomes a gate by the
+// same rule, and this asks it for a suite from that day.
+def verifyEveryGateHasASuite = tasks.register('verifyEveryGateHasASuite') {
+
+    group = 'verification'
+    description = 'Fails the build when a script that registers a task has no TestKit suite.'
+
+    def gateScripts = fileTree('../gradle/tasks') { include '**/*.gradle' }
+    def suiteFolders = fileTree('src/test-gradle/tasks') { include '**/*.java' }
+
+    inputs.files(gateScripts).withPropertyName('gateScripts')
+    inputs.files(suiteFolders).withPropertyName('suiteFolders')
+
+    doLast {
+
+        def coveredScriptNames = suiteFolders.files*.parentFile*.name.unique()
+
+        def uncovered = gateScripts
+            .findAll { it.text.contains('tasks.register(') }
+            .collect { it.name.replaceFirst(/\.gradle$/, '') }
+            .findAll { !(it in coveredScriptNames) }
+            .sort()
+
+        if (!uncovered.isEmpty()) {
+
+            throw new GradleException("Scripts registering a task with no suite driving them:\n  "
+                + uncovered.join('\n  ')
+                + "\nEach needs a folder of its own name under src/test-gradle/tasks.")
+        }
+    }
+}
+
 // Run with the rest of verification: 'check' covers a local 'build', and
 // 'coverage' is the task CI invokes.
 tasks.matching { it.name in ['check', 'coverage'] }.configureEach {
-    dependsOn testGradle
+    dependsOn testGradle, verifyEveryGateHasASuite
 }

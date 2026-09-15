@@ -124,11 +124,15 @@ def DOUBLE_WIDTH_CONSTANTS = [CONSTANT_LONG, CONSTANT_DOUBLE]
 //
 // Only the pool is read. It sits at the head of the file and holds every name
 // the class can refer to, so there is nothing after it worth the walk.
+//
+// Answers null for a file the walk cannot follow, which is a different thing
+// from a file that names nothing: the caller reports those rather than passing
+// them silently, since a class read as empty is a class nothing was checked in.
 def readTextConstants = { File classFile ->
 
     def texts = []
 
-    classFile.withDataInputStream { classBytes ->
+    def unreadable = classFile.withDataInputStream { classBytes ->
 
         classBytes.skipBytes(8)
         int poolEntryCount = classBytes.readUnsignedShort()
@@ -150,7 +154,7 @@ def readTextConstants = { File classFile ->
                 // Stopping here reads the file as holding nothing rather than
                 // stepping blindly and reporting whatever the misalignment
                 // spells, which would be a violation nobody could act on.
-                return
+                return true
             }
             classBytes.skipBytes(payloadBytes)
 
@@ -158,8 +162,9 @@ def readTextConstants = { File classFile ->
                 entry++
             }
         }
+        return false
     }
-    return texts
+    return unreadable ? null : texts
 }
 
 // The types a class names from this namespace, deduplicated.
@@ -169,13 +174,16 @@ def readTextConstants = { File classFile ->
 // the type after the 'L'. The characters taken after the prefix are the ones a
 // binary name is written in, so a descriptor's closing ';' and a signature's
 // following types end the name on their own.
-def findReferencedTypes = { List<String> texts, String namespacePath ->
+//
+// The matcher is the rule's own, compiled when the rule was declared: this runs
+// once per class per rule, and a pattern rebuilt there is rebuilt a thousand
+// times over a library's class tree to say the same thing each time.
+def findReferencedTypes = { List<String> texts, Map namespaceRule ->
 
-    def referenceMatcher = ~/\Q${namespacePath}\E\/[\w$\/]+/
     def referencedTypes = new TreeSet<String>()
 
     texts.each { text ->
-        referenceMatcher.matcher(text).each { referencedTypes << it }
+        namespaceRule.referenceMatcher.matcher(text).each { referencedTypes << it }
     }
     return referencedTypes
 }
@@ -264,27 +272,47 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
                 .collect { it.replace('.', '/') }
                 .sort()
         }
+        def namespacePath = namespaceRule.namespace.replace('.', '/')
+
         namespaceRules << [
             namespace: namespaceRule.namespace,
-            namespacePath: namespaceRule.namespace.replace('.', '/'),
+            namespacePath: namespacePath,
+            // Compiled here rather than per class, for the reason
+            // findReferencedTypes gives.
+            referenceMatcher: ~/\Q${namespacePath}\E\/[\w$\/]+/,
             allowedPackages: toBinaryNames(namespaceRule.allowingPackages ?: []),
             allowedTypes: toBinaryNames(namespaceRule.allowingTypes ?: []),
         ]
     }
 
-    // The compiled classes of every source set, wherever the language plugins
-    // put them. Declared as the matched files rather than as the directories: an
-    // absent tree is then an empty scan rather than the configuration failure a
+    // Everything the build compiles, taken as the directory the language plugins
+    // write into rather than from the source sets that name it.
+    //
+    // The directory is what cannot miss a tree. A consumer applies the
+    // conventions first and declares its own source sets after, so a scan built
+    // from the source sets known at that moment is built from the language
+    // plugin's defaults and nothing else - and a tree left out is a tree that
+    // quietly stopped being checked, which is the failure this gate exists to
+    // have none of. It is also what the jar is built from, so a class sitting
+    // there is a class that ships whether or not a source still produces it.
+    //
+    // Declared as the matched files rather than as the directory: an absent tree
+    // is then an empty scan rather than the configuration failure a
     // declared-but-missing input directory would be.
     def scannedClasses = fileTree(layout.buildDirectory.dir('classes')) {
         include '**/*.class'
     }
 
     // Compilation has to have happened for there to be anything to read, which
-    // is the one way this gate differs from its source-text siblings. Matched
-    // live rather than named, so a project's Kotlin or fixture compilations are
-    // covered without this script knowing they exist.
-    dependsOn tasks.withType(JavaCompile)
+    // is the one way this gate differs from its source-text siblings.
+    //
+    // Matched live and twice over rather than named, so a consumer's Kotlin,
+    // Groovy or fixture compilation is covered without this script knowing it
+    // exists. By type catches everything built on Gradle's own compile task; by
+    // name catches the Kotlin plugin, which stopped extending it. Either alone
+    // leaves a language out, and a compilation missed here is a gate that reads
+    // the previous build's classes.
+    dependsOn tasks.withType(AbstractCompile)
     dependsOn tasks.matching { it.name.startsWith('compile') && it.name.endsWith('Kotlin') }
 
     inputs.files(scannedClasses).withPropertyName('scannedClasses')
@@ -311,20 +339,33 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
             return
         }
         def violations = []
+        def unreadableClasses = []
         def classesDir = layout.buildDirectory.dir('classes').get().asFile
 
         scannedClasses.each { classFile ->
 
-            def texts = readTextConstants(classFile)
             def compiledClass = readCompiledClass(classFile, classesDir)
 
-            namespaceRules.each { namespaceRule ->
+            // Which rules have anything to say about this class, settled before
+            // the file is opened: reading a constant pool costs a pass over the
+            // head of every class in the build, and a class every rule passes
+            // over is one nothing would have been done with.
+            def applicableRules = namespaceRules.findAll {
+                !isClassInsideNamespace(compiledClass.binaryName, it)
+            }
+            if (applicableRules.isEmpty()) {
+                return
+            }
+            def texts = readTextConstants(classFile)
 
-                if (isClassInsideNamespace(compiledClass.binaryName, namespaceRule)) {
-                    return
-                }
+            if (texts == null) {
+                unreadableClasses << compiledClass.binaryName
+                return
+            }
 
-                findReferencedTypes(texts, namespaceRule.namespacePath).each { referencedType ->
+            applicableRules.each { namespaceRule ->
+
+                findReferencedTypes(texts, namespaceRule).each { referencedType ->
 
                     if (!isTypeAllowed(referencedType, namespaceRule)) {
 
@@ -334,6 +375,19 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
                     }
                 }
             }
+        }
+
+        // Said rather than swallowed, and said once with a count rather than per
+        // class: a class the walk could not follow is a class nothing was
+        // checked in, which reads exactly like a class that passed. It is a
+        // warning and not a failure because the cause is this gate falling
+        // behind a class-file version, not the code under it doing anything -
+        // failing the build would stop a consumer over a tool's own gap.
+        if (!unreadableClasses.isEmpty()) {
+
+            logger.warn("enforceReferencedTypes read no constants from "
+                + "${unreadableClasses.size()} class(es) carrying a constant-pool tag it does "
+                + "not know, so nothing was checked in them: ${unreadableClasses.sort().take(5)}")
         }
 
         if (!violations.isEmpty()) {
