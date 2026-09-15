@@ -104,10 +104,10 @@ half-stated rule is never a thing that exists:
 
 ```groovy
 enforcePackageLayering {
-    forbidImport under: 'kmu.maplayers.base', of: 'kmu.maplayers.politicalmap'
-    forbidImport under: 'kmu.maplayers.base.tooltip.detail',
-                    of: ['kmu.maplayers.base.tooltip.content',
-                        'kmu.maplayers.base.tooltip.layout']
+    forbidImport under: 'example.framework', of: 'example.feature'
+    forbidImport under: 'example.framework.reads',
+                    of: ['example.framework.writes',
+                        'example.framework.layout']
 }
 ```
 
@@ -130,12 +130,12 @@ layering rule, the vocabulary is a per-project fact this repo cannot know:
 
 ```groovy
 enforcePackageVocabulary {
-    forbidWords under: 'kmu.maplayers.base',
-                words: ['territory', 'territories', 'bloc']
-    allowWord word: 'bloc',
-            inFile: 'src/main/java/kmu/maplayers/base/theme/README.md'
-    allowWords words: ['territory', 'territories'],
-            inFile: 'src/utils/java/kmu/maplayers/base/geometry/ui/Viewer.java'
+    forbidWords under: 'example.framework',
+                words: ['feature', 'features', 'territory']
+    allowWord word: 'territory',
+            inFile: 'src/main/java/example/framework/theme/README.md'
+    allowWords words: ['feature', 'features'],
+            inFile: 'src/utils/java/example/framework/ui/Viewer.java'
 }
 ```
 
@@ -165,9 +165,9 @@ argument:
 
 ```groovy
 enforceRestrictedCalls {
-    restrictCall call: 'Global.getSector()',
-            under: 'kmu.maplayers',
-            toTypes: ['MapLayerInstallations', 'PauseMenuMapCover']
+    restrictCall call: 'Example.getGlobalHandle()',
+            under: 'example.framework',
+            toTypes: ['Adapter']
 }
 ```
 

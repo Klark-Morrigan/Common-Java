@@ -1,4 +1,5 @@
-// ID-casing gate, applied by java-conventions.gradle into every KM project. It
+// ID-casing gate, applied by java-conventions.gradle into every consuming
+// project. It
 // keeps the abbreviation spelt "ID" wherever it is being written as English,
 // and leaves it lower case wherever it is being quoted as code.
 //
@@ -6,8 +7,9 @@
 // the standard abbreviation of "identification", while `id` is the spelling of
 // a field. Prose drifts to the lower-case form on its own, because a sentence
 // written beside `market.getId()` borrows the casing of the symbol it is
-// describing. Left alone the drift wins by sheer volume - one sweep of the KM
-// trees found lower-case prose outnumbering "ID" several hundred to a handful -
+// describing. Left alone the drift wins by sheer volume - a sweep of one
+// consumer's trees found lower-case prose outnumbering "ID" several hundred to a
+// handful -
 // and the repositories end up spelling an English word the way a Java field is
 // spelt.
 //
@@ -110,7 +112,7 @@ def readMarkdownProse = { File sourceFile ->
         }
         // An indented block opening with a brace, quote or tag is a code block
         // rather than a wrapped list item, which is the only other thing this
-        // deep in a KM document.
+        // deep in a document.
         if (inFence || line =~ /^\s{4,}[\{\}"<]/) {
             return
         }

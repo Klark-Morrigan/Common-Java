@@ -1,5 +1,5 @@
-// Markdown link gate, applied by java-conventions.gradle into every KM
-// project. Kept in its own script so the conventions file stays about
+// Markdown link gate, applied by java-conventions.gradle into every
+// consuming project. Kept in its own script so the conventions file stays about
 // classpath, version, and test stack, while this owns one concern: the
 // verification rule.
 //

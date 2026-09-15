@@ -1,4 +1,4 @@
-// Test-vocabulary gate, applied by java-conventions.gradle into every KM
+// Test-vocabulary gate, applied by java-conventions.gradle into every consuming
 // project. It keeps the words a test suite is written in out of the trees that
 // ship: production code and the markdown filed beside it may not talk about
 // mocks, fakes, stubbing or unit tests.
@@ -17,13 +17,15 @@
 // compiler or import graph can see it. A hand sweep finds them once; this finds
 // them on every build.
 //
-// A consuming build declares only its exemptions:
+// A consuming build declares only its exemptions. The names below are the ones
+// this gate's own integration test is written against, this repo knowing no
+// consumer's trees:
 //
 //     enforceNoTestVocabulary {
 //         exemptSourceSet name: 'bridgestubs'
-//         exemptPackage root: 'kmlib.testfixtures'
+//         exemptPackage root: 'example.production.testfixtures'
 //         allowWord word: 'mocking',
-//                 inFile: 'src/main/java/kmlib/starsector/ui/README.md'
+//                 inFile: 'src/main/java/example/production/README.md'
 //     }
 //
 // A build that declares nothing still gets the gate over src/main, which is
@@ -102,8 +104,8 @@ def bannedPhrases = [
 def defaultExemptSourceSets = ['test', 'testfixtures']
 
 // Answers whether a file sits at or under a package root, matched a whole
-// segment at a time so `kmlib.testfixturesold` is not read as living under
-// `kmlib.testfixtures`.
+// segment at a time so `example.testfixturesold` is not read as living under
+// `example.testfixtures`.
 //
 // Judged by directory rather than by the package a source file declares:
 // markdown carries no package declaration and is half of what the rule is

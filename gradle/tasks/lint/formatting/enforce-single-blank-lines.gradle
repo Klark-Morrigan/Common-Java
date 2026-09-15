@@ -1,5 +1,5 @@
-// Blank-line formatting gate, applied by java-conventions.gradle into every KM
-// mod. Kept in its own script so the mod conventions file stays about
+// Blank-line formatting gate, applied by java-conventions.gradle into every
+// consuming project. Kept in its own script so the conventions file stays about
 // classpath, version, and jar output, while this owns one concern: the
 // verification rule.
 //

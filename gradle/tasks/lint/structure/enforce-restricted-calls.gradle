@@ -1,5 +1,5 @@
-// Restricted-call gate, applied by java-conventions.gradle into every KM
-// project. Kept in its own script so the conventions file stays about
+// Restricted-call gate, applied by java-conventions.gradle into every
+// consuming project. Kept in its own script so the conventions file stays about
 // classpath, version, and test stack, while this owns one concern: the
 // verification rule.
 //
@@ -25,12 +25,14 @@
 // declared, and adding one is a line in the build a reviewer reads in the diff.
 //
 // A restriction is a per-project fact rather than a shared one, so this script
-// owns only the mechanism and the consuming build declares the calls:
+// owns only the mechanism and the consuming build declares the calls. The names
+// below are the ones this gate's own integration test is written against, this
+// repo knowing no consumer's architecture:
 //
 //     enforceRestrictedCalls {
-//         restrictCall call: 'Global.getSector()',
-//             under: 'kmu.maplayers',
-//             toTypes: ['MapLayerInstallations', 'PauseMenuMapCover']
+//         restrictCall call: 'Example.getGlobalHandle()',
+//             under: 'example.framework',
+//             toTypes: ['Adapter']
 //     }
 //
 // All three arrive in one call rather than through a fluent chain, for the
