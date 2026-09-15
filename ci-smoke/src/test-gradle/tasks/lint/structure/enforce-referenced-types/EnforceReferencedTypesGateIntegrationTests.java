@@ -2,7 +2,10 @@ import org.gradle.testkit.runner.TaskOutcome;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -52,6 +55,24 @@ class EnforceReferencedTypesGateIntegrationTests {
     // the shape a misspelt or forgotten 'namespace:' takes.
     private static final String HALF_DECLARED_NAMESPACE = buildNamespaceDeclaration(
         "allowingPackages: ['" + PUBLISHED_PACKAGE + "']");
+
+    // The class file the unreadable-class case poses, by the names the format
+    // gives each part. Roomier than the file needs to be, the buffer being
+    // trimmed to what was written.
+    private static final int CLASS_FILE_CAPACITY = 64;
+    private static final int CLASS_FILE_MAGIC = 0xCAFEBABE;
+    private static final short CLASS_FILE_MINOR_VERSION = 0;
+    private static final short CLASS_FILE_MAJOR_VERSION = 99;
+
+    // The pool is numbered from one and counted one past its last entry, so this
+    // says two: the text constant, and the tag the walk gives up on.
+    private static final short POOL_ENTRY_COUNT = 3;
+
+    private static final byte CONSTANT_UTF8_TAG = 1;
+
+    // No class-file version has defined this tag, which is what makes it stand
+    // for one from a version the gate has not been taught.
+    private static final byte UNDEFINED_CONSTANT_TAG = (byte) 254;
 
     @Test
     void failsWhenCompiledCodeCarriesAnUnpromisedNameTheSourceNeverSpells(
@@ -175,6 +196,28 @@ class EnforceReferencedTypesGateIntegrationTests {
     }
 
     @Test
+    void saysSoWhenAClassCarriesAConstantPoolTagItCannotFollow(@TempDir Path projectDir) {
+
+        // The gate's own gap rather than the code's: a tag from a class-file
+        // version this walk does not know leaves it reading the class as holding
+        // nothing, which is indistinguishable from a class that passed. Warned
+        // rather than failed, since the build is not what is behind.
+        // Staged into a tree no compile task owns, so the file is still there
+        // when the gate reads: Gradle clears the stale outputs of a task that
+        // owns a directory, which would take a staged file with them. It is
+        // scanned all the same, the gate taking the build's class output whole.
+        var result = buildProject(projectDir, PUBLISHED_PACKAGE_AND_THE_SEAM)
+            .holdingBytes(
+                "build/classes/java/staged/example/consumer/Odd.class",
+                buildClassFileCarryingAnUnknownTag())
+            .runExpectingSuccess();
+
+        assertThat(result.getOutput())
+            .contains("read no constants from 1 class(es)")
+            .contains("example/consumer/Odd");
+    }
+
+    @Test
     void failsTheBuildWhenTheDeclarationNamesNoNamespace(@TempDir Path projectDir) {
 
         // Half a rule is not a state anything may hold: without the namespace
@@ -185,6 +228,34 @@ class EnforceReferencedTypesGateIntegrationTests {
 
         assertThat(result.getOutput())
             .contains("restrictReferences needs 'namespace'");
+    }
+
+    // A class file the walk gets one entry into and then cannot follow: a header,
+    // a pool of two entries, one text constant, and a tag no class-file version
+    // has defined. Stated as bytes because no compiler emits one - what is being
+    // posed is a file from a future the gate has not been taught, and the only
+    // way to have one today is to write it.
+    private static byte[] buildClassFileCarryingAnUnknownTag() {
+
+        var classFile = ByteBuffer.allocate(CLASS_FILE_CAPACITY);
+
+        classFile.putInt(CLASS_FILE_MAGIC);
+        classFile.putShort(CLASS_FILE_MINOR_VERSION);
+        classFile.putShort(CLASS_FILE_MAJOR_VERSION);
+        classFile.putShort(POOL_ENTRY_COUNT);
+
+        // A text constant naming the namespace, so a walk that carried on past
+        // the tag below would have something to report - which is what says the
+        // gate stopped rather than merely found nothing.
+        classFile.put(CONSTANT_UTF8_TAG);
+
+        var text = ("L" + UNPROMISED_TYPE + ";").getBytes(StandardCharsets.UTF_8);
+
+        classFile.putShort((short) text.length);
+        classFile.put(text);
+        classFile.put(UNDEFINED_CONSTANT_TAG);
+
+        return Arrays.copyOf(classFile.array(), classFile.position());
     }
 
     // One place owns the block's syntax, so a case that varies the declaration
