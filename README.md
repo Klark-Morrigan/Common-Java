@@ -60,9 +60,10 @@ the list.
 
 `java-conventions.gradle` also applies the gates under
 [gradle/tasks/lint/](gradle/tasks/lint/), so a consumer inherits them from
-one place alongside checkstyle. Each is a source-text pass asserting one
-convention no compiler can see, and each runs as part of `check` and
-`test`:
+one place alongside checkstyle. Each asserts one convention no compiler
+reports, and each runs as part of `check` and `test`. All but one read
+source text; `enforceReferencedTypes` reads the classes that text compiled
+to, for the reason given below:
 
 | Task | Rule |
 | --- | --- |
@@ -75,6 +76,7 @@ convention no compiler can see, and each runs as part of `check` and
 | `enforceNoTrailingWhitespace` | no line ends in whitespace |
 | `enforcePackageLayering` | a package root does not import one the consumer declared it closed to |
 | `enforcePackageVocabulary` | a package root does not say a word the consumer declared it closed to |
+| `enforceReferencedTypes` | compiled code names a type from an unstable namespace only where the consumer declared that type stable |
 | `enforceRestrictedCalls` | a call a package root is closed to is made only in the types the consumer named |
 | `enforceSingleBlankLines` | at most one consecutive blank line |
 | `enforceSuffixOnFakes` | hand-written test doubles are suffixed `Fake` |
@@ -83,7 +85,18 @@ convention no compiler can see, and each runs as part of `check` and
 
 A gate only ever reports, which is what makes inheriting them everywhere
 free. Each carries its own TestKit integration test in `ci-smoke/` that
-applies the one script into a throwaway project and drives a real build.
+applies the one script into a throwaway project and drives a real build,
+and `verifyEveryGateHasASuite` counts the scripts against those suites: a
+gate whose suite was never written, or whose folder was renamed out from
+under the tree that collects them, is a gate nothing runs - which is
+exactly what a passing build looks like.
+
+Neither half of being a gate is written out per script. `lint-gate.gradle`
+owns both: the stamp that lets Gradle skip a gate whose sources have not
+changed, and the `test`/`check` dependency that makes a build run it at
+all. A gate takes them in one call, `installLintGate(taskProvider)`, so
+there is no second thing for the next gate's author to remember - and
+forgetting either was silent in both directions.
 
 `enforceDocLinksResolve` skips version-control and build-tool directories
 by name, which is all this repo knows about. A consumer whose own tooling
@@ -102,10 +115,10 @@ half-stated rule is never a thing that exists:
 
 ```groovy
 enforcePackageLayering {
-    forbidImport under: 'kmu.maplayers.base', of: 'kmu.maplayers.politicalmap'
-    forbidImport under: 'kmu.maplayers.base.tooltip.detail',
-                    of: ['kmu.maplayers.base.tooltip.content',
-                        'kmu.maplayers.base.tooltip.layout']
+    forbidImport under: 'example.framework', of: 'example.feature'
+    forbidImport under: 'example.framework.reads',
+                    of: ['example.framework.writes',
+                        'example.framework.layout']
 }
 ```
 
@@ -128,12 +141,12 @@ layering rule, the vocabulary is a per-project fact this repo cannot know:
 
 ```groovy
 enforcePackageVocabulary {
-    forbidWords under: 'kmu.maplayers.base',
-                words: ['territory', 'territories', 'bloc']
-    allowWord word: 'bloc',
-            inFile: 'src/main/java/kmu/maplayers/base/theme/README.md'
-    allowWords words: ['territory', 'territories'],
-            inFile: 'src/utils/java/kmu/maplayers/base/geometry/ui/Viewer.java'
+    forbidWords under: 'example.framework',
+                words: ['feature', 'features', 'territory']
+    allowWord word: 'territory',
+            inFile: 'src/main/java/example/framework/theme/README.md'
+    allowWords words: ['feature', 'features'],
+            inFile: 'src/utils/java/example/framework/ui/Viewer.java'
 }
 ```
 
@@ -163,9 +176,9 @@ argument:
 
 ```groovy
 enforceRestrictedCalls {
-    restrictCall call: 'Global.getSector()',
-            under: 'kmu.maplayers',
-            toTypes: ['MapLayerInstallations', 'PauseMenuMapCover']
+    restrictCall call: 'Example.getGlobalHandle()',
+            under: 'example.framework',
+            toTypes: ['Adapter']
 }
 ```
 
@@ -179,6 +192,61 @@ A type is named by the file it lives in. The call is matched as literal
 text against the code with comments stripped first, so a Javadoc
 explaining why a call is contained is prose about the rule rather than a
 breach of it.
+
+`enforceReferencedTypes` is the fourth, and the only gate that reads
+compiled classes. It asks which of a namespace's type names the build is
+allowed to carry, for a library whose published surface is stable and
+whose internals are not - one shipped per platform, a shaded
+redistribution, an obfuscated release whose non-public names are
+regenerated. Code compiled against one spelling then fails to link against
+another, and it fails at the call rather than at load:
+
+```groovy
+enforceReferencedTypes {
+    restrictReferences namespace: 'example.library',
+        allowingPackages: ['example.library.api'],
+        allowingTypes: ['example.library.internal.Seam']
+}
+```
+
+It reads classes because a source pass cannot see the reference that
+matters. A file that never names a type still compiles one into a
+descriptor wherever an inferred local takes a returned value, or the
+compiler writes a bridge for an inherited method - and the descriptor is
+what the runtime resolves. Both cases are real: one shipped a crash, the
+other sits in a consumer that extends a library base class and names
+nothing.
+
+A package allowance covers everything beneath it; a type allowance covers
+that type and the types nested inside it, which are declared with it and
+renamed with it. A sibling in the same package is its own declaration.
+Omitting both closes the namespace outright, so a mistyped key closes it
+rather than opening it.
+
+The check runs both ways. A type allowance that nothing compiled names
+fails the build too: it reads as a dependency the project has, and whoever
+writes the next reference to that type finds it already approved for
+reasons nobody checked. That is a failure rather than a warning for the
+reason the whole family states its rules as named lists - an entry is a
+line a reviewer reads in the diff, and a gate skipped while its inputs
+hold would say a warning once and then never again. Package allowances are
+not judged this way, being a policy about a whole tree rather than a claim
+about what is used.
+
+Classes compiled into the namespace itself are passed over: a class filed
+under a library's own package is written to that library's internals by
+definition, and it is the one place the promise does not apply. A
+violation names the class and the type it referenced, with no line
+number - a class file records which types a method touches, not where
+each was written.
+
+A class the walk cannot follow - one carrying a constant-pool tag from a
+class-file version newer than the walk knows - fails the build ahead of
+any of that, and says which classes and how many. The cause is the gate
+falling behind rather than anything in the code, and the fix is a tag
+added to its table; but a gate that cannot read a class cannot promise
+what it exists to promise, and a class read as empty is indistinguishable
+from a class that passed.
 
 `enforceIdCasing` keeps `ID` spelt as English rather than as a field name.
 The two spellings are not a style toss-up: `ID` abbreviates

@@ -1,5 +1,6 @@
 // Method-visibility ordering gate, applied by java-conventions.gradle into
-// every KM mod. Kept in its own script so the mod conventions file stays about
+// every consuming project. Kept in its own script so the conventions file stays
+// about
 // classpath, version, and jar output, while this owns one concern: the
 // verification rule.
 //
@@ -30,7 +31,7 @@
 // far, and a later, more-visible method at that scope is the violation.
 // Applied by this script, not assumed from the conventions file: the gate is
 // applied on its own by its integration test, so it has to carry what it uses.
-apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate-stamp.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
 
 def enforceMethodsOrderedByVisibility = tasks.register('enforceMethodsOrderedByVisibility') {
     description = 'Fails the build when a more-visible method is declared below ' +
@@ -331,12 +332,6 @@ def enforceMethodsOrderedByVisibility = tasks.register('enforceMethodsOrderedByV
     }
 }
 
-// Give the gate an output so it can be skipped while the sources it reads are
-// unchanged; see lint-gate-stamp.gradle.
-declareLintGateStamp(enforceMethodsOrderedByVisibility)
-
-// Run the gate as part of the standard verification lifecycle so both a local
-// 'build'/'check' and CI's 'test jar' trip it before tests execute.
-tasks.matching { it.name in ['test', 'check'] }.configureEach {
-    dependsOn enforceMethodsOrderedByVisibility
-}
+// Make it a gate: an output so it can be skipped while what it reads is
+// unchanged, and a place in the verification lifecycle; see lint-gate.gradle.
+installLintGate(enforceMethodsOrderedByVisibility)

@@ -1,0 +1,19 @@
+package example.library.internal;
+
+/**
+ * The library type a consumer is allowed to name: the seam it reaches the rest through.
+ */
+public class Seam {
+
+    /** Declared inside the seam, so it rides with the promise the seam carries. */
+    public static class Nested {
+    }
+
+    /**
+     * Hands back a type the library promises nothing about, which is how a consumer ends up
+     * carrying that type's name without ever writing it.
+     */
+    public Renamed readValue() {
+        return null;
+    }
+}

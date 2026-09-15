@@ -1,0 +1,8 @@
+package example.library.internal;
+
+/**
+ * The library type whose name is not promised - the one a build for another audience spells
+ * differently.
+ */
+public class Renamed {
+}

@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 // wrongly held UP-TO-DATE reports success over sources nobody scanned, and every consumer inherits
 // that: the build stays green while the convention stops being enforced. The gate suites next door
 // all drive a first run, so none of them can see it.
-class LintGateStampIntegrationTests {
+class LintGateIntegrationTests {
 
     private static final GateUnderTest GATE =
         new GateUnderTest("enforceNoTrailingWhitespace", "trailing.whitespace.gate.script.path");
@@ -95,6 +95,23 @@ class LintGateStampIntegrationTests {
 
         assertThat(projectDir.resolve(STAMP_PATH))
             .exists();
+    }
+
+    @Test
+    void bringsAGateAlongWhenTheVerificationLifecycleIsAskedFor(@TempDir Path projectDir) {
+
+        // The helper's other half, and the one whose failure is invisible: a gate nothing depends on
+        // is a gate nobody runs, and nobody running it looks exactly like everybody passing it. Asked
+        // for by the lifecycle task a build uses rather than by the gate's own name, because that is
+        // the whole of what is in question.
+        stage(projectDir, SOURCE_WITH_TRAILING_SPACE);
+
+        var result = project(projectDir)
+            .runningTask("check")
+            .runExpectingFailure();
+
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.FAILED);
     }
 
     // Written and run as two steps, because these cases are about what a second run makes of

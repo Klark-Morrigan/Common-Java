@@ -1,5 +1,5 @@
-// Package-vocabulary gate, applied by java-conventions.gradle into every KM
-// project. Kept in its own script so the conventions file stays about
+// Package-vocabulary gate, applied by java-conventions.gradle into every
+// consuming project. Kept in its own script so the conventions file stays about
 // classpath, version, and test stack, while this owns one concern: the
 // verification rule.
 //
@@ -17,13 +17,15 @@
 // one carries an allowlist and the other must not have to.
 //
 // A vocabulary is a per-project fact rather than a shared one, so this script
-// owns only the mechanism and the consuming build declares the words:
+// owns only the mechanism and the consuming build declares the words. The names
+// below are the ones this gate's own integration test is written against, this
+// repo knowing no consumer's vocabulary:
 //
 //     enforcePackageVocabulary {
-//         forbidWords under: 'kmu.maplayers.base',
-//                 words: ['territory', 'territories', 'bloc']
-//         allowWord word: 'bloc',
-//                 inFile: 'src/main/java/kmu/maplayers/base/theme/README.md'
+//         forbidWords under: 'example.framework',
+//                 words: ['feature', 'features']
+//         allowWord word: 'feature',
+//                 inFile: 'src/main/java/example/framework/README.md'
 //     }
 //
 // Both halves of each declaration arrive in one call rather than through a
@@ -36,7 +38,7 @@
 
 // Applied by this script, not assumed from the conventions file: the gate is
 // applied on its own by its integration test, so it has to carry what it uses.
-apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate-stamp.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
 
 // One word of a name, as a reader reads it: a run of letters, parted at each
 // camel hump. This is what lets the gate judge an identifier and a sentence by
@@ -56,8 +58,8 @@ def nameWordPattern = ~/\p{Lu}?\p{Ll}+|\p{Lu}+(?!\p{Ll})/
 def scannedFileIncludes = ['**/*.java', '**/*.kt', '**/*.md']
 
 // Answers whether a file sits at or under a package root, matched a whole
-// segment at a time so `kmu.maplayers.baseline` is not read as living under
-// `kmu.maplayers.base`.
+// segment at a time so `example.frameworks` is not read as living under
+// `example.framework`.
 //
 // Judged by directory rather than by the package a source file declares, which
 // is the one place this gate parts from its layering sibling: markdown carries
@@ -262,12 +264,6 @@ def enforcePackageVocabulary = tasks.register('enforcePackageVocabulary') {
     }
 }
 
-// Give the gate an output so it can be skipped while the sources it reads are
-// unchanged; see lint-gate-stamp.gradle.
-declareLintGateStamp(enforcePackageVocabulary)
-
-// Run the gate as part of the standard verification lifecycle so both a
-// local 'build'/'check' and CI's 'test jar' trip it before tests execute.
-tasks.matching { it.name in ['test', 'check'] }.configureEach {
-    dependsOn enforcePackageVocabulary
-}
+// Make it a gate: an output so it can be skipped while what it reads is
+// unchanged, and a place in the verification lifecycle; see lint-gate.gradle.
+installLintGate(enforcePackageVocabulary)

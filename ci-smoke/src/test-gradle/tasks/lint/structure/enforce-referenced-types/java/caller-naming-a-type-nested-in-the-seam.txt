@@ -1,0 +1,11 @@
+package example.consumer;
+
+import example.library.internal.Seam;
+
+/**
+ * Names a type declared inside the seam, which is promised by the same decision the seam is.
+ */
+public class Caller {
+
+    public Seam.Nested held;
+}

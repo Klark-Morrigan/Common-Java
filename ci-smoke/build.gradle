@@ -24,24 +24,17 @@ sourceSets {
         // folder's hyphens) and the fixtures resolve under the shared classpath
         // root - the language prefix plus distinct names keep them from
         // colliding there.
-        def scriptTestDirs = [
-            'src/test-gradle/tasks/format/align-javadoc-params',
-            'src/test-gradle/tasks/lint/docs/enforce-doc-links-resolve',
-            'src/test-gradle/tasks/lint/lint-gate-stamp',
-            'src/test-gradle/tasks/lint/formatting/tests/enforce-no-trailing-whitespace',
-            'src/test-gradle/tasks/lint/formatting/tests/enforce-single-blank-lines',
-            'src/test-gradle/tasks/lint/literals/tests/enforce-no-magic-literals-kotlin',
-            'src/test-gradle/tasks/lint/naming/enforce-id-casing',
-            'src/test-gradle/tasks/lint/naming/enforce-no-test-vocabulary',
-            'src/test-gradle/tasks/lint/naming/tests/enforce-camel-case-test-names',
-            'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes',
-            'src/test-gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks',
-            'src/test-gradle/tasks/lint/structure/enforce-methods-ordered-by-visibility',
-            'src/test-gradle/tasks/lint/structure/enforce-package-layering',
-            'src/test-gradle/tasks/lint/structure/enforce-package-vocabulary',
-            'src/test-gradle/tasks/lint/structure/enforce-restricted-calls',
-            'src/test-gradle/tasks/lint/structure/tests/enforce-tests-nested',
-        ]
+        // Read off the tree rather than listed, because a list is a second place
+        // to remember: a suite added without its entry here is never compiled
+        // and never run, and a suite that never runs is indistinguishable from
+        // one that passes. Every folder holding a suite is a source root, which
+        // is the same rule the paragraph above states, now stated once.
+        def scriptTestDirs = fileTree('src/test-gradle/tasks') { include '**/*.java' }
+            .files
+            *.parentFile
+            .unique()
+            .collect { projectDir.toPath().relativize(it.toPath()).toString().replace('\\', '/') }
+            .sort()
         // The support root holds what every gate suite drives its gate through; it files no
         // fixtures, so it joins the sources alone.
         java.srcDirs = scriptTestDirs + 'src/test-gradle/support'
@@ -125,9 +118,9 @@ def testGradle = tasks.register('testGradle', Test) {
         '../gradle/tasks/format/align-javadoc-params.gradle')
 
     declareScriptUnderTest(
-        'lintGateStampScript',
-        'lint.gate.stamp.script.path',
-        '../gradle/tasks/lint/lint-gate-stamp.gradle')
+        'lintGateScript',
+        'lint.gate.script.path',
+        '../gradle/tasks/lint/lint-gate.gradle')
 
     declareScriptUnderTest(
         'docLinksGateScript',
@@ -180,6 +173,11 @@ def testGradle = tasks.register('testGradle', Test) {
         '../gradle/tasks/lint/structure/enforce-restricted-calls.gradle')
 
     declareScriptUnderTest(
+        'referencedTypesGateScript',
+        'referenced.types.gate.script.path',
+        '../gradle/tasks/lint/structure/enforce-referenced-types.gradle')
+
+    declareScriptUnderTest(
         'nestedGateScript',
         'nested.gate.script.path',
         '../gradle/tasks/lint/structure/tests/enforce-tests-nested.gradle')
@@ -205,8 +203,51 @@ def testGradle = tasks.register('testGradle', Test) {
     inputs.file(file('../gradle/detekt.yml')).withPropertyName('detektConfig')
 }
 
+// Every script that registers a task has a suite driving it.
+//
+// The one failure the suites cannot catch themselves. A gate whose suite was
+// never written, or whose suite folder was renamed out from under the tree that
+// collects them, is a gate nothing runs - and nothing runs is what a passing
+// build looks like. So the scripts are counted against the folders, and a script
+// with no folder of its own name fails this build.
+//
+// Registering a task is what makes a script a gate rather than a helper: the
+// helpers next to them define closures for the gates to use, are exercised
+// through whichever gate applies them, and are bound above as inputs so editing
+// one re-runs those. A helper that grows a task of its own becomes a gate by the
+// same rule, and this asks it for a suite from that day.
+def verifyEveryGateHasASuite = tasks.register('verifyEveryGateHasASuite') {
+
+    group = 'verification'
+    description = 'Fails the build when a script that registers a task has no TestKit suite.'
+
+    def gateScripts = fileTree('../gradle/tasks') { include '**/*.gradle' }
+    def suiteFolders = fileTree('src/test-gradle/tasks') { include '**/*.java' }
+
+    inputs.files(gateScripts).withPropertyName('gateScripts')
+    inputs.files(suiteFolders).withPropertyName('suiteFolders')
+
+    doLast {
+
+        def coveredScriptNames = suiteFolders.files*.parentFile*.name.unique()
+
+        def uncovered = gateScripts
+            .findAll { it.text.contains('tasks.register(') }
+            .collect { it.name.replaceFirst(/\.gradle$/, '') }
+            .findAll { !(it in coveredScriptNames) }
+            .sort()
+
+        if (!uncovered.isEmpty()) {
+
+            throw new GradleException("Scripts registering a task with no suite driving them:\n  "
+                + uncovered.join('\n  ')
+                + "\nEach needs a folder of its own name under src/test-gradle/tasks.")
+        }
+    }
+}
+
 // Run with the rest of verification: 'check' covers a local 'build', and
 // 'coverage' is the task CI invokes.
 tasks.matching { it.name in ['check', 'coverage'] }.configureEach {
-    dependsOn testGradle
+    dependsOn testGradle, verifyEveryGateHasASuite
 }

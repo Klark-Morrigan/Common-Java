@@ -21,7 +21,7 @@
 // gate beside this one states at length.
 apply from: new File(
     buildscript.sourceFile.parentFile,
-    '../lint-gate-stamp.gradle')
+    '../lint-gate.gradle')
 
 apply from: new File(
     buildscript.sourceFile.parentFile,
@@ -90,12 +90,6 @@ def enforceNoTrailingWhitespace = tasks.register('enforceNoTrailingWhitespace') 
     }
 }
 
-// Give the gate an output so it can be skipped while the sources it reads are
-// unchanged; see lint-gate-stamp.gradle.
-declareLintGateStamp(enforceNoTrailingWhitespace)
-
-// Run the gate as part of the standard verification lifecycle so both a
-// local 'build'/'check' and CI's 'test jar' trip it before tests execute.
-tasks.matching { it.name in ['test', 'check'] }.configureEach {
-    dependsOn enforceNoTrailingWhitespace
-}
+// Make it a gate: an output so it can be skipped while what it reads is
+// unchanged, and a place in the verification lifecycle; see lint-gate.gradle.
+installLintGate(enforceNoTrailingWhitespace)

@@ -14,7 +14,7 @@
 // - is what a new reader needs rather than which pass asked first.
 //
 // It lives in its own script, applied by each reader rather than by
-// spotless-java.gradle, for the same reason lint-gate-stamp.gradle does: any one of
+// spotless-java.gradle, for the same reason lint-gate.gradle does: any one of
 // them can be applied on its own by a repo that wants only that pass, so it has to
 // carry what it uses rather than depend on being applied in company.
 //

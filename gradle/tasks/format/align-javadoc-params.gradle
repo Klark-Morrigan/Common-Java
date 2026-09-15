@@ -156,7 +156,7 @@ def alignJavadocParams = tasks.register('alignJavadocParams') {
     // files it reads, so the two would name the same set and there is nothing for an
     // up-to-date check to compare; a task asked for by hand wants to run every time
     // regardless. The lint gates have the opposite problem - they produce nothing at
-    // all, so they can never be skipped - which is what lint-gate-stamp.gradle solves.
+    // all, so they can never be skipped - which is what lint-gate.gradle solves.
 
     doLast {
         def rewrittenFiles = []

@@ -1,5 +1,5 @@
-// Markdown link gate, applied by java-conventions.gradle into every KM
-// project. Kept in its own script so the conventions file stays about
+// Markdown link gate, applied by java-conventions.gradle into every
+// consuming project. Kept in its own script so the conventions file stays about
 // classpath, version, and test stack, while this owns one concern: the
 // verification rule.
 //
@@ -26,7 +26,7 @@ import java.nio.file.Path
 
 // Applied by this script, not assumed from the conventions file: the gate is
 // applied on its own by its integration test, so it has to carry what it uses.
-apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate-stamp.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
 
 // The inline link form, `[text](target)`, with an optional quoted title after
 // the target dropped. Link text may not itself contain brackets: a nested pair
@@ -168,12 +168,6 @@ def enforceDocLinksResolve = tasks.register('enforceDocLinksResolve') {
     }
 }
 
-// Give the gate an output so it can be skipped while the docs it reads are
-// unchanged; see lint-gate-stamp.gradle.
-declareLintGateStamp(enforceDocLinksResolve)
-
-// Run the gate as part of the standard verification lifecycle so both a
-// local 'build'/'check' and CI's 'test jar' trip it before tests execute.
-tasks.matching { it.name in ['test', 'check'] }.configureEach {
-    dependsOn enforceDocLinksResolve
-}
+// Make it a gate: an output so it can be skipped while what it reads is
+// unchanged, and a place in the verification lifecycle; see lint-gate.gradle.
+installLintGate(enforceDocLinksResolve)

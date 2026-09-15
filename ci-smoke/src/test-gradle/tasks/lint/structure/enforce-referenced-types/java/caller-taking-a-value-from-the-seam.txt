@@ -1,0 +1,14 @@
+package example.consumer;
+
+import example.library.internal.Seam;
+
+/**
+ * Names the seam and nothing else, yet compiles the unpromised type's name into its own descriptor:
+ * an inferred local takes the type the call returns. The case a source-text pass cannot see.
+ */
+public class Caller {
+
+    public void run(Seam seam) {
+        var value = seam.readValue();
+    }
+}

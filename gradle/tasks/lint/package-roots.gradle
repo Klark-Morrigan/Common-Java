@@ -45,7 +45,7 @@ ext.readDeclaredPackage = { List<String> lines ->
 
 // Answers whether a dotted name sits at or under a package root. Compared a
 // whole segment at a time rather than as a bare string prefix, so
-// `kmu.maplayersextra` is not read as living under `kmu.maplayers`.
+// `example.frameworks` is not read as living under `example.framework`.
 ext.isAtOrUnderPackageRoot = { String dottedName, String packageRoot ->
     return dottedName == packageRoot || dottedName.startsWith(packageRoot + '.')
 }
