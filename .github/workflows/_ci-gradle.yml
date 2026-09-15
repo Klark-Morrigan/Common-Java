@@ -163,35 +163,15 @@ jobs:
         with:
           path: ${{ inputs.checkout-path }}
 
+      # The clone loop, the path check that keeps a destination inside the
+      # workspace, and the token rewrite that keeps a credential off a
+      # self-hosted runner's disk all live in the action, where they are
+      # unit-tested and where the release pipeline reads them from too.
       - name: Check out sibling repos
-        if: ${{ inputs.sibling-checkouts != '[]' }}
-        env:
-          # Assigned to env (not interpolated into the script body) so the
-          # JSON cannot break out of the shell command.
-          SIBLINGS: ${{ inputs.sibling-checkouts }}
-          GH_TOKEN: ${{ secrets.sibling_checkout_token || github.token }}
-        run: |
-          set -euo pipefail
-          echo "$SIBLINGS" | jq -c '.[]' | while read -r entry; do
-            repo=$(jq -rn --argjson e "$entry" '$e.repo')
-            ref=$(jq -rn --argjson e "$entry" '$e.ref // ""')
-            path=$(jq -rn --argjson e "$entry" '$e.path')
-            # `path` is a caller-supplied JSON value used as a clone
-            # destination, on a runner whose disk outlives the job. An
-            # absolute or ../ value would write outside the workspace and
-            # stay there, beyond the reach of the cleanup step above, so
-            # accept only a plain workspace-relative name.
-            case "$path" in
-              /* | *..* | '' | null)
-                echo "::error::refusing unsafe sibling path: '${path}'"
-                exit 1
-                ;;
-            esac
-            echo "::group::clone ${repo}${ref:+@${ref}} -> ${path}"
-            git clone --depth 1 ${ref:+--branch "${ref}"} \
-              "https://x-access-token:${GH_TOKEN}@github.com/${repo}.git" "${path}"
-            echo "::endgroup::"
-          done
+        uses: Klark-Morrigan/Common-Automation/.github/actions/checkout-siblings@master
+        with:
+          siblings: ${{ inputs.sibling-checkouts }}
+          token: ${{ secrets.sibling_checkout_token || github.token }}
 
       - name: Set up Java
         if: ${{ inputs.setup-java }}
