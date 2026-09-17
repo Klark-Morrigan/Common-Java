@@ -5,9 +5,8 @@
 // other quality tool in the family lives. Those gates only ever report, so
 // inheriting them everywhere is free. This one rewrites source, and most
 // consumers of java-conventions must never have it: the Starsector port mods
-// carry third-party code where a reformat destroys the diff against upstream,
-// and the Kotlin mods have no Java for it to touch. A repo therefore opts in by
-// applying this script itself.
+// carry third-party code where a reformat destroys the diff against upstream. A
+// repo therefore opts in by applying this script itself.
 //
 // It also stays off every automatic path. enforceCheck=false detaches
 // spotlessCheck from `check`, so `gradlew build` cannot fail on merely

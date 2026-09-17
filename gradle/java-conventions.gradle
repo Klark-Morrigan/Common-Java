@@ -126,7 +126,15 @@ ext.reportTestOutcomesOf = { Test testTask ->
     // afterTest/afterSuite closures are removed in Gradle 10.
     def recordedTestDurations = java.util.Collections.synchronizedList(new ArrayList())
     def recordedTestFailures = java.util.Collections.synchronizedList(new ArrayList())
-    def maxFailureCauseChars = 200
+
+    // How much of each failure is re-listed. A run that dies on its environment - a runner
+    // with no fonts, a missing native library - fails every test it has with one fault, so an
+    // uncapped detail block buries the rest of the log under copies of a single trace. The
+    // frame cap keeps the head of each throwable, which is where the call that failed sits,
+    // while the cause chain is walked to its end: the line that names the real fault is the
+    // last "Caused by", and cutting the tail would throw away the only part worth reading.
+    def maxDetailedFailures = 10
+    def maxFramesPerThrowable = 12
 
     testTask.addTestListener(new TestListener() {
 
@@ -144,17 +152,18 @@ ext.reportTestOutcomesOf = { Test testTask ->
                 return
             }
 
-            // The first exception, flattened to one line: enough to tell the
-            // failures apart, with the full trace already printed inline above.
-            // The list is read through getExceptions() rather than
-            // getException(), which throws when a failure carries none.
+            // The first exception: a test that fails its teardown as well reports several, and
+            // the one that made it fail is the one worth re-listing. Read through
+            // getExceptions() rather than getException(), which throws when a failure carries
+            // none. Described here rather than at report time because the throwable belongs to
+            // the result being handed over, not to anything this listener keeps.
             def firstException = result.exceptions.isEmpty() ? null : result.exceptions.first()
 
             recordedTestFailures << [
                 name: testName,
-                cause: firstException == null
-                    ? '(no exception recorded)'
-                    : flattenFailureCause(firstException)]
+                trace: firstException == null
+                    ? ['(no exception recorded)']
+                    : describeFailure(firstException)]
         }
 
         // Report at the root suite (the one with no parent), which fires once
@@ -194,6 +203,9 @@ ext.reportTestOutcomesOf = { Test testTask ->
                 }
         }
 
+        // The names on their own first, the traces after. The names are what a reader scans to
+        // see WHAT broke, and a trace between every pair of them puts the last name a screen
+        // and a half below the first - which is the scattering this whole block exists to undo.
         private void reportFailedTests() {
 
             if (recordedTestFailures.isEmpty()) {
@@ -205,28 +217,72 @@ ext.reportTestOutcomesOf = { Test testTask ->
             recordedTestFailures.eachWithIndex {
                 entry,
                 index ->
-                    logger.lifecycle(String.format('%2d. %s', index + 1, entry.name))
-                    logger.lifecycle(String.format('    %s', entry.cause))
+                    reportNumberedTest(entry.name, index)
+            }
+
+            reportFailureDetails()
+        }
+
+        // Why each one broke, in the same order and under the same numbers, so a name picked
+        // out of the list above is looked up rather than searched for.
+        private void reportFailureDetails() {
+
+            logger.lifecycle('')
+            logger.lifecycle('Failure details:')
+
+            recordedTestFailures.take(maxDetailedFailures).eachWithIndex {
+                entry,
+                index ->
+                    reportNumberedTest(entry.name, index)
+                    entry.trace.each { line -> logger.lifecycle('    ' + line) }
+            }
+
+            def undetailed = recordedTestFailures.size() - maxDetailedFailures
+
+            if (undetailed > 0) {
+                logger.lifecycle("    ... and ${undetailed} more, in the HTML test report")
             }
         }
 
-        // An assertion library puts its detail on the lines AFTER the header
-        // one - "expected: 2 / but was: 1" - so quoting the first line alone
-        // would summarise every assertion failure as its exception class. Every
-        // line joins into one instead, capped so a collection diff cannot push
-        // the block off the screen it was written to fit on.
-        private String flattenFailureCause(Throwable cause) {
+        // The line both blocks head an entry with. Shared so that a failure is numbered the same
+        // in each: the number is how a reader carries a name from the list to its trace, and two
+        // formats free to drift apart is two numbering schemes that look like one.
+        private void reportNumberedTest(String testName, int index) {
 
-            def flattened = cause
-                .toString()
-                .readLines()
-                *.trim()
-                .findAll { !it.isEmpty() }
-                .join(' ')
+            logger.lifecycle(String.format('%2d. %s', index + 1, testName))
+        }
 
-            return flattened.length() > maxFailureCauseChars
-                ? flattened.take(maxFailureCauseChars) + '...'
-                : flattened
+        // One throwable as the lines a reader needs: every link of the cause chain, each headed
+        // the way a printed trace heads it, carrying the frames nearest its own throw.
+        //
+        // An assertion library puts its detail on the lines AFTER the header one - "expected: 2
+        // / but was: 1" - so a header is split and indented as the several lines it is rather
+        // than quoted as one. The chain is followed by identity so that a throwable naming
+        // itself as its own cause cannot loop.
+        private List<String> describeFailure(Throwable failure) {
+
+            def lines = []
+            def described = []
+            def link = failure
+
+            while (link != null && !described.any { it.is(link) }) {
+
+                described << link
+
+                def header = described.size() == 1 ? link.toString() : 'Caused by: ' + link
+                def frames = link.stackTrace
+
+                header.readLines().each { line -> lines << line }
+                frames.take(maxFramesPerThrowable).each { frame -> lines << '    at ' + frame }
+
+                if (frames.length > maxFramesPerThrowable) {
+                    lines << "    ... ${frames.length - maxFramesPerThrowable} more frames"
+                }
+
+                link = link.cause
+            }
+
+            return lines
         }
     })
 }
@@ -262,7 +318,7 @@ jacocoTestReport {
 // Single entry point for "run tests and produce coverage", so CI and local
 // runs invoke the same task name across every repo.
 tasks.register('coverage') {
-    
+
     group = 'verification'
     description = 'Runs tests and generates JaCoCo coverage reports.'
     dependsOn test, jacocoTestReport

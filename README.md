@@ -22,7 +22,10 @@ consumer - it is the generic tier that downstream projects build on.
 - `.github/workflows/_ci-gradle.yml` - reusable Gradle build/test workflow.
 - `.github/workflows/ci-bash.yml`, `ci-yaml.yml` - thin callers that
   delegate shell/YAML linting to Common-Automation.
-- `scripts/` - shims to Common-Automation's lint/test/permission engines.
+- `.github/lib/trimmed-file-types.sh` - the JVM text types every JVM repo's
+  pre-commit hook adds to Common-Automation's whitespace trim.
+- `scripts/` - shims to Common-Automation's lint/test/permission/whitespace
+  engines.
 
 ## Gradle conventions
 
@@ -38,6 +41,27 @@ Applied by path rather than published as a plugin, on the assumption that
 consumers are checked out as siblings under the same parent directory, so
 a relative path is the lowest-ceremony single source of truth. No
 `settings.gradle` change is needed.
+
+Every test run ends with the ten slowest tests,
+so a creeping suite runtime is visible rather than hidden in the aggregate,
+and a failing one adds the failures twice over:
+a clean list of names,
+then the same names under the same numbers with the stack trace behind each,
+cause chain followed to its end.
+Both sit at the bottom of the log,
+where a reader starts,
+rather than where each test happened to run.
+Details stop after the first ten failures -
+a run that dies on its environment fails every test it has with one fault -
+and the rest are in the `test-reports` artifact.
+
+A `Test` task registered beside `test`,
+such as a TestKit tree,
+asks for the same report:
+
+```groovy
+reportTestOutcomesOf(it)
+```
 
 Checkstyle runs from `gradle/checkstyle.xml`, whose import-order rule takes
 the blocks as a property rather than naming any consumer's packages. The
@@ -318,6 +342,25 @@ honour the list:
 ext.formatterExcludedSourceSets = ['bridgeStubs']
 apply from: "${rootDir}/../Common-Java/gradle/spotless-java.gradle"
 ```
+
+Both passes read source sets,
+and so does the `enforceNoTrailingWhitespace` gate,
+which leaves `.gradle` scripts owned by neither -
+and this repo has no Gradle project at its root to format them with anyway.
+So Gradle scripts are trimmed on commit instead:
+[.github/lib/trimmed-file-types.sh](.github/lib/trimmed-file-types.sh) declares
+`*.gradle` as this tier's text type,
+and every JVM repo's pre-commit hook hands that file to the shared hook body
+in Common-Automation,
+which owns the trim itself and covers Markdown on its own.
+Declared once here rather than per repo,
+so a second type is one edit rather than five.
+
+Installed per clone with `./scripts/setup-hooks.sh`;
+`./scripts/fix-whitespace.sh` trims a whole repo,
+which is how files that predate the hook get healed.
+A consuming JVM repo's own `scripts/fix-whitespace.sh` points that at itself,
+so each mod trims its own Gradle scripts without restating the type.
 
 ## Reusable CI
 
