@@ -335,6 +335,16 @@ tasks.register('coverage') {
 // ride in checkstyle.xml above rather than as a separate gate.
 def lintTasksDir = new File(buildscript.sourceFile.parentFile, 'tasks/lint')
 
+// Not a gate but a report about the machine, so it is applied beside them
+// rather than among them: it joins no lifecycle task until a consumer declares
+// that its suites need fonts, and then it runs ahead of that project's tests.
+// Inherited by everyone because any build can end up on a runner whose graphics
+// stack is a mystery, and the answer is worth one command rather than a
+// bisection.
+apply from: new File(
+    buildscript.sourceFile.parentFile,
+    'tasks/diagnostics/report-awt-environment.gradle')
+
 apply from: new File(lintTasksDir, 'docs/enforce-doc-links-resolve.gradle')
 apply from: new File(lintTasksDir, 'formatting/enforce-no-trailing-whitespace.gradle')
 apply from: new File(lintTasksDir, 'formatting/enforce-single-blank-lines.gradle')

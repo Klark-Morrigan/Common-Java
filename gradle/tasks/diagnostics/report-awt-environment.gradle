@@ -1,0 +1,153 @@
+// Reports whether the machine a build is running on can draw text at all, and
+// fails the build up front when a consumer says its suites need that.
+//
+// Why this exists. A JVM with no usable fonts cannot construct a font manager,
+// and the first Swing text component built in such a JVM dies with
+//
+//   java.lang.InternalError: java.lang.reflect.InvocationTargetException
+//
+// which names neither fonts nor the machine. On JDK 17 that message is
+// sun.font.FontManagerFactory reflectively constructing the platform font
+// manager and wrapping whatever the constructor threw; a reader sees a JDK
+// internal and an empty cause, four tests deep into a suite about sliders. The
+// fix is a package on the runner, so the one thing the failure has to say is
+// "this machine", and the one thing it never says is that.
+//
+// Report first, gate second. Every consumer inherits the task, because any
+// build can be asked to run on a machine whose graphics stack is a mystery; but
+// it joins nothing by default, since a repo with no UI code does not care. A
+// consumer whose suites build text components declares what it needs:
+//
+//   awtFontFamiliesRequired = 1
+//
+// and from then on the task runs before that project's tests and fails with the
+// environment written out, rather than letting the suites fail one by one.
+//
+// One limitation, stated because it would otherwise be assumed away: this runs
+// in the BUILD JVM, while the suites run in the test JVM. Fonts are installed
+// per machine rather than per process, so the answer carries across in practice
+// - but a project whose test task runs under a different toolchain is being told
+// about the build's JVM, not its own.
+
+// How many font families the consumer's suites need. Zero - the default - makes
+// this a report and nothing else: it runs when asked, says what it found, and
+// passes. Any higher number makes it a gate on that many families being
+// offered. Read through a provider rather than now, because a consumer sets it
+// in a build script that runs after this one is applied.
+ext.awtFontFamiliesRequired = 0
+
+def requiredFontFamilies = project.provider {
+    (project.findProperty('awtFontFamiliesRequired') ?: 0) as int
+}
+
+def reportAwtEnvironment = tasks.register('reportAwtEnvironment') {
+
+    // Parenthesised: without them Groovy reads the leading + of the second line
+    // as a statement of its own and the description keeps only the first half.
+    description = ('Reports the JVM graphics environment; fails when it cannot offer the '
+        + 'fonts a consumer declared its suites need.')
+
+    group = 'verification'
+
+    // A diagnostic about the machine has no inputs to be unchanged against, and
+    // a cached answer is worthless: the whole question is what is true on the
+    // machine running this build, right now.
+    outputs.upToDateWhen { false }
+
+    doLast {
+
+        // Everything is read inside one try: a broken graphics stack throws
+        // rather than answering, and the throwable IS the finding. Throwable,
+        // not Exception, because the failure this is written for is an Error -
+        // an InternalError out of the font manager, or the "no fonts found"
+        // Error behind it.
+        def facts = []
+        def familyCount = -1
+
+        facts << "jvm: ${System.getProperty('java.version')} at ${System.getProperty('java.home')}"
+        facts << "java.awt.headless: ${System.getProperty('java.awt.headless') ?: '(unset)'}"
+
+        def jdkFontDir = new File(System.getProperty('java.home'), 'lib/fonts')
+        def jdkFontFiles = jdkFontDir.isDirectory() ? (jdkFontDir.list()?.length ?: 0) : 0
+
+        // Absent is normal and not the fault: most JDKs ship no fonts of their own and rely on
+        // the platform's. It is reported because where it IS present it is the fallback that
+        // keeps a bare container able to draw at all.
+        facts << ("${jdkFontDir}: "
+            + (jdkFontDir.isDirectory() ? "${jdkFontFiles} files" : 'absent (normal - the '
+                + "platform's own fonts are what a JDK usually draws with)"))
+
+        try {
+            def graphics = java.awt.GraphicsEnvironment.localGraphicsEnvironment
+
+            facts << "headless: ${java.awt.GraphicsEnvironment.isHeadless()}"
+
+            def families = graphics.availableFontFamilyNames
+            familyCount = families.length
+
+            facts << ("font families: ${familyCount}"
+                + (familyCount > 0 ? " (first: ${families.take(3).join(', ')})" : ''))
+
+        } catch (Throwable cannotAskAboutFonts) {
+            facts << "font families: unavailable - ${describeCauseChain(cannotAskAboutFonts)}"
+        }
+
+        // The measurement the suites actually depend on. A family name proves a
+        // font is listed; a string width proves its glyphs can be resolved, and
+        // that is what writing text into a Swing text component asks for - the
+        // call that fails on the runner this was written for.
+        try {
+            def canvas = new java.awt.image.BufferedImage(
+                1, 1, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+            def metrics = canvas.createGraphics().getFontMetrics(
+                new java.awt.Font('Dialog', java.awt.Font.PLAIN, 12))
+
+            facts << "measured width of \"Mg\" in Dialog 12: ${metrics.stringWidth('Mg')}px"
+
+        } catch (Throwable cannotMeasure) {
+            facts << "text measurement: unavailable - ${describeCauseChain(cannotMeasure)}"
+        }
+
+        def report = "AWT environment:\n  " + facts.join('\n  ')
+        def required = requiredFontFamilies.get()
+
+        if (required > 0 && familyCount < required) {
+
+            throw new GradleException(report
+                + "\n\nThis project declared awtFontFamiliesRequired = ${required}, and this "
+                + "machine offers ${familyCount < 0 ? 'no answer at all' : familyCount}. A JVM "
+                + 'with no usable fonts cannot construct a font manager, so every test that '
+                + 'builds a text component will fail with an InternalError naming nothing. '
+                + 'Install a font package and fontconfig on this machine (fonts-dejavu-core '
+                + 'plus fontconfig on Debian and Ubuntu, dejavu-sans-fonts on RHEL-likes).')
+        }
+
+        logger.lifecycle(report)
+    }
+}
+
+// Before the tests rather than after, and only where a consumer asked for it: a
+// machine that cannot meet the requirement should say so once, up front, rather
+// than through whichever suite happens to build a text component first. Wired
+// through a closure so the requirement is read when the task graph is built,
+// after the consumer's own script has set it.
+tasks.matching { it.name == 'test' }.configureEach {
+    dependsOn({ requiredFontFamilies.get() > 0 ? reportAwtEnvironment : [] })
+}
+
+// A throwable as one line: its own class and message, then each cause's, which
+// for this failure is the whole of the diagnosis - the InternalError says
+// nothing, its InvocationTargetException says nothing, and the Error at the end
+// of the chain is the one that names fonts.
+def describeCauseChain(Throwable failure) {
+
+    def described = []
+    def link = failure
+
+    while (link != null && !described.any { it.is(link) }) {
+        described << link
+        link = link.cause
+    }
+
+    return described.collect { "${it.class.name}: ${it.message}" }.join(' <- caused by ')
+}

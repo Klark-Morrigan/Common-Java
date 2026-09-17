@@ -9,6 +9,7 @@ consumer - it is the generic tier that downstream projects build on.
 - [What lives here](#what-lives-here)
 - [Gradle conventions](#gradle-conventions)
 - [Lint gates](#lint-gates)
+- [AWT environment probe](#awt-environment-probe)
 - [Formatting](#formatting)
 - [Reusable CI](#reusable-ci)
 - [Consuming with a domain layer](#consuming-with-a-domain-layer)
@@ -17,6 +18,8 @@ consumer - it is the generic tier that downstream projects build on.
 
 - `gradle/java-conventions.gradle` - generic JVM build conventions.
 - `gradle/tasks/lint/` - source-text gates the conventions apply.
+- `gradle/tasks/diagnostics/` - what the conventions report about the machine
+  rather than the code.
 - `gradle/spotless-java.gradle`, `gradle/tasks/format/` - the opt-in,
   on-demand formatter.
 - `.github/workflows/_ci-gradle.yml` - reusable Gradle build/test workflow.
@@ -302,6 +305,47 @@ Markdown is scanned across the whole project rather than under `src/`,
 because a repository's longest prose is its root README. An `exemptPath`
 matching no file fails the build, on the same reasoning as a stranded
 allowance above.
+
+## AWT environment probe
+
+`gradle/tasks/diagnostics/report-awt-environment.gradle` reports whether the
+machine a build is running on can draw text at all:
+the JVM that answered,
+the headless setting,
+the JDK's own font directory,
+how many font families are offered,
+and whether a string can actually be measured.
+
+It exists because of how badly that failure reads without it.
+A JVM with no usable fonts cannot construct a font manager,
+and the first Swing text component built in one dies with
+`java.lang.InternalError: java.lang.reflect.InvocationTargetException` -
+a JDK internal with an empty cause,
+naming neither fonts nor the machine,
+several tests into a suite about something else entirely.
+The fix is a package on the runner,
+so the machine is the one thing the failure has to name.
+
+Every consumer inherits the task and nothing is gated by default,
+since a repo with no UI code does not care what its runner can draw.
+A consumer whose suites build text components declares what it needs:
+
+```groovy
+awtFontFamiliesRequired = 1
+```
+
+From then on the probe runs ahead of that project's tests
+and fails with the environment written out,
+rather than letting the suites fail one at a time.
+Run it directly - `gradlew reportAwtEnvironment` - on any runner whose graphics
+stack is in doubt.
+
+One limitation worth stating:
+the probe runs in the build JVM while the suites run in the test JVM.
+Fonts are installed per machine rather than per process,
+so the answer carries across in practice,
+but a project whose test task uses a different toolchain is being told about the
+build's JVM rather than its own.
 
 ## Formatting
 
