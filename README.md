@@ -39,6 +39,27 @@ consumers are checked out as siblings under the same parent directory, so
 a relative path is the lowest-ceremony single source of truth. No
 `settings.gradle` change is needed.
 
+Every test run ends with the ten slowest tests,
+so a creeping suite runtime is visible rather than hidden in the aggregate,
+and a failing one adds the failures twice over:
+a clean list of names,
+then the same names under the same numbers with the stack trace behind each,
+cause chain followed to its end.
+Both sit at the bottom of the log,
+where a reader starts,
+rather than where each test happened to run.
+Details stop after the first ten failures -
+a run that dies on its environment fails every test it has with one fault -
+and the rest are in the `test-reports` artifact.
+
+A `Test` task registered beside `test`,
+such as a TestKit tree,
+asks for the same report:
+
+```groovy
+reportTestOutcomesOf(it)
+```
+
 Checkstyle runs from `gradle/checkstyle.xml`, whose import-order rule takes
 the blocks as a property rather than naming any consumer's packages. The
 default is everything-then-the-JDK; a consumer (or a layer above it, such
