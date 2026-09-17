@@ -22,7 +22,10 @@ consumer - it is the generic tier that downstream projects build on.
 - `.github/workflows/_ci-gradle.yml` - reusable Gradle build/test workflow.
 - `.github/workflows/ci-bash.yml`, `ci-yaml.yml` - thin callers that
   delegate shell/YAML linting to Common-Automation.
-- `scripts/` - shims to Common-Automation's lint/test/permission engines.
+- `.github/lib/trimmed-file-types.sh` - the JVM text types every JVM repo's
+  pre-commit hook adds to Common-Automation's whitespace trim.
+- `scripts/` - shims to Common-Automation's lint/test/permission/whitespace
+  engines.
 
 ## Gradle conventions
 
@@ -339,6 +342,25 @@ honour the list:
 ext.formatterExcludedSourceSets = ['bridgeStubs']
 apply from: "${rootDir}/../Common-Java/gradle/spotless-java.gradle"
 ```
+
+Both passes read source sets,
+and so does the `enforceNoTrailingWhitespace` gate,
+which leaves `.gradle` scripts owned by neither -
+and this repo has no Gradle project at its root to format them with anyway.
+So Gradle scripts are trimmed on commit instead:
+[.github/lib/trimmed-file-types.sh](.github/lib/trimmed-file-types.sh) declares
+`*.gradle` as this tier's text type,
+and every JVM repo's pre-commit hook hands that file to the shared hook body
+in Common-Automation,
+which owns the trim itself and covers Markdown on its own.
+Declared once here rather than per repo,
+so a second type is one edit rather than five.
+
+Installed per clone with `./scripts/setup-hooks.sh`;
+`./scripts/fix-whitespace.sh` trims a whole repo,
+which is how files that predate the hook get healed.
+A consuming JVM repo's own `scripts/fix-whitespace.sh` points that at itself,
+so each mod trims its own Gradle scripts without restating the type.
 
 ## Reusable CI
 
