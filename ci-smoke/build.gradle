@@ -118,6 +118,11 @@ def testGradle = tasks.register('testGradle', Test) {
         '../gradle/tasks/format/align-javadoc-params.gradle')
 
     declareScriptUnderTest(
+        'awtEnvironmentScript',
+        'awt.environment.script.path',
+        '../gradle/tasks/diagnostics/report-awt-environment.gradle')
+
+    declareScriptUnderTest(
         'lintGateScript',
         'lint.gate.script.path',
         '../gradle/tasks/lint/lint-gate.gradle')
