@@ -217,7 +217,7 @@ ext.reportTestOutcomesOf = { Test testTask ->
             recordedTestFailures.eachWithIndex {
                 entry,
                 index ->
-                    logger.lifecycle(String.format('%2d. %s', index + 1, entry.name))
+                    reportNumberedTest(entry.name, index)
             }
 
             reportFailureDetails()
@@ -233,7 +233,7 @@ ext.reportTestOutcomesOf = { Test testTask ->
             recordedTestFailures.take(maxDetailedFailures).eachWithIndex {
                 entry,
                 index ->
-                    logger.lifecycle(String.format('%2d. %s', index + 1, entry.name))
+                    reportNumberedTest(entry.name, index)
                     entry.trace.each { line -> logger.lifecycle('    ' + line) }
             }
 
@@ -242,6 +242,14 @@ ext.reportTestOutcomesOf = { Test testTask ->
             if (undetailed > 0) {
                 logger.lifecycle("    ... and ${undetailed} more, in the HTML test report")
             }
+        }
+
+        // The line both blocks head an entry with. Shared so that a failure is numbered the same
+        // in each: the number is how a reader carries a name from the list to its trace, and two
+        // formats free to drift apart is two numbering schemes that look like one.
+        private void reportNumberedTest(String testName, int index) {
+
+            logger.lifecycle(String.format('%2d. %s', index + 1, testName))
         }
 
         // One throwable as the lines a reader needs: every link of the cause chain, each headed
