@@ -20,7 +20,9 @@ class JavaConventionsSmokeTest {
 
         @Test
         void resolvesJUnitAndAssertJ() {
-            assertThat(1 + 1).isEqualTo(2);
+
+            assertThat(1 + 1)
+                .isEqualTo(2);
         }
     }
 }
