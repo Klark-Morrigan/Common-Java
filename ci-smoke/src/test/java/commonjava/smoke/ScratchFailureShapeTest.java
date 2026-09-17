@@ -15,7 +15,7 @@ class ScratchFailureShapeTest {
 
         @Test
         void failsWithACauseChain() {
-            
+
             throw new InternalError(
                 new InvocationTargetException(
                     new Error("Probable fatal error: No fonts found.")));
