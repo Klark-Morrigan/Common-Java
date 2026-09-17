@@ -318,7 +318,7 @@ jacocoTestReport {
 // Single entry point for "run tests and produce coverage", so CI and local
 // runs invoke the same task name across every repo.
 tasks.register('coverage') {
-    
+
     group = 'verification'
     description = 'Runs tests and generates JaCoCo coverage reports.'
     dependsOn test, jacocoTestReport

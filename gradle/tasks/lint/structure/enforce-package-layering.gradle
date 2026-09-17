@@ -124,7 +124,7 @@ def enforcePackageLayering = tasks.register('enforcePackageLayering') {
     // ones because both are dotted package roots of the same type, so a
     // transposition would otherwise assert the rule backwards and still pass.
     ext.forbidImport = { Map edge ->
-    
+
         // Rejected before the missing-half check, so a declaration naming both
         // widths is reported as the contradiction it is rather than as
         // whichever one happened to be read first.
