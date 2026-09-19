@@ -1,19 +1,22 @@
-// Javadoc/KDoc @param column aligner, the second half of the on-demand formatter.
+// Javadoc/KDoc @param column aligner, the doc-comment half of the on-demand cleanup.
 //
-// Spotless leaves doc comments completely alone - eclipse-formatter.xml turns off
-// format_javadoc_comments and every sibling comment setting - so nothing in the
-// toolchain has an opinion about the inside of a doc block. That is the right
-// default (the JDT comment formatter reflows prose and destroys hand-laid tables),
-// but it leaves one mechanical thing unowned: the description column of an aligned
-// @param list, which silently goes out of true the moment a parameter is renamed
-// to a different length. A leaked misalignment survives every build, so the fix is
-// a formatter pass rather than a gate.
+// Nothing else in the toolchain has an opinion about the inside of a doc block, which
+// is the right default - a general comment formatter reflows prose and destroys
+// hand-laid tables. But it leaves one mechanical thing unowned: the description
+// column of an aligned @param list, which silently goes out of true the moment a
+// parameter is renamed to a different length. A leaked misalignment survives every
+// build, so the fix is a pass rather than a gate.
 //
-// This rewrites source, so like Spotless it stays off `check` and `build` and runs
-// only when a person asks for it. It lives beside the lint gates but deliberately
-// not among them: everything under tasks/lint only ever reports.
+// This moves spaces inside doc comments and nothing else. It does not reflow prose,
+// re-wrap a description, or touch a line's leading indent - the same limit the
+// Spotless half keeps, and the reason both are safe to run without curating the diff
+// by hand.
 //
-// Applied by spotless-java.gradle so a repo that opted into the formatter gets both
+// It stays off `check` and `build` and runs only when a person asks for it. It lives
+// beside the lint gates but deliberately not among them: everything under tasks/lint
+// only ever reports.
+//
+// Applied by spotless-java.gradle so a repo that opted into the cleanup gets both
 // halves, and appliable on its own by a repo that wants only this one - which needs
 // the java or kotlin plugin already applied, since the pass reads source sets rather
 // than guessing at directory names.
@@ -210,7 +213,7 @@ def alignJavadocParams = tasks.register('alignJavadocParams') {
     }
 }
 
-// Nothing depends on it: like spotlessApply, this rewrites source and is read as a
-// diff, so it must never ride along on a build. The reference keeps the task
-// configured and silences the unused-variable warning.
+// Nothing depends on it: this rewrites source, so it must never ride along on a
+// build. The reference keeps the task configured and silences the unused-variable
+// warning.
 alignJavadocParams

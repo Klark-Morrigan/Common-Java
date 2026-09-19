@@ -1,23 +1,39 @@
-// Opt-in Java formatter wiring: Spotless driving the Eclipse JDT formatter from
-// eclipse-formatter.xml, this script's sibling.
+// Opt-in Java cleanup pass: Spotless running mechanical fixes only.
 //
 // Deliberately NOT applied from java-conventions.gradle, which is where every
 // other quality tool in the family lives. Those gates only ever report, so
-// inheriting them everywhere is free. This one rewrites source, and most
-// consumers of java-conventions must never have it: the Starsector port mods
-// carry third-party code where a reformat destroys the diff against upstream. A
-// repo therefore opts in by applying this script itself.
+// inheriting them everywhere is free. This one rewrites source, and the
+// Starsector port mods carry third-party code that is not ours to touch, so a
+// repo opts in by applying this script itself.
 //
-// It also stays off every automatic path. enforceCheck=false detaches
-// spotlessCheck from `check`, so `gradlew build` cannot fail on merely
-// unformatted code and nothing runs the formatter unless a person asks for it
-// with `gradlew spotlessApply`. That is a requirement, not caution: the
-// formatter normalises a few constructs it has no setting to preserve (a
-// lambda's expression body is rejoined onto one line, a compact
-// `@Override void f() {}` has its annotation split off), so a run is read as a
-// diff and curated by hand.
+// WHAT THIS DOES NOT DO, and must never do: it does not lay code out. No
+// indentation, no line wrapping, no brace or blank-line placement, no reflowing
+// of comments or Javadoc prose. A whole-file formatter - Spotless driving the
+// Eclipse JDT formatter from an eclipse-formatter.xml - used to sit here and was
+// removed: its settings could not express this family's continuation indent and
+// argument wrapping, so every run re-laid code it had no business touching. One
+// invocation rewrote several hundred files and buried the real change among
+// them. Code layout belongs to the person writing it.
 //
-// By default every Java source set is formatted. A repo that owns source it does
+// What is left is the mechanical half: edits with exactly one correct answer,
+// which no style preference can disagree with. Each pairs with a gate that today
+// only reports the same thing, so the gate keeps saying what is wrong and this
+// says it need not be fixed by hand:
+//
+//   removeUnusedImports  <- checkstyle UnusedImports
+//   trimTrailingWhitespace <- enforceNoTrailingWhitespace
+//   endWithNewline       <- (no gate; a missing final newline is never intended)
+//
+// Import ORDER is deliberately absent. The group list is assigned per repo over
+// the default in java-conventions.gradle, and checkstyle's ImportOrder already
+// reports a wrong order, so a second copy of the list here would be one more
+// thing to drift out of true - for a fix that is a one-line move by hand.
+//
+// It stays off every automatic path. enforceCheck=false detaches spotlessCheck
+// from `check`, so `gradlew build` cannot fail on merely unclean source and
+// nothing runs this unless a person asks for it.
+//
+// By default every Java source set is cleaned. A repo that owns source it does
 // not style - mirrors of a third party's shape, generated code - names those
 // source sets before applying this script:
 //
@@ -41,42 +57,48 @@ buildscript {
 // able to carry its own plugin dependency at all.
 apply plugin: com.diffplug.gradle.spotless.SpotlessPlugin
 
-// Which source sets the formatter touches is a question both passes have to answer
+// Which source sets the pass touches is a question both halves have to answer
 // the same way, so neither owns it; see the applied script.
 apply from: new File(buildscript.sourceFile.parentFile, 'tasks/format/formatted-source-sets.gradle')
 
-def formattedJavaSources = selectFormattedSourceSets().collect { sourceSet -> sourceSet.java }
+def cleanedJavaSources = selectFormattedSourceSets().collect { sourceSet -> sourceSet.java }
 
 spotless {
     enforceCheck = false
     java {
-        target formattedJavaSources
-        // Resolved against THIS script's own directory, not the consumer's
-        // rootDir - the same sibling-checkout convention checkstyle.xml uses,
-        // so it holds for every repo that applies this by relative path.
-        eclipse().configFile(new File(buildscript.sourceFile.parentFile, 'eclipse-formatter.xml'))
+        target cleanedJavaSources
+
+        // An import no longer named by the file. Safe because it is decided by
+        // what the source references, not by anyone's taste.
+        removeUnusedImports()
+
+        // Spaces and tabs left at the end of a line. The one that actually
+        // recurs here: the IDE's Java extension re-adds them on save, so the
+        // gate fails on a file nobody deliberately touched.
+        trimTrailingWhitespace()
+
+        // Exactly one newline ending the file.
+        endWithNewline()
     }
 }
 
-// The formatter's second half. Spotless is configured to leave doc comments
-// untouched, so the @param column inside them is nobody's job until this runs;
-// see the script for why that is a formatter pass rather than a gate.
+// The doc-comment half. Spotless has no opinion about the inside of a doc block
+// and should not acquire one; see the script for why the @param column is the
+// single exception worth a pass.
 apply from: new File(buildscript.sourceFile.parentFile, 'tasks/format/align-javadoc-params.gradle')
 
-// Order matters only in one direction: Spotless can move a declaration onto
-// different lines, so the aligner reads the settled text rather than text
-// Spotless is about to rewrite underneath it.
+// Order matters only in one direction: trimming a line can change what the
+// aligner reads, so the aligner runs on the settled text.
 tasks.named('alignJavadocParams').configure {
     mustRunAfter tasks.named('spotlessApply')
 }
 
-// The whole formatter, for a caller that wants "format this repo" without having
-// to know it comes in two passes. Each half stays independently runnable - the
-// aligner is the one to reach for after a rename, where a full Spotless run would
-// bury the change in unrelated normalisation.
+// Both halves, for a caller that wants "clean this repo" without having to know
+// it comes in two passes. Each stays independently runnable - the aligner is the
+// one to reach for after a rename.
 tasks.register('formatJava') {
-    description = 'Runs the full on-demand formatter: Spotless, then the ' +
-            'Javadoc @param aligner. Rewrites source; review the diff.'
+    description = 'Runs the full on-demand cleanup: Spotless mechanical fixes, ' +
+            'then the Javadoc @param aligner. Never re-lays code.'
     group = 'formatting'
     dependsOn tasks.named('spotlessApply'), tasks.named('alignJavadocParams')
 }
