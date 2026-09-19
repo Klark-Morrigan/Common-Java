@@ -21,7 +21,7 @@ consumer - it is the generic tier that downstream projects build on.
 - `gradle/tasks/diagnostics/` - what the conventions report about the machine
   rather than the code.
 - `gradle/spotless-java.gradle`, `gradle/tasks/format/` - the opt-in,
-  on-demand formatter.
+  on-demand source cleanup. Mechanical fixes only; never re-lays code.
 - `.github/workflows/_ci-gradle.yml` - reusable Gradle build/test workflow.
 - `.github/workflows/ci-bash.yml`, `ci-yaml.yml` - thin callers that
   delegate shell/YAML linting to Common-Automation.
@@ -361,22 +361,33 @@ apply from: "${rootDir}/../Common-Java/gradle/spotless-java.gradle"
 
 It comes in two passes, each independently runnable:
 
-- `spotlessApply` - Spotless driving the Eclipse JDT formatter from
-  [gradle/eclipse-formatter.xml](gradle/eclipse-formatter.xml). Owns code
-  layout and leaves doc comments alone.
+- `spotlessApply` - mechanical fixes with exactly one correct answer:
+  `removeUnusedImports`, `trimTrailingWhitespace`, `endWithNewline`.
 - `alignJavadocParams` - re-aligns the `@param` description column in
   Javadoc and KDoc blocks whose alignment has drifted. It fixes drift
   rather than imposing a style: a block that uses one space throughout, or
   whose descriptions already agree, is left exactly as written. This is
-  the pass to reach for after a rename, where a full Spotless run would
-  bury the change in unrelated normalisation.
+  the pass to reach for after a rename.
 - `formatJava` - both, in that order.
+
+**Neither pass lays code out.**
+No indentation, no line wrapping, no brace or blank-line placement, no reflowing of comment prose.
+A whole-file formatter - Spotless driving the Eclipse JDT formatter from an `eclipse-formatter.xml` -
+used to sit here and was removed:
+its settings could not express this family's continuation indent and argument wrapping,
+so every run re-laid code it had no business touching,
+and a single invocation rewrote several hundred files and buried the real change among them.
+Code layout belongs to the person writing it,
+backed by the reporting gates under `gradle/tasks/lint/`, which never rewrite.
+
+Import *order* is deliberately absent for a related reason:
+the group list is assigned per repo over the default in `java-conventions.gradle`,
+and checkstyle's `ImportOrder` already reports a wrong order,
+so a second copy of the list here would be one more thing to drift out of true.
 
 Nothing depends on any of them, and `spotlessCheck` is detached from
 `check` (`enforceCheck = false`), so a build cannot fail on merely
-unformatted code. That is a requirement rather than caution: the JDT
-formatter normalises a few constructs it has no setting to preserve, so a
-run is read as a diff and curated by hand.
+unclean source.
 
 A repo that owns source it does not style - a mirror of a third party's
 shape, generated code - names those source sets first, and both passes
