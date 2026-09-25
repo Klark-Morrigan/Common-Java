@@ -315,6 +315,15 @@ jacocoTestReport {
     }
 }
 
+// Published test fixtures are code a project ships to its consumers' suites, so
+// they are measured like the main sources rather than left out of every figure.
+// Guarded on the plugin, as the fixtures' dependencies above are.
+plugins.withId('java-test-fixtures') {
+    jacocoTestReport {
+        sourceSets sourceSets.testFixtures
+    }
+}
+
 // Single entry point for "run tests and produce coverage", so CI and local
 // runs invoke the same task name across every repo.
 tasks.register('coverage') {
