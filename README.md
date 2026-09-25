@@ -32,9 +32,13 @@ consumer - it is the generic tier that downstream projects build on.
 
 ## Gradle conventions
 
-`gradle/java-conventions.gradle` standardises the language target (Java
-17), the test stack (JUnit 5 + AssertJ + Mockito), and JaCoCo coverage
-(plus a `coverage` task). A consumer applies it by path:
+`gradle/java-conventions.gradle` standardises the language target (Java 17),
+the test stack (JUnit 5 + AssertJ + Mockito),
+and JaCoCo coverage (plus a `coverage` task) -
+over the main sources and,
+for a project applying `java-test-fixtures`,
+the fixtures it publishes too.
+A consumer applies it by path:
 
 ```groovy
 apply from: "${rootDir}/../Common-Java/gradle/java-conventions.gradle"
