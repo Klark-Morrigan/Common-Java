@@ -110,8 +110,8 @@ to, for the reason given below:
 | `enforceReferencedTypes` | compiled code names a type from an unstable namespace only where the consumer declared that type stable |
 | `enforceRestrictedCalls` | a call a package root is closed to is made only in the types the consumer named |
 | `enforceSingleBlankLines` | at most one consecutive blank line |
-| `enforceSuffixOnFakes` | hand-written test doubles are suffixed `Fake` |
-| `enforceSuffixOnMocks` | Mockito mock variables are suffixed `Mock` |
+| `enforceSuffixOnFakes` | hand-written test doubles are suffixed `Fake`, or `_FAKE` where the holder is a constant |
+| `enforceSuffixOnMocks` | Mockito mock variables are suffixed `Mock`, or `_MOCK` where the holder is a constant |
 | `enforceTestsNested` | every `@Test` sits inside a `@Nested` class |
 
 A gate only ever reports, which is what makes inheriting them everywhere
