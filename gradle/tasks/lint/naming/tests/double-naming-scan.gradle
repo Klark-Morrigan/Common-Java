@@ -26,6 +26,11 @@
 // A line ending in ',' is a multi-line call argument, never a holder declaration - which guards the
 // rare named argument whose parameter name collides with a binding declared elsewhere in the file.
 //
+// A holder's suffix is read in either of two casings. A double held in a constant is named in
+// SCREAMING_SNAKE by Java's own convention, which cannot end in a camel-case word, so the suffix is
+// spelled '_FAKE' there. Both are accepted for a holder; a declared TYPE is always PascalCase and is
+// still checked against the one spelling.
+//
 // Every gate built on this is a heuristic, and knowingly so: it keys off the call a double is made
 // by, so a double obtained some other way - a helper returning one, an anonymous
 // 'new SomeInterface() { ... }' - names neither and is invisible to it.
@@ -64,6 +69,17 @@ ext.findDoubleNamingViolations = { Map spec ->
 
     // What a message calls the double, taken from the suffix so the two cannot drift apart.
     def doubleNoun = suffix.toLowerCase()
+
+    // The same suffix as a constant spells it. A double held in a 'static final' is named in
+    // SCREAMING_SNAKE by Java's own convention, which no camel-case suffix can end in - so a gate
+    // reading only 'Fake' leaves a constant holding one with no compliant spelling at all. Derived
+    // from the suffix rather than written out, so the two cannot drift apart either.
+    def constantSuffix = '_' + suffix.toUpperCase()
+
+    // Whether a name carries the suffix in whichever of the two casings its declaration calls for.
+    def isSuffixed = { String name ->
+        name.endsWith(suffix) || name.endsWith(constantSuffix)
+    }
 
     // The identifier assigned from that call, with the bracket anchoring on the call itself so a
     // same-prefixed method ('mockMap(', a 'makeFakeable(') stays out of scope.
@@ -117,7 +133,7 @@ ext.findDoubleNamingViolations = { Map spec ->
             while (holderMatcher.find()) {
 
                 def variableName = holderMatcher.group(1)
-                if (declaredNames.contains(variableName) && !variableName.endsWith(suffix)) {
+                if (declaredNames.contains(variableName) && !isSuffixed(variableName)) {
 
                     violations << "${sourceFile}:${lineNumber}: variable " +
                         "'${variableName}' holds a ${doubleNoun} and must be suffixed '${suffix}'"
@@ -127,7 +143,7 @@ ext.findDoubleNamingViolations = { Map spec ->
             while (typedHolderMatcher.find()) {
 
                 def variableName = typedHolderMatcher.group(1)
-                if (!variableName.endsWith(suffix)) {
+                if (!isSuffixed(variableName)) {
 
                     violations << "${sourceFile}:${lineNumber}: variable " +
                         "'${variableName}' holds a ${doubleNoun} and must be suffixed '${suffix}'"
