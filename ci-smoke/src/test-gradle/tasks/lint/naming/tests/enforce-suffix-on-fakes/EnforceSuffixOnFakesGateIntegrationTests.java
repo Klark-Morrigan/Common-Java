@@ -54,6 +54,53 @@ class EnforceSuffixOnFakesGateIntegrationTests {
             .contains("holds a fake");
     }
 
+    // A double held in a 'static final' is named in SCREAMING_SNAKE by Java's own convention, which
+    // no camel-case suffix can end in - so the suffix is spelled '_FAKE' there, and a gate reading
+    // only 'Fake' would leave such a constant with no compliant spelling at all.
+    @Test
+    void passesWhenConstantHoldingAFakeCarriesTheConstantSuffixInJava(@TempDir Path projectDir) {
+
+        var result = javaProject(projectDir, "constant-holding-a-double-is-suffixed")
+            .runExpectingSuccess();
+
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
+    }
+
+    // The other half of that allowance: naming a constant is not exempted from the rule, only given
+    // a second spelling, so a bare one is still caught.
+    @Test
+    void failsWhenConstantHoldingAFakeIsBareNamedInJava(@TempDir Path projectDir) {
+
+        var result = javaProject(projectDir, "constant-holding-a-double-is-bare-named")
+            .runExpectingFailure();
+
+        assertThat(result.getOutput())
+            .contains("'EMPTY'")
+            .contains("holds a fake");
+    }
+
+    @Test
+    void passesWhenConstantHoldingAFakeCarriesTheConstantSuffixInKotlin(@TempDir Path projectDir) {
+
+        var result = kotlinProject(projectDir, "constant-holding-a-double-is-suffixed")
+            .runExpectingSuccess();
+
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
+    }
+
+    @Test
+    void failsWhenConstantHoldingAFakeIsBareNamedInKotlin(@TempDir Path projectDir) {
+
+        var result = kotlinProject(projectDir, "constant-holding-a-double-is-bare-named")
+            .runExpectingFailure();
+
+        assertThat(result.getOutput())
+            .contains("'EMPTY'")
+            .contains("holds a fake");
+    }
+
     @Test
     void passesWhenTypesAndVariablesAreSuffixedInKotlin(@TempDir Path projectDir) {
 

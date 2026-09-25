@@ -8,7 +8,9 @@
 //   1. a test-double TYPE is suffixed 'Fake' (EditableMarketFake, never FakeEditableMarket).
 //      Flagged when a declared type name contains 'Fake' but does not end with it.
 //   2. a variable built from a '*Fake(...)' constructor or factory is suffixed 'Fake' (marketFake,
-//      never market). Flagged when such an assignment targets a name that does not end with 'Fake'.
+//      never market), or '_FAKE' where the name is a constant (EMPTY_FAKE, never EMPTY) - a
+//      SCREAMING_SNAKE name being unable to end in a camel-case word. Flagged when such an
+//      assignment targets a name carrying neither spelling.
 //
 // Applied by this script, not assumed from the conventions file: the gate is applied on its own by
 // its integration test, so it has to carry what it uses.

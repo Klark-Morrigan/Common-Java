@@ -1,0 +1,4 @@
+object Sample {
+
+    val EMPTY = EditableMarketFake()
+}

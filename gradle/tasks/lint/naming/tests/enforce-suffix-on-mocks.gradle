@@ -6,7 +6,8 @@
 // One convention, where the fake gate has two: Mockito generates a double's TYPE at runtime, so
 // there is no source type to suffix the way a fake's class is, and the only thing a reader sees is
 // the variable holding it. So a holder built from a Mockito double factory is suffixed 'Mock'
-// (sectorMock, globalMock - never sector or globalStatic).
+// (sectorMock, globalMock - never sector or globalStatic), or '_MOCK' where the holder is a
+// constant, a SCREAMING_SNAKE name being unable to end in a camel-case word.
 //
 // Keying on the factory call ('mock(', 'mockStatic(', 'mockConstruction(') lets one rule cover both
 // languages and both a mocked-static field and a plain mock local, since every Mockito double is

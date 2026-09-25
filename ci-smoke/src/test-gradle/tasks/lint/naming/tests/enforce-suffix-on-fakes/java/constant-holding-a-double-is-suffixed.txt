@@ -1,0 +1,4 @@
+class Sample {
+
+    static final EditableMarketFake EMPTY_FAKE = new EditableMarketFake();
+}
