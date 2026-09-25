@@ -101,6 +101,31 @@ class EnforceSuffixOnFakesGateIntegrationTests {
             .contains("holds a fake");
     }
 
+    // The constant spelling belongs to a constant's name. A camel-case holder tacking it onto the
+    // end is not a constant spelled its own way, and passing it would open a second spelling for
+    // every holder rather than only for the one that has no other.
+    @Test
+    void failsWhenCamelCaseHolderCarriesTheConstantSuffixInJava(@TempDir Path projectDir) {
+
+        var result = javaProject(projectDir, "camel-holder-carries-the-constant-suffix")
+            .runExpectingFailure();
+
+        assertThat(result.getOutput())
+            .contains("'market_FAKE'")
+            .contains("holds a fake");
+    }
+
+    @Test
+    void failsWhenCamelCaseHolderCarriesTheConstantSuffixInKotlin(@TempDir Path projectDir) {
+
+        var result = kotlinProject(projectDir, "camel-holder-carries-the-constant-suffix")
+            .runExpectingFailure();
+
+        assertThat(result.getOutput())
+            .contains("'market_FAKE'")
+            .contains("holds a fake");
+    }
+
     @Test
     void passesWhenTypesAndVariablesAreSuffixedInKotlin(@TempDir Path projectDir) {
 
