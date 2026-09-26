@@ -81,16 +81,23 @@ def bannedWords = [
 // reader to reach for the allowlist instead of to read.
 //
 // So the trigger is adjacency: `test` next to a suite noun (`harness`, `case`,
-// `suite`, `double`, `fixture`) or next to the article or preposition that only
-// a suite takes (`the tests`, `in tests`, `for tests`). Each entry below was
-// measured against the production trees before it was added - it catches a real
-// leak and fires on nothing correct.
+// `suite`, `double`, `fixture`), next to the article or preposition that only
+// a suite takes (`the tests`, `in tests`, `for tests`), or next to the runtime a
+// suite runs on (`test JVM`, `test classpath`). Each entry below was measured
+// against the production trees before it was added - it catches a real leak and
+// fires on nothing correct.
+//
+// `testable` is tiered the same way. On its own it reads as a claim about a
+// caller, but `hit-testable` is the adjective of `hit-test` and says nothing of
+// a suite, so only the phrasings that pin it to one are banned.
 //
 // Matched as a run of consecutive words, so a phrase is found whether it was
 // written as prose, wrapped across two lines by the column limit, or spelt as
 // part of a name (`unitTestHarness`).
 def bannedPhrases = [
-    'unit test', 'unit tests', 'unit tested', 'unit testing',
+    'unit test', 'unit tests', 'unit tested', 'unit testing', 'unit testable',
+    'independently testable', 'testable in isolation', 'testable seam',
+    'test jvm', 'test classpath',
     'test harness', 'test case', 'test cases', 'test suite', 'test suites',
     'test double', 'test doubles', 'test fixture', 'test fixtures',
     'the tests', 'in tests', 'for tests', 'tests can', 'tests assert',
