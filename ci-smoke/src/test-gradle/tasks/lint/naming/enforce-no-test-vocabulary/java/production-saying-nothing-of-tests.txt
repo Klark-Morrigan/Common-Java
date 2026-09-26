@@ -9,7 +9,8 @@ final class Sample {
 
     // Hit-tests every laid-out row of boxes: which box, if any, a point falls
     // in. The half-plane test is the side to retain, and the band test reduces
-    // exactly to the line test when girth is zero.
+    // exactly to the line test when girth is zero, so a hairline row stays
+    // hit-testable.
     boolean containsPoint() {
         // Predicate::test is a JDK method name, so no rename can reach it.
         return holds.test(high);
