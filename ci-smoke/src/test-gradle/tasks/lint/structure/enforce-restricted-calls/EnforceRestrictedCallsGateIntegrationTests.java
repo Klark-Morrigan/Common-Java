@@ -54,6 +54,14 @@ class EnforceRestrictedCallsGateIntegrationTests {
         "call: '" + SECOND_RESTRICTED_CALL + "', under: '" + CLOSED_PACKAGE_ROOT
             + "', toTypes: ['" + ALLOWED_TYPE + "']");
 
+    // A call closed outright with the way round it named - the shape a rule takes
+    // when the one allowed seam lives in another build.
+    private static final String INSTEAD_REPLACEMENT = "Seams.openGlobalHandle()";
+    private static final String CONTAINED_TO_NOTHING_NAMING_THE_REPLACEMENT =
+        buildRestrictionDeclaration(
+            "call: '" + RESTRICTED_CALL + "', under: '" + CLOSED_PACKAGE_ROOT
+                + "', instead: '" + INSTEAD_REPLACEMENT + "'");
+
     // A restriction naming only the call, which says nothing about where it is
     // contained - the shape a misspelt or forgotten 'under:' takes.
     private static final String HALF_DECLARED_RESTRICTION = buildRestrictionDeclaration(
@@ -199,6 +207,20 @@ class EnforceRestrictedCallsGateIntegrationTests {
 
         assertThat(result.getOutput())
             .contains("may call Example.getGlobalHandle() only in []: Adapter");
+    }
+
+    @Test
+    void failsNamingTheReplacementWhereTheRestrictionDeclaresOne(@TempDir Path projectDir) {
+
+        // An empty allowed list tells the caller where not to make the call and
+        // nothing about where to go; the declared replacement is that half.
+        writeJavaSource(projectDir, "src/test/java", ORDINARY_TYPE, "caller-in-the-closed-root");
+
+        var result = runGateExpectingFailure(projectDir, CONTAINED_TO_NOTHING_NAMING_THE_REPLACEMENT);
+
+        assertThat(result.getOutput())
+            .contains("may call Example.getGlobalHandle() only in []: Sample"
+                + " - instead: Seams.openGlobalHandle()");
     }
 
     @Test
