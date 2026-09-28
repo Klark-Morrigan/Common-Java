@@ -218,6 +218,10 @@ a count pins whichever number the code was standing on, where a named list
 fails the build for a caller nobody declared. Omitting `toTypes` closes
 the root to the call outright, so a mistyped key enforces the rule
 everywhere rather than allowing it everywhere.
+An optional `instead` names what to write in place of the call,
+and is appended to the failure -
+for a rule whose one allowed seam lives in another build,
+where the empty allowed list says nothing about where to go.
 
 A type is named by the file it lives in. The call is matched as literal
 text against the code with comments stripped first, so a Javadoc

@@ -44,6 +44,12 @@
 // list, and the failure direction of a mistyped key is the safe one - the rule
 // is enforced everywhere instead of silently allowed everywhere.
 //
+// 'instead' is optional too: what a caller should write in place of the call,
+// appended to its failure. A rule contained to a seam in another build - a
+// fixture a library ships for its consumers - allows no type of the consumer's
+// own, so the allowed list in the message is empty and says nothing about
+// where to go; this is how the message says it.
+//
 // A type is named by the source file it lives in, so a nested or local class is
 // covered by the name of the file holding it. That is also what a reader of the
 // declaration expects: the list names the seams, and a seam is a file.
@@ -176,7 +182,10 @@ def findRestrictedCalls = { File sourceFile, String typeName, List restrictions 
                 // - which fails at the call, not here.
                 found << ("${sourceFile}:${index + 1}: "
                     + "${restriction.under} may call ${restriction.call} only in "
-                    + "${restriction.toTypes}: ${typeName}")
+                    + "${restriction.toTypes}: ${typeName}"
+                    + (restriction.instead
+                        ? " - instead: ${restriction.instead}"
+                        : ''))
             }
         }
     }
@@ -214,6 +223,7 @@ def enforceRestrictedCalls = tasks.register('enforceRestrictedCalls') {
             // Sorted so the message a developer reads, and the input snapshot
             // below, do not turn on the order a build happened to list them in.
             toTypes: (restriction.toTypes ?: []).sort(),
+            instead: restriction.instead ?: '',
         ]
     }
 
@@ -241,7 +251,10 @@ def enforceRestrictedCalls = tasks.register('enforceRestrictedCalls') {
     inputs.property('restrictions', providers.provider {
 
         restrictions
-            .collect { "${it.under} !- ${it.call} except ${it.toTypes}".toString() }
+            .collect {
+                "${it.under} !- ${it.call} except ${it.toTypes} instead ${it.instead}"
+                    .toString()
+            }
             .sort()
     })
 
