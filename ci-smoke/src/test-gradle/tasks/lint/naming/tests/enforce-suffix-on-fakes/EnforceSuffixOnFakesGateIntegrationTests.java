@@ -198,7 +198,7 @@ class EnforceSuffixOnFakesGateIntegrationTests {
     }
 
     // A suite over a fake is named for what it covers, so it holds the fake's whole
-    // name with 'Test' after it. It is the one type carrying 'Fake' that is not a
+    // name with 'Tests' after it. It is the one type carrying 'Fake' that is not a
     // double, and flagging it would leave a fixture nobody may write a suite for
     // under its own name.
     @Test
