@@ -151,6 +151,11 @@ def testGradle = tasks.register('testGradle', Test) {
         '../gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks.gradle')
 
     declareScriptUnderTest(
+        'suffixOnSuitesGateScript',
+        'suffix.on.suites.gate.script.path',
+        '../gradle/tasks/lint/naming/tests/enforce-suffix-on-suites.gradle')
+
+    declareScriptUnderTest(
         'testNamesOmitGroupGateScript',
         'test.names.omit.group.gate.script.path',
         '../gradle/tasks/lint/naming/tests/enforce-test-names-omit-group.gradle')

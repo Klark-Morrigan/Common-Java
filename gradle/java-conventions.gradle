@@ -334,8 +334,8 @@ tasks.register('coverage') {
 }
 
 // Lint gates: generic code-quality, doc and test-structure checks no plain
-// build catches (blank-line runs, magic numbers on Kotlin, test-method and
-// test-double naming, test names repeating their group,
+// build catches (blank-line runs, magic numbers on Kotlin, test-method,
+// test-double and suite naming, test names repeating their group,
 // test vocabulary in production sources, method-visibility ordering, package
 // layering and vocabulary, nested test structure, broken doc links). Applied
 // here so every consumer inherits them from one place, alongside checkstyle.
@@ -363,6 +363,7 @@ apply from: new File(lintTasksDir, 'naming/enforce-no-test-vocabulary.gradle')
 apply from: new File(lintTasksDir, 'naming/tests/enforce-camel-case-test-names.gradle')
 apply from: new File(lintTasksDir, 'naming/tests/enforce-suffix-on-fakes.gradle')
 apply from: new File(lintTasksDir, 'naming/tests/enforce-suffix-on-mocks.gradle')
+apply from: new File(lintTasksDir, 'naming/tests/enforce-suffix-on-suites.gradle')
 apply from: new File(lintTasksDir, 'naming/tests/enforce-test-names-omit-group.gradle')
 apply from: new File(lintTasksDir, 'structure/enforce-methods-ordered-by-visibility.gradle')
 apply from: new File(lintTasksDir, 'structure/enforce-package-layering.gradle')
