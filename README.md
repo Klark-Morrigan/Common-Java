@@ -130,6 +130,19 @@ all. A gate takes them in one call, `installLintGate(taskProvider)`, so
 there is no second thing for the next gate's author to remember - and
 forgetting either was silent in both directions.
 
+The two ends of a gate's own work are shared the same way.
+`lint-gate.gradle` also declares the source roots a gate reads (`declareSourceRoots`),
+walks their Java and Kotlin files (`eachSourceFile`),
+and fails with what the gate found under its heading (`failOnViolations`).
+How a gate reads a file is shared too:
+`source-scan.gradle` strips comments and literals from each line,
+Kotlin raw strings and backtick names included,
+and tracks which class, and which `@Nested` group, a line sits in;
+`naming/tests/double-naming-scan.gradle` finds a test double's holder
+for the two double-naming gates.
+A new source-text gate applies these rather than copying them,
+and each helper is exercised through the suites of the gates that apply it.
+
 `enforceDocLinksResolve` skips version-control and build-tool directories
 by name, which is all this repo knows about. A consumer whose own tooling
 writes markdown names that directory too, from a script that runs after
