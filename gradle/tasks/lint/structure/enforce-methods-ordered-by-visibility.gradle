@@ -1,7 +1,6 @@
 // Method-visibility ordering gate, applied by java-conventions.gradle into
 // every consuming project. Kept in its own script so the conventions file stays
-// about
-// classpath, version, and jar output, while this owns one concern: the
+// about classpath, version, and jar output, while this owns one concern: the
 // verification rule.
 //
 // The convention: within a type body, methods descend the visibility ladder -
@@ -24,14 +23,19 @@
 // body, not across a file).
 //
 // No bytecode-level tool sees this cleanly across both languages, so it is a
-// source-text pass over the main tree reading Kotlin (KMO) as well as Java. Like
-// the nested-tests gate, telling a class-body method from a local one needs each
-// declaration's enclosing type, so the scan tracks brace depth and keeps a stack
-// of open class scopes; each scope remembers the least-visible method seen so
-// far, and a later, more-visible method at that scope is the violation.
+// source-text pass over the main tree reading Kotlin as well as Java, stripped
+// of comments and literals by source-scan.gradle. Like the nested-tests gate,
+// telling a class-body method from a local one needs each declaration's
+// enclosing type, so the scan tracks brace depth and keeps a stack of open class
+// scopes. It keeps its own rather than source-scan's, since each frame here also
+// carries the interface flag and the least-visible method seen so far - a later,
+// more-visible method at that scope is the violation - and the walk counts
+// parens as well as braces.
+//
 // Applied by this script, not assumed from the conventions file: the gate is
 // applied on its own by its integration test, so it has to carry what it uses.
 apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../source-scan.gradle')
 
 def enforceMethodsOrderedByVisibility = tasks.register('enforceMethodsOrderedByVisibility') {
     description = 'Fails the build when a more-visible method is declared below ' +
@@ -69,81 +73,6 @@ def enforceMethodsOrderedByVisibility = tasks.register('enforceMethodsOrderedByV
         def leadingAnnotation = ~/^\s*@\w+(\s*\([^)]*\))?\s*/
         // The method name is the last identifier before the parameter '('.
         def trailingName = ~/(\w+)\s*$/
-
-        // Removes comment and string/char-literal bodies from one line before any
-        // token or brace is read, so a '{' or a keyword living in a string or
-        // comment never moves the depth or is misread as code. Block comments and
-        // Kotlin triple-quoted strings span lines, so their open state is threaded
-        // back in by the caller. Known heuristic limit: a quote embedded in Kotlin
-        // '${...}' interpolation can end a literal early - tolerated, as the other
-        // source-text gates are.
-        def stripLine = { String raw, boolean inBlock, boolean inRaw ->
-            def out = new StringBuilder()
-            def i = 0
-            def n = raw.length()
-            def block = inBlock
-            def rawString = inRaw
-            while (i < n) {
-                if (block) {
-                    if (i + 1 < n && raw[i] == '*' && raw[i + 1] == '/') {
-                        block = false; i += 2
-                    } else {
-                        i++
-                    }
-                    continue
-                }
-                if (rawString) {
-                    if (i + 3 <= n && raw.substring(i, i + 3) == '"""') {
-                        rawString = false; i += 3
-                    } else {
-                        i++
-                    }
-                    continue
-                }
-                def two = (i + 1 < n) ? raw.substring(i, i + 2) : ''
-                if (two == '//') {
-                    break
-                }
-                if (two == '/*') {
-                    block = true; i += 2; continue
-                }
-                if (i + 3 <= n && raw.substring(i, i + 3) == '"""') {
-                    rawString = true; i += 3; continue
-                }
-                def c = raw[i]
-                // Kotlin backtick-escaped identifier: its body can hold quotes,
-                // apostrophes, and braces that are not code, so skip to the
-                // closing backtick. Kotlin processes no escapes inside, and the
-                // identifier cannot span lines, so no cross-line state is kept.
-                if (c == '`') {
-                    i++
-                    while (i < n && raw[i] != '`') {
-                        i++
-                    }
-                    if (i < n) {
-                        i++
-                    }
-                    continue
-                }
-                if (c == '"' || c == '\'') {
-                    def quote = c
-                    i++
-                    while (i < n) {
-                        if (raw[i] == '\\') {
-                            i += 2; continue
-                        }
-                        if (raw[i] == quote) {
-                            i++; break
-                        }
-                        i++
-                    }
-                    continue
-                }
-                out.append(c)
-                i++
-            }
-            [text: out.toString(), inBlock: block, inRaw: rawString]
-        }
 
         // Ranks a method by visibility: 0 is most public, 3 most private, so a
         // later method whose rank is below the running maximum has jumped back up
@@ -189,7 +118,7 @@ def enforceMethodsOrderedByVisibility = tasks.register('enforceMethodsOrderedByV
             // paren, and its inner calls are not read as method declarations.
             def parenDepth = 0
             sourceFile.eachLine { rawLine, lineNumber ->
-                def stripped = stripLine(rawLine, isInBlockComment, isInRawString)
+                def stripped = stripSourceLine(rawLine, isInBlockComment, isInRawString)
                 def line = stripped.text
                 isInBlockComment = stripped.inBlock
                 isInRawString = stripped.inRaw

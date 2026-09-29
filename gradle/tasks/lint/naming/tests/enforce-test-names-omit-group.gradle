@@ -12,9 +12,9 @@
 // lower-camel spelling followed by an upper-case letter. A name that merely opens with the same
 // word ('resolves' under 'Resolve') goes on in lower case and is a different word, so it passes.
 //
-// Which group a test sits in needs the enclosing class, so this reads test-scope-scan.gradle, the
-// scan enforceTestsNested stands on. A test outside any @Nested group is that gate's finding and is
-// left to it here.
+// Which group a test sits in needs the enclosing class, so this reads source-scan.gradle's class
+// scopes, as enforceTestsNested does. A test outside any @Nested group is that gate's finding and
+// is left to it here.
 //
 // A Kotlin backtick name ('fun `reads the owner`()') is prose rather than an identifier and cannot
 // carry the group's camel-case spelling, so it has nothing to be judged on.
@@ -22,7 +22,7 @@
 // Applied by this script, not assumed from the conventions file: the gate is applied on its own by
 // its integration test, so it has to carry what it uses.
 apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate.gradle')
-apply from: new File(buildscript.sourceFile.parentFile, '../../test-scope-scan.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../../source-scan.gradle')
 
 def enforceTestNamesOmitGroup = tasks.register('enforceTestNamesOmitGroup') {
 
@@ -32,20 +32,17 @@ def enforceTestNamesOmitGroup = tasks.register('enforceTestNamesOmitGroup') {
     def testRoot = file('src/test')
 
     // Declare the input only when it exists: Gradle validates a declared input directory is
-    // present, so an absent src/test (a mod with no tests) would otherwise fail configuration
+    // present, so an absent src/test (a project with no tests) would otherwise fail configuration
     // rather than skip. The doLast guards the same absence at execution time.
     if (testRoot.exists()) {
         inputs.dir(testRoot).withPropertyName('testSources')
     }
 
     doLast {
-        // Mods without a test tree have nothing to check.
+        // A project without a test tree has nothing to check.
         if (!testRoot.exists()) {
             return
         }
-        // The annotations that declare a test method, as enforceTestsNested reads them; the
-        // trailing \b stops the alternation from also catching @Testable or @TestInstance.
-        def testAnnotation = ~/@(?:Test|ParameterizedTest|RepeatedTest|TestFactory)\b/
 
         // Any annotation with its argument list, removed before the declaration is read: a
         // '@MethodSource(...)' between @Test and the method would otherwise read as a call named
@@ -56,68 +53,77 @@ def enforceTestNamesOmitGroup = tasks.register('enforceTestNamesOmitGroup') {
         // the first identifier opening a parameter list, the return type sitting before it.
         def kotlinDeclaration = ~/\bfun\b(?:\s*<[^>]*>)?\s*(?:[\w.]+\.)?(\w+)?\s*\(/
         def javaDeclaration = ~/(\w+)\s*\(/
+
+        // The rule itself: the group's lower-camel spelling, then the start of another word.
+        def repeatsGroupName = { String methodName, String groupName ->
+
+            def groupPrefix = groupName[0].toLowerCase() + groupName.substring(1)
+
+            methodName.length() > groupPrefix.length()
+                && methodName.startsWith(groupPrefix)
+                && Character.isUpperCase(methodName.charAt(groupPrefix.length()))
+        }
+
         def violations = []
 
         fileTree(testRoot)
-	        .matching { include '**/*.java', '**/*.kt' }
-	        .each { sourceFile ->
+            .matching { include '**/*.java', '**/*.kt' }
+            .each { sourceFile ->
 
-	            def declaration = sourceFile.name.endsWith('.kt')
-	            	? kotlinDeclaration
-	            	: javaDeclaration
+                def declaration = sourceFile.name.endsWith('.kt')
+                    ? kotlinDeclaration
+                    : javaDeclaration
 
-	            // The group of the test annotation still waiting for its method: a @Test is usually on
-	            // a line of its own, with the declaration one or more annotation lines below it.
-	            def awaitedGroup = null
-	            def isAwaitingDeclaration = false
+                // The group of the test annotation still waiting for its method: a @Test is
+                // usually on a line of its own, with the declaration one or more annotation lines
+                // below it.
+                def awaitedGroup = null
+                def isAwaitingDeclaration = false
 
-	            scanTestScopes(sourceFile) { line ->
+                scanClassScopes(sourceFile) { line ->
 
-	                def text = line.text
-	                def annotationMatcher = testAnnotation.matcher(text)
+                    def text = line.text
+                    def annotationMatcher = testMethodAnnotation.matcher(text)
 
-	                if (annotationMatcher.find()) {
+                    if (annotationMatcher.find()) {
 
-	                    def enclosing = line.enclosingClass
+                        def enclosing = line.enclosingClass
 
-	                    awaitedGroup = (enclosing != null && enclosing.isNested)
-	                    	? enclosing.name
-	                    	: null
+                        awaitedGroup = (enclosing != null && enclosing.isNested)
+                            ? enclosing.name
+                            : null
 
-	                    isAwaitingDeclaration = true
+                        isAwaitingDeclaration = true
 
-	                    // The method may share the annotation's line.
-	                    text = text.substring(annotationMatcher.end())
-	                }
+                        // The method may share the annotation's line.
+                        text = text.substring(annotationMatcher.end())
+                    }
 
-	                if (!isAwaitingDeclaration) {
-	                    return
-	                }
+                    if (!isAwaitingDeclaration) {
+                        return
+                    }
 
-	                def declared = declaration.matcher(text.replaceAll(anyAnnotation, ''))
-	                if (!declared.find()) {
-	                    return
-	                }
+                    def declared = declaration.matcher(text.replaceAll(anyAnnotation, ''))
+                    if (!declared.find()) {
+                        return
+                    }
 
-	                isAwaitingDeclaration = false
+                    isAwaitingDeclaration = false
 
-	                // A backtick name leaves no identifier after 'fun'.
-	                def methodName = declared.group(1)
-	                if (awaitedGroup == null || methodName == null) {
-	                    return
-	                }
+                    // A backtick name leaves no identifier after 'fun'.
+                    def methodName = declared.group(1)
+                    if (awaitedGroup == null || methodName == null) {
+                        return
+                    }
 
-	                def groupPrefix = awaitedGroup[0].toLowerCase() + awaitedGroup.substring(1)
-	                if (methodName.length() > groupPrefix.length()
-	                        && methodName.startsWith(groupPrefix)
-	                        && Character.isUpperCase(methodName.charAt(groupPrefix.length()))) {
+                    if (repeatsGroupName(methodName, awaitedGroup)) {
 
-	                    violations << "${sourceFile}:${line.number}: test method '${methodName}' " +
-                            "repeats its @Nested group '${awaitedGroup}'; name the outcome and " +
-                            "condition alone"
-	                }
-	            }
-	        }
+                        violations << "${sourceFile}:${line.number}: test method " +
+                            "'${methodName}' repeats its @Nested group '${awaitedGroup}'; name " +
+                            "the outcome and condition alone"
+                    }
+                }
+            }
 
         if (!violations.isEmpty()) {
             // GradleException is the idiomatic build-failure signal; the editor flags it as an

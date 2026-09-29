@@ -1,23 +1,27 @@
-// The source-text scan the test-structure gates are made of: which class each line of a test file
-// sits in, and whether that class is a @Nested group.
+// The source-text scan the structure and naming gates are made of: each line of a Java or Kotlin
+// file with its comments and literals gone, and the class it sits in.
 //
-// A test method's place in its suite is read off its enclosing classes, and no bytecode-level tool
-// sees those cleanly across Java and Kotlin, so the gates reading it are source-text passes. Telling
-// one class from another needs brace depth and a stack of open class scopes, and neither can be
-// trusted until comments and literals are gone: a '{' or the word 'class' inside a string would
-// otherwise move the depth or open a frame. That machinery is the same whichever rule a gate then
-// states over it, so it is held once, here.
+// No bytecode-level tool sees a source file's shape cleanly across Java and Kotlin, so the gates
+// reading it are source-text passes. None of them can trust a token or a brace until comments and
+// literals are gone: a '{' or the word 'class' inside a string would otherwise move the depth or
+// open a frame. That stripping, and the class-scope stack the test-structure gates read a method's
+// group off, are the same whichever rule a gate then states over them, so they are held once, here.
 //
 // Applied by each gate rather than by the conventions file, on the same reasoning lint-gate.gradle
 // states: a gate is applied on its own by its integration test, so it has to carry what it uses.
 // Applying this more than once per project is harmless - the assignments below simply overwrite
-// identical closures.
+// identical values.
 
-// Removes comment and string/char-literal bodies from one line before any token or brace is read.
-// Block comments and Kotlin triple-quoted strings span lines, so their open state is threaded back
-// in by the caller. Known heuristic limit: a quote embedded in Kotlin '${...}' interpolation can end
-// a literal early - tolerated, as the other source-text gates tolerate it.
-ext.stripTestSourceLine = { String raw, boolean inBlock, boolean inRaw ->
+// The annotations that declare a JUnit test method. The trailing \b stops the alternation from also
+// catching @Testable or @TestInstance.
+ext.testMethodAnnotation = ~/@(?:Test|ParameterizedTest|RepeatedTest|TestFactory)\b/
+
+// Removes comment and string/char-literal bodies from one line before any token or brace is read,
+// along with Kotlin's backtick-quoted identifiers. Block comments and Kotlin triple-quoted strings
+// span lines, so their open state is threaded back in by the caller. Known heuristic limit: a quote
+// embedded in Kotlin '${...}' interpolation can end a literal early - tolerated, as a heuristic
+// gate can afford to be.
+ext.stripSourceLine = { String raw, boolean inBlock, boolean inRaw ->
 
     def out = new StringBuilder()
     def i = 0
@@ -99,8 +103,8 @@ ext.stripTestSourceLine = { String raw, boolean inBlock, boolean inRaw ->
 }
 
 /**
- * Walks one test source file line by line, handing each line to visitLine with the class scope it
- * sits in.
+ * Walks one source file line by line, handing each line to visitLine with the class scope it sits
+ * in.
  *
  * visitLine receives one map per line:
  *
@@ -112,7 +116,7 @@ ext.stripTestSourceLine = { String raw, boolean inBlock, boolean inRaw ->
  * - declaredClass   the class this line declares, as [name, isNested], or null; isNested says a
  *                   @Nested annotation preceded it
  */
-ext.scanTestScopes = { File sourceFile, Closure visitLine ->
+ext.scanClassScopes = { File sourceFile, Closure visitLine ->
 
     def nestedAnnotation = ~/@Nested\b/
 
@@ -132,7 +136,7 @@ ext.scanTestScopes = { File sourceFile, Closure visitLine ->
 
     sourceFile.eachLine { rawLine, lineNumber ->
 
-        def stripped = stripTestSourceLine(rawLine, isInBlockComment, isInRawString)
+        def stripped = stripSourceLine(rawLine, isInBlockComment, isInRawString)
         def line = stripped.text
 
         isInBlockComment = stripped.inBlock

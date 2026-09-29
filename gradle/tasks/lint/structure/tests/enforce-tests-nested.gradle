@@ -19,13 +19,14 @@
 // the build still goes green. Catching it at build time turns a silent gap
 // into a loud failure.
 //
-// Unlike the line-local naming gates, telling a top-level @Test from a nested
-// one needs each annotation's enclosing class, which test-scope-scan.gradle
-// reads for Kotlin as well as Java.
+// Unlike a line-local gate, telling a top-level @Test from a nested one needs
+// each annotation's enclosing class, which source-scan.gradle reads for Kotlin
+// as well as Java.
+//
 // Applied by this script, not assumed from the conventions file: the gate is
 // applied on its own by its integration test, so it has to carry what it uses.
 apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate.gradle')
-apply from: new File(buildscript.sourceFile.parentFile, '../../test-scope-scan.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../../source-scan.gradle')
 
 def enforceTestsNested = tasks.register('enforceTestsNested') {
 
@@ -36,7 +37,7 @@ def enforceTestsNested = tasks.register('enforceTestsNested') {
     def testRoot = file('src/test')
 
     // Declare the input only when it exists: Gradle validates a declared input
-    // directory is present, so an absent src/test (a mod with no tests) would
+    // directory is present, so an absent src/test (a project with no tests) would
     // otherwise fail configuration rather than skip. The doLast guards the
     // same absence at execution time.
     if (testRoot.exists()) {
@@ -44,16 +45,10 @@ def enforceTestsNested = tasks.register('enforceTestsNested') {
     }
 
     doLast {
-        // Mods without a test tree have nothing to check.
+        // A project without a test tree has nothing to check.
         if (!testRoot.exists()) {
             return
         }
-
-        // @Test and its siblings each declare a test method; every one must sit
-        // inside a @Nested group. The trailing \b stops the alternation from
-        // also catching @Testable or @TestInstance.
-        def testAnnotation =
-            ~/@(?:Test|ParameterizedTest|RepeatedTest|TestFactory)\b/
 
         // The Kotlin 'inner' modifier on a class. A @Nested class must be a
         // non-static inner class; in Kotlin a plain nested 'class' is
@@ -63,41 +58,41 @@ def enforceTestsNested = tasks.register('enforceTestsNested') {
         def violations = []
 
         fileTree(testRoot)
-	        .matching { include '**/*.java', '**/*.kt' }
-	        .each { sourceFile ->
-	            // The 'inner class' rule below is Kotlin-only: a Java @Nested class
-	            // is already a non-static inner class unless marked 'static', so
-	            // the keyword check would mis-fire on every correct Java group.
-	            def isKotlin = sourceFile.name.endsWith('.kt')
+            .matching { include '**/*.java', '**/*.kt' }
+            .each { sourceFile ->
+                // The 'inner class' rule below is Kotlin-only: a Java @Nested class
+                // is already a non-static inner class unless marked 'static', so
+                // the keyword check would mis-fire on every correct Java group.
+                def isKotlin = sourceFile.name.endsWith('.kt')
 
-	            scanTestScopes(sourceFile) { line ->
-	                // A @Test binds to the method that follows it, but that method's
-	                // enclosing class is already open, so the verdict reads here
-	                // without waiting for the method body.
-	                if (testAnnotation.matcher(line.text).find()) {
+                scanClassScopes(sourceFile) { line ->
+                    // A @Test binds to the method that follows it, but that method's
+                    // enclosing class is already open, so the verdict reads here
+                    // without waiting for the method body.
+                    if (testMethodAnnotation.matcher(line.text).find()) {
 
-	                    def enclosing = line.enclosingClass
-	                    if (enclosing == null || !enclosing.isNested) {
+                        def enclosing = line.enclosingClass
+                        if (enclosing == null || !enclosing.isNested) {
 
-	                        violations << "${sourceFile}:${line.number}: @Test method " +
-	                                "must live inside a @Nested class"
-	                    }
-	                }
-	                // A Kotlin @Nested class must be 'inner'. A plain nested 'class'
-	                // compiles but is static-equivalent, so JUnit5 silently skips its
-	                // tests - they never run yet the build stays green. Flag it here,
-	                // where the declaration line (carrying any 'inner' modifier) and
-	                // its @Nested marker are both known.
-	                def declared = line.declaredClass
-	                if (isKotlin && declared != null && declared.isNested
-	                        && !innerModifier.matcher(line.text).find()) {
+                            violations << "${sourceFile}:${line.number}: @Test method " +
+                                "must live inside a @Nested class"
+                        }
+                    }
+                    // A Kotlin @Nested class must be 'inner'. A plain nested 'class'
+                    // compiles but is static-equivalent, so JUnit5 silently skips its
+                    // tests - they never run yet the build stays green. Flag it here,
+                    // where the declaration line (carrying any 'inner' modifier) and
+                    // its @Nested marker are both known.
+                    def declared = line.declaredClass
+                    if (isKotlin && declared != null && declared.isNested
+                            && !innerModifier.matcher(line.text).find()) {
 
-	                    violations << "${sourceFile}:${line.number}: Kotlin " +
+                        violations << "${sourceFile}:${line.number}: Kotlin " +
                             "@Nested class must be declared `inner class` " +
                             "(a plain nested class is skipped by JUnit5)"
-	                }
-	            }
-	        }
+                    }
+                }
+            }
 
         if (!violations.isEmpty()) {
             // GradleException is the idiomatic build-failure signal; its clean

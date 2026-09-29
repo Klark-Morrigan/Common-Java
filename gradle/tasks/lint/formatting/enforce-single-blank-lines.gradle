@@ -8,8 +8,8 @@
 // import blocks, between members, ...); two or more in a row are visual
 // noise with no meaning, so they are rejected. No bytecode-level tool can see
 // this - blank lines are erased by compilation - so it is enforced as a
-// source-text pass over the project's own source, reading Kotlin (KMO) as
-// well as Java.
+// source-text pass over the project's own source, reading Kotlin as well as
+// Java.
 //
 // Every source set the project declares, rather than a list of tree names.
 // The rule is about how code reads, which is a property of the code and not of

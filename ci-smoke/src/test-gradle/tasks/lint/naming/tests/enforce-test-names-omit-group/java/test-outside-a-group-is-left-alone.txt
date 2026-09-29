@@ -1,0 +1,10 @@
+import org.junit.jupiter.api.Test;
+
+class Sample {
+
+    // Outside any @Nested group there is no group name to repeat; the misplaced test is
+    // enforceTestsNested's finding, not this gate's.
+    @Test
+    void sampleReadsTheOwner() {
+    }
+}

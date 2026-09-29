@@ -50,11 +50,9 @@
         <module name="AvoidStarImport"/>
 
         <!-- Imports grouped, blank-line separated, alphabetical within group,
-             in the family's origin order: Starsector framework, the kmlib
-             sibling library, the consumer's own code, third-party (org.*,
-             lunalib.*, ...), then the JDK; static imports last. A new
-             third-party root not listed here sorts after java and so trips
-             this check - the prompt to add it to the group regex.
+             in the order the consuming project's groups name them; static
+             imports last. A root no group names sorts after java and so trips
+             this check - the prompt to add it to the project's list.
 
              The static block below is grouped by the same origins and padded
              the same way, so a reader finds an import's origin in the same
@@ -66,11 +64,11 @@
              knowledge - what it compiles against, and what it calls its own -
              so the groups arrive as properties and only the rule that they are
              ordered, separated and statics-last lives here. A default is set in
-             java-conventions.gradle, and a layer above it (starsector-mod.gradle,
-             for the mods) states the real list. Naming a consumer's packages in
-             this file would have a shared Java config knowing which mods exist,
-             and the list rots silently as new ones are born: an import matching
-             no group is sorted after every named one, below even java.*. -->
+             java-conventions.gradle, and a consumer's own layer above it states
+             the real list. Naming a consumer's packages in this file would have a
+             shared Java config knowing which consumers exist, and the list rots
+             silently as new ones are born: an import matching no group is sorted
+             after every named one, below even java.*. -->
         <module name="ImportOrder">
             <property name="groups" value="${importGroups}"/>
             <property name="staticGroups" value="${staticImportGroups}"/>

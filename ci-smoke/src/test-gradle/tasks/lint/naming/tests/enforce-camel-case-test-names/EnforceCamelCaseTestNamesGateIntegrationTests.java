@@ -71,6 +71,19 @@ class EnforceCamelCaseTestNamesGateIntegrationTests {
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
+    // A Kotlin raw string runs across lines, and a line inside it carries no quote of its own for a
+    // line-at-a-time strip to see, so passing here proves the strip carries the string's open state
+    // from one line to the next.
+    @Test
+    void passesWhenSnakeCaseIsInAKotlinRawString(@TempDir Path projectDir) {
+
+        var result = kotlinProject(projectDir, "snake-case-in-a-raw-string-is-ignored")
+            .runExpectingSuccess();
+
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
+    }
+
     @Test
     void passesWhenAKotlinTestNameIsBacktickQuoted(@TempDir Path projectDir) {
 

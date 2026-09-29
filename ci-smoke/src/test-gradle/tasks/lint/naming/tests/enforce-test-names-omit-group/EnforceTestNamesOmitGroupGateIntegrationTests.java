@@ -68,6 +68,18 @@ class EnforceTestNamesOmitGroupGateIntegrationTests {
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
+    // A test named for its top-level class is not held to a group it does not sit in: that it sits
+    // in none is another gate's finding, and reporting it twice would name one fault two ways.
+    @Test
+    void passesWhenATestSitsOutsideAnyGroup(@TempDir Path projectDir) {
+
+        var result = javaProject(projectDir, "test-outside-a-group-is-left-alone")
+            .runExpectingSuccess();
+
+        assertThat(result.task(TASK_PATH).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
+    }
+
     // A Kotlin group is an 'inner class', and its tests are declared with 'fun'; the rule reads
     // both the same as their Java forms.
     @Test
