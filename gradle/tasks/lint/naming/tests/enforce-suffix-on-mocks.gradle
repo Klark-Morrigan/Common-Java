@@ -25,17 +25,11 @@ def enforceSuffixOnMocks = tasks.register('enforceSuffixOnMocks') {
             'not suffixed Mock.'
     group = 'verification'
 
-    def testRoot = file('src/test')
-    // Declare the input only when it exists: Gradle validates a declared input directory is
-    // present, so an absent src/test (a project with no tests) would otherwise fail configuration
-    // rather than skip. The scan guards the same absence at execution time.
-    if (testRoot.exists()) {
-        inputs.dir(testRoot).withPropertyName('testSources')
-    }
+    def testRoots = declareSourceRoots(it, ['src/test'])
 
     doLast {
         def violations = findDoubleNamingViolations(
-            testRoot: testRoot,
+            testRoots: testRoots,
             suffix: 'Mock',
             // A Mockito double factory, with or without a qualifier ('Mockito.mock'). The scan's
             // bracket anchor admits 'mock(', 'mockStatic(' and mockito-kotlin's 'mock<T>()' while
@@ -45,14 +39,7 @@ def enforceSuffixOnMocks = tasks.register('enforceSuffixOnMocks') {
             // Nothing to check: the type is generated, so a name only exists on the holder.
             typePattern: null)
 
-        if (!violations.isEmpty()) {
-            // GradleException is the idiomatic build-failure signal; its clean message reads as the
-            // gate's verdict. The editor flags it as an unresolved class because an applied script
-            // has no Gradle API on its classpath - a known tooling false positive, not a defect, so
-            // do not "fix" it by swapping in a java.lang exception.
-            throw new GradleException("Mock naming convention violated:\n  " +
-                    violations.join('\n  '))
-        }
+        failOnViolations('Mock naming convention violated', violations)
     }
 }
 

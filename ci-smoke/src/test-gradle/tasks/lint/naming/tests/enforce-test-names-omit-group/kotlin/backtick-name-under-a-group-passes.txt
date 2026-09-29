@@ -1,0 +1,15 @@
+import org.junit.jupiter.api.Nested
+import org.junit.jupiter.api.Test
+
+class Sample {
+
+    @Nested
+    inner class GetDrawnLayer {
+
+        // A backtick name is prose, so even one opening with the method's own spelling has no
+        // camel-case identifier to repeat the group in.
+        @Test
+        fun `getDrawnLayer answers the layer last registered`() {
+        }
+    }
+}

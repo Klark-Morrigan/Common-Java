@@ -86,12 +86,15 @@ def testGradle = tasks.register('testGradle', Test) {
     // scripts live one directory up, under Common-Java/gradle/tasks.
     // Shared helpers are runtime inputs of these tests: both structure gates that judge a file by
     // its declared package apply the package-root reader, both formatter passes plus the blank-line
-    // gate apply the source-set selector, and both test-double gates apply the naming scan. Editing
-    // one must re-run them. The stamp helper is bound below instead, being the one with a test of
-    // its own.
+    // gate apply the source-set selector, both test-double gates apply the naming scan, and the
+    // gates reading source past its comments and literals apply the source scan. Editing one must
+    // re-run them. The stamp helper is bound below instead, being the one with a test of its own.
 
     inputs.file(file('../gradle/tasks/lint/package-roots.gradle'))
         .withPropertyName('packageRootsScript')
+
+    inputs.file(file('../gradle/tasks/lint/source-scan.gradle'))
+        .withPropertyName('sourceScanScript')
 
     inputs.file(file('../gradle/tasks/format/formatted-source-sets.gradle'))
         .withPropertyName('formattedSourceSetsScript')
@@ -146,6 +149,11 @@ def testGradle = tasks.register('testGradle', Test) {
         'mockGateScript',
         'mock.gate.script.path',
         '../gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks.gradle')
+
+    declareScriptUnderTest(
+        'testNamesOmitGroupGateScript',
+        'test.names.omit.group.gate.script.path',
+        '../gradle/tasks/lint/naming/tests/enforce-test-names-omit-group.gradle')
 
     declareScriptUnderTest(
         'idCasingGateScript',

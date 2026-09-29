@@ -1,0 +1,17 @@
+import org.junit.jupiter.api.Nested
+import org.junit.jupiter.api.Test
+
+class Sample {
+
+    @Nested
+    inner class ReadScript {
+
+        @Test
+        fun readsTheCallsAScriptHolds() {
+            // The raw string spans lines, so its middle line opens with no quote of its own.
+            val script = """
+                build_colony(derelict_cryosleeper)
+            """
+        }
+    }
+}

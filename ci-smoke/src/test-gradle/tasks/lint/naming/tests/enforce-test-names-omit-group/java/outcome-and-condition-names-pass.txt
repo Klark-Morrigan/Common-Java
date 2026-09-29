@@ -1,0 +1,22 @@
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+
+class Sample {
+
+    @Nested
+    class GetDrawnLayer {
+
+        @Test void isNullBeforeAnyLayerIsRegistered() {
+        }
+
+        // A comment naming getDrawnLayerIsNull() and a string doing the same are not declarations.
+        @Test
+        void answersTheLayerLastRegistered() {
+            String reason = "getDrawnLayerIsNull()";
+        }
+    }
+
+    // A helper outside any group repeats nothing, whatever it is called.
+    private void getDrawnLayerHelper() {
+    }
+}

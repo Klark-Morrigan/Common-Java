@@ -1,13 +1,17 @@
 // Shared plumbing for the lint gates: what every gate needs to be a gate, past
 // the rule it actually asserts.
 //
-// There are two such things, and they were written out at the foot of each gate
-// until the family reached fifteen copies of them. Both are about how a gate
-// meets Gradle rather than about any gate's subject, so neither is a decision a
-// gate author should be making again - and an author reaching for a sibling to
-// copy the shape from is how a gate ends up with one of the two and not the
-// other, which fails silently in both directions: a gate nothing depends on
-// never runs, and a gate with no output runs on every build forever.
+// Being a gate takes two things, and they were written out at the foot of each
+// gate until the family reached fifteen copies of them. Both are about how a
+// gate meets Gradle rather than about any gate's subject, so neither is a
+// decision a gate author should be making again - and an author reaching for a
+// sibling to copy the shape from is how a gate ends up with one of the two and
+// not the other, which fails silently in both directions: a gate nothing depends
+// on never runs, and a gate with no output runs on every build forever.
+//
+// The same goes for the two ends of most gates' own work, held below the pair:
+// declaring and walking the source roots it reads, and failing with what it
+// found.
 //
 // It lives in its own script, applied by each gate rather than by the
 // conventions file, because a gate has to stand on its own: its integration
@@ -28,18 +32,25 @@
 // Gradle skips it while those sources are unchanged, and a gate that fails
 // leaves no stamp behind and therefore runs again next time.
 ext.declareLintGateStamp = { taskProvider ->
+
     def stampFile = layout.buildDirectory.file("lint/${taskProvider.name}.stamp")
+
     taskProvider.configure {
+
         outputs.file(stampFile)
+
         // The stamp is the whole result - it says "these exact sources passed
         // this gate" - so it is safe to replay from the build cache, which is
         // what keeps a clean build or a branch switch from re-scanning sources
         // that some earlier run already cleared.
         outputs.cacheIf { true }
+
         // Appended after the gate's own action, so the stamp records a pass:
         // when the check throws, this never runs and the gate stays out of date.
         doLast {
+
             def stamp = stampFile.get().asFile
+
             stamp.parentFile.mkdirs()
             stamp.text = "${taskProvider.name} passed\n"
         }
@@ -54,9 +65,10 @@ ext.declareLintGateStamp = { taskProvider ->
 // tasks up whenever they arrive, where naming one directly would fail in a
 // project that has not applied the plugin yet.
 ext.runLintGateWithVerification = { taskProvider ->
-    tasks.matching { it.name in ['test', 'check'] }.configureEach {
-        dependsOn taskProvider
-    }
+
+    tasks
+        .matching { it.name in ['test', 'check'] }
+        .configureEach { dependsOn taskProvider }
 }
 
 // Both of the above, which is what a gate wants: it is the whole of being a
@@ -66,6 +78,52 @@ ext.runLintGateWithVerification = { taskProvider ->
 // a reason to take only one still can - and so the pair a reader is looking at
 // has names, instead of being two anonymous lines inside this one.
 ext.installLintGate = { taskProvider ->
+
     declareLintGateStamp(taskProvider)
     runLintGateWithVerification(taskProvider)
+}
+
+// Declares the source roots a gate reads as its inputs, and answers them as
+// files for the gate's scan to walk.
+//
+// Only a root that exists is declared: Gradle validates that a declared input
+// directory is present, so a project without one - no tests, no Kotlin - would
+// otherwise fail configuration rather than skip. eachSourceFile guards the same
+// absence at execution time. Called from the gate's configuration block, which
+// hands over its own task, since the inputs belong to it.
+ext.declareSourceRoots = { Task gate, List<String> paths ->
+
+    def roots = paths.collect { gate.project.file(it) }
+
+    roots.eachWithIndex { root, index ->
+        if (root.exists()) {
+            gate.inputs.dir(root).withPropertyName("sourceRoot${index}")
+        }
+    }
+    roots
+}
+
+// Hands each Java and Kotlin file under the given roots to visitFile, skipping
+// a root that does not exist.
+ext.eachSourceFile = { List<File> roots, Closure visitFile ->
+
+    roots
+        .findAll { it.exists() }
+        .each { root ->
+            fileTree(root).matching { include '**/*.java', '**/*.kt' }.each(visitFile)
+        }
+}
+
+// Fails the gate when it found anything, one finding per line under its heading.
+//
+// GradleException is the idiomatic build-failure signal; its clean message
+// reads as the gate's verdict. The editor flags it as an unresolved class
+// because an applied script has no Gradle API on its classpath - a known tooling
+// false positive, not a defect, so do not "fix" it by swapping in a java.lang
+// exception.
+ext.failOnViolations = { String heading, Collection violations ->
+
+    if (!violations.isEmpty()) {
+        throw new GradleException("${heading}:\n  " + violations.join('\n  '))
+    }
 }

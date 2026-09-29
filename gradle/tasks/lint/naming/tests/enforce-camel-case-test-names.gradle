@@ -10,21 +10,22 @@
 //
 // Kotlin's backtick-quoted names are deliberately untouched. `does not bill a null facility` is the
 // language's own idiom for a test name, is not an identifier a camelCase rule can be stated over,
-// and is stripped out below with the string literals.
+// and is stripped out with the string literals.
 //
 // The rule is keyed on an underscored identifier that opens a call, which catches a declaration and
 // any call of one alike - the declaration is in the same tree, so flagging both only says the same
 // thing twice rather than reaching anything the gate cannot fix. A snake_case string (a faction id,
-// an entity type, a settings key) is data rather than a name and is left alone: the strip below
-// takes the literals out before the rule ever sees them.
+// an entity type, a settings key) is data rather than a name and is left alone: source-scan.gradle
+// strips the literals, raw strings spanning lines included, before the rule ever sees them.
 //
-// Line-local, so it does not use the enclosing-scope tracking enforce-tests-nested.gradle needs -
-// that gate has to know which class a @Test sits in, while this one can read its verdict off the
-// line the name is written on.
+// Line-local, so it reads only the stripped line and not the class scopes the test-structure gates
+// need - those have to know which class a @Test sits in, while this one can read its verdict off
+// the line the name is written on.
 //
 // Applied by this script, not assumed from the conventions file: the gate is applied on its own by
 // its integration test, so it has to carry what it uses.
 apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../../source-scan.gradle')
 
 def enforceCamelCaseTestNames = tasks.register('enforceCamelCaseTestNames') {
 
@@ -35,18 +36,7 @@ def enforceCamelCaseTestNames = tasks.register('enforceCamelCaseTestNames') {
 
     // Both trees a test name can live in. Fixtures are held to the same rule as the cases that
     // drive them: a helper is read in a report exactly as a case is.
-    def testRoots = ['src/test', 'src/testFixtures'].collect { file(it) }
-
-    // Declare only the roots that exist: Gradle validates a declared input directory is present, so
-    // a project with no tests would otherwise fail configuration rather than skip. The scan guards
-    // the same absence at execution time.
-    testRoots.eachWithIndex {
-        root,
-        index ->
-            if (root.exists()) {
-                inputs.dir(root).withPropertyName("testSources${index}")
-            }
-        }
+    def testRoots = declareSourceRoots(it, ['src/test', 'src/testFixtures'])
 
     doLast {
         // An identifier carrying an underscore that opens a call. The lookbehind keeps a qualified
@@ -54,110 +44,33 @@ def enforceCamelCaseTestNames = tasks.register('enforceCamelCaseTestNames') {
         // lower-case letter leaves a CONSTANT_NAME( alone - a constant is not a method name, and
         // the enum constants of a switch would otherwise read as violations.
         def snakeCallName = ~/(?<![.\w])([a-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+)\s*\(/
-
-        // Removes what is not code from one line before the rule reads it: line comments, block
-        // comments, string and character literals, and Kotlin's backtick-quoted identifiers. Block
-        // comments span lines, so their open state is threaded back in by the caller.
-        def stripLine = { String raw, boolean inBlock ->
-
-            def out = new StringBuilder()
-            def index = 0
-            def length = raw.length()
-            def block = inBlock
-
-            while (index < length) {
-
-                if (block) {
-
-                    if (index + 1 < length && raw[index] == '*' && raw[index + 1] == '/') {
-
-                        block = false
-                        index += 2
-
-                    } else {
-                        index++
-                    }
-                    continue
-                }
-
-                def two = (index + 1 < length) ? raw.substring(index, index + 2) : ''
-
-                if (two == '//') {
-
-                    break
-                }
-                if (two == '/*') {
-
-                    block = true
-                    index += 2
-                    continue
-                }
-
-                def character = raw[index]
-
-                if (character == '"' || character == '\'' || character == '`') {
-
-                    def closing = character
-                    index++
-
-                    while (index < length) {
-
-                        if (raw[index] == '\\') {
-
-                            index += 2; continue
-                        }
-                        if (raw[index] == closing) {
-
-                            index++; break
-                        }
-                        index++
-                    }
-                    continue
-                }
-                out.append(character)
-                index++
-            }
-            [text: out.toString(), inBlock: block]
-        }
-
         def violations = []
 
-        testRoots
-            .findAll { it.exists() }
-            .each { testRoot ->
+        eachSourceFile(testRoots) { sourceFile ->
 
-                fileTree(testRoot)
-                    .matching { include '**/*.java', '**/*.kt' }
-                    .each { sourceFile ->
+            def isInBlockComment = false
+            def isInRawString = false
 
-                        def isInBlockComment = false
+            sourceFile.eachLine {
+                rawLine,
+                lineNumber ->
 
-                        sourceFile.eachLine {
-                            rawLine,
-                            lineNumber ->
+                    def stripped = stripSourceLine(rawLine, isInBlockComment, isInRawString)
 
-                                def stripped = stripLine(rawLine, isInBlockComment)
+                    isInBlockComment = stripped.inBlock
+                    isInRawString = stripped.inRaw
 
-                                isInBlockComment = stripped.inBlock
+                    def matcher = snakeCallName.matcher(stripped.text)
 
-                                def matcher = snakeCallName.matcher(stripped.text)
+                    while (matcher.find()) {
 
-                                while (matcher.find()) {
-
-                                    violations << "${sourceFile}:${lineNumber}: test method " +
-                                        "'${matcher.group(1)}' must be named in camelCase"
-                                }
-                            }
+                        violations << "${sourceFile}:${lineNumber}: test method " +
+                            "'${matcher.group(1)}' must be named in camelCase"
                     }
-            }
-        if (!violations.isEmpty()) {
-            // GradleException is the idiomatic build-failure signal; its clean message reads as the
-            // gate's verdict. The editor flags it as an unresolved class because an applied script
-            // has no Gradle API on its classpath - a known tooling false positive, not a defect, so
-            // do not "fix" it by swapping in a java.lang exception.
-            throw new GradleException("Test-method naming convention violated:\n  " +
-                violations.join('\n  '))
+                }
         }
+
+        failOnViolations('Test-method naming convention violated', violations)
     }
 }
 

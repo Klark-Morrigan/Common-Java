@@ -156,15 +156,7 @@ def enforceDocLinksResolve = tasks.register('enforceDocLinksResolve') {
         markdownFiles.each { markdownFile ->
             violations.addAll(findUnresolvedLinks(markdownFile, normalisedScanRoot))
         }
-        if (!violations.isEmpty()) {
-            // GradleException is the idiomatic build-failure signal; its clean
-            // message reads as the gate's verdict. The editor flags it as an
-            // unresolved class because an applied script has no Gradle API on
-            // its classpath - a known tooling false positive, not a defect, so
-            // do not "fix" it by swapping in a java.lang exception.
-            throw new GradleException("Broken documentation links:\n  " +
-                    violations.join('\n  '))
-        }
+        failOnViolations('Broken documentation links', violations)
     }
 }
 

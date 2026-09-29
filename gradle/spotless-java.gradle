@@ -2,9 +2,9 @@
 //
 // Deliberately NOT applied from java-conventions.gradle, which is where every
 // other quality tool in the family lives. Those gates only ever report, so
-// inheriting them everywhere is free. This one rewrites source, and the
-// Starsector port mods carry third-party code that is not ours to touch, so a
-// repo opts in by applying this script itself.
+// inheriting them everywhere is free. This one rewrites source, and a repo
+// carrying third-party code has source that is not its own to touch, so a repo
+// opts in by applying this script itself.
 //
 // WHAT THIS DOES NOT DO, and must never do: it does not lay code out. No
 // indentation, no line wrapping, no brace or blank-line placement, no reflowing
