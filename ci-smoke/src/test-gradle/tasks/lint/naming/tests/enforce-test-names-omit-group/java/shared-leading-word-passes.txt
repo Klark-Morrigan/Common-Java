@@ -1,0 +1,14 @@
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+
+class Sample {
+
+    @Nested
+    class Resolve {
+
+        // Opens with the group's word, then goes on in lower case: a different word, not a repeat.
+        @Test
+        void resolvesTheOwnerOffTheMarket() {
+        }
+    }
+}

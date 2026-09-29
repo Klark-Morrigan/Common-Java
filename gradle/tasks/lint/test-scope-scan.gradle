@@ -1,0 +1,185 @@
+// The source-text scan the test-structure gates are made of: which class each line of a test file
+// sits in, and whether that class is a @Nested group.
+//
+// A test method's place in its suite is read off its enclosing classes, and no bytecode-level tool
+// sees those cleanly across Java and Kotlin, so the gates reading it are source-text passes. Telling
+// one class from another needs brace depth and a stack of open class scopes, and neither can be
+// trusted until comments and literals are gone: a '{' or the word 'class' inside a string would
+// otherwise move the depth or open a frame. That machinery is the same whichever rule a gate then
+// states over it, so it is held once, here.
+//
+// Applied by each gate rather than by the conventions file, on the same reasoning lint-gate.gradle
+// states: a gate is applied on its own by its integration test, so it has to carry what it uses.
+// Applying this more than once per project is harmless - the assignments below simply overwrite
+// identical closures.
+
+// Removes comment and string/char-literal bodies from one line before any token or brace is read.
+// Block comments and Kotlin triple-quoted strings span lines, so their open state is threaded back
+// in by the caller. Known heuristic limit: a quote embedded in Kotlin '${...}' interpolation can end
+// a literal early - tolerated, as the other source-text gates tolerate it.
+ext.stripTestSourceLine = { String raw, boolean inBlock, boolean inRaw ->
+
+    def out = new StringBuilder()
+    def i = 0
+    def n = raw.length()
+    def block = inBlock
+    def rawString = inRaw
+
+    while (i < n) {
+
+        if (block) {
+
+            if (i + 1 < n && raw[i] == '*' && raw[i + 1] == '/') {
+                block = false; i += 2
+            } else {
+                i++
+            }
+            continue
+        }
+
+        if (rawString) {
+
+            if (i + 3 <= n && raw.substring(i, i + 3) == '"""') {
+                rawString = false; i += 3
+            } else {
+                i++
+            }
+            continue
+        }
+
+        def two = (i + 1 < n) ? raw.substring(i, i + 2) : ''
+        if (two == '//') {
+            break
+        }
+        if (two == '/*') {
+            block = true; i += 2; continue
+        }
+        if (i + 3 <= n && raw.substring(i, i + 3) == '"""') {
+            rawString = true; i += 3; continue
+        }
+
+        def c = raw[i]
+
+        // Kotlin backtick-escaped identifier (e.g. a test name like `does not bill a null
+        // facility`). Its body can hold quotes, apostrophes, and braces that are not code, so skip
+        // to the closing backtick. Kotlin processes no escapes inside, and the identifier cannot
+        // span lines, so no cross-line state is kept.
+        if (c == '`') {
+
+            i++
+            while (i < n && raw[i] != '`') {
+                i++
+            }
+            if (i < n) {
+                i++
+            }
+            continue
+        }
+
+        if (c == '"' || c == '\'') {
+
+            def quote = c
+            i++
+            while (i < n) {
+                if (raw[i] == '\\') {
+                    i += 2; continue
+                }
+                if (raw[i] == quote) {
+                    i++; break
+                }
+                i++
+            }
+            continue
+        }
+
+        out.append(c)
+        i++
+    }
+    [text: out.toString(), inBlock: block, inRaw: rawString]
+}
+
+/**
+ * Walks one test source file line by line, handing each line to visitLine with the class scope it
+ * sits in.
+ *
+ * visitLine receives one map per line:
+ *
+ * - text            the line with comments and literals removed
+ * - number          the line's 1-based number
+ * - enclosingClass  the innermost class open before this line's own braces, as [name, isNested], or
+ *                   null at the top level; a @Test's verdict reads here, since its method's class is
+ *                   already open by the time the annotation is seen
+ * - declaredClass   the class this line declares, as [name, isNested], or null; isNested says a
+ *                   @Nested annotation preceded it
+ */
+ext.scanTestScopes = { File sourceFile, Closure visitLine ->
+
+    def nestedAnnotation = ~/@Nested\b/
+
+    // A class-like declaration that opens a scope. The lookbehind rejects a Kotlin reference such
+    // as 'Foo::class' or 'x.object', which are uses, not declarations. 'object' covers Kotlin
+    // singletons; 'record' covers Java records.
+    def classDecl = ~/(?<![:.\w])(?:class|interface|enum|record|object)\s+(\w+)/
+    def braceDepth = 0
+
+    // One frame per open class scope: the brace depth its body opened at, its name, and whether the
+    // declaration carried @Nested. The nearest frame is the class a line belongs to.
+    def classStack = []
+    def isNestedPending = false      // a @Nested seen, awaiting its class
+    def pendingClass = null          // a class decl seen, awaiting its '{'
+    def isInBlockComment = false
+    def isInRawString = false
+
+    sourceFile.eachLine { rawLine, lineNumber ->
+
+        def stripped = stripTestSourceLine(rawLine, isInBlockComment, isInRawString)
+        def line = stripped.text
+
+        isInBlockComment = stripped.inBlock
+        isInRawString = stripped.inRaw
+
+        def enclosing = classStack.isEmpty() ? null : classStack.last()
+
+        if (nestedAnnotation.matcher(line).find()) {
+            isNestedPending = true
+        }
+
+        def declared = null
+        def declMatcher = classDecl.matcher(line)
+
+        if (declMatcher.find()) {
+
+            declared = [name: declMatcher.group(1), isNested: isNestedPending]
+            pendingClass = declared
+            isNestedPending = false
+        }
+
+        visitLine([text: line,
+            number: lineNumber,
+            enclosingClass: enclosing,
+            declaredClass: declared])
+
+        // Walk braces left to right so a class frame is pushed at its own opening brace and popped
+        // at the matching close. A frame is popped only when a '}' lands at the exact depth its
+        // body opened at, so lambda and method braces deeper inside never disturb it.
+        line.each { ch ->
+
+            if (ch == '{') {
+
+                braceDepth++
+                if (pendingClass != null) {
+
+                    classStack << (pendingClass + [openDepth: braceDepth])
+                    pendingClass = null
+                }
+
+            } else if (ch == '}') {
+
+                if (!classStack.isEmpty() && classStack.last().openDepth == braceDepth) {
+                    classStack.removeAt(classStack.size() - 1)
+                }
+                braceDepth--
+            }
+        }
+    }
+}
