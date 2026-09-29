@@ -1,0 +1,11 @@
+import org.junit.jupiter.api.Test
+
+class SampleFixture {
+
+    fun buildOne(): Int = 1
+}
+
+// A test outside any class, after one has closed: the class above it is not its suite.
+@Test
+fun `answers the stored value`() {
+}

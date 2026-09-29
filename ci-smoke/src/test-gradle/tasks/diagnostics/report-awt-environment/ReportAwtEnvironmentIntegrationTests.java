@@ -7,21 +7,18 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Integration test for the shared report-awt-environment probe: it applies the real script into a
-// throwaway project and runs it, asserting what a developer is told and when the build stops.
+// Drives the shared report-awt-environment probe, asserting what a developer is told and when the
+// build stops.
 //
 // Every case is machine-independent, which for a probe about the machine takes saying. The report
 // case asserts that each fact is NAMED, never what it says - a runner with no fonts must still pass
 // this suite. The gate cases ask for a number of font families no machine has, so "cannot meet the
 // requirement" is reachable on a workstation with every font installed and on a bare container
-// alike. Default package: the grouping folder is the source root, and its kebab name cannot be a
-// Java package.
+// alike.
 class ReportAwtEnvironmentIntegrationTests {
 
     private static final GateUnderTest PROBE =
         new GateUnderTest("reportAwtEnvironment", "awt.environment.script.path");
-
-    private static final String TASK_PATH = ":reportAwtEnvironment";
 
     // More families than any machine offers, so the requirement cannot be met wherever this runs.
     private static final String REQUIRES_MORE_FONTS_THAN_EXIST =
@@ -32,7 +29,7 @@ class ReportAwtEnvironmentIntegrationTests {
 
         var result = runProbe(projectDir, false, "");
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(PROBE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
 
         // The facts, not their values: what makes this worth running on a red runner is that the
@@ -54,7 +51,7 @@ class ReportAwtEnvironmentIntegrationTests {
         // failed by it, however little its runner can draw.
         var result = runProbe(projectDir, false, "");
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(PROBE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -94,7 +91,7 @@ class ReportAwtEnvironmentIntegrationTests {
 
         assertThat(result.getOutput())
             .doesNotContain("AWT environment:");
-        assertThat(result.task(TASK_PATH))
+        assertThat(result.task(PROBE.taskPath()))
             .isNull();
     }
 

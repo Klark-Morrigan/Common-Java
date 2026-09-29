@@ -7,22 +7,11 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Integration test for the shared enforce-single-blank-lines gate: it applies
-// the real gate script into a throwaway project and runs the task, asserting
-// the build outcome and the message a developer sees. Lives in the Common-Java ci-smoke project - the
-// gate script is shared by every consumer; the tests live here beside it.
-//
-// Violating fixtures are .txt files under java/ and kotlin/ subfolders rather
-// than sources. The gate scans every source set this project declares, and this
-// tree is one of them, so a violating line kept as source here would be a real
-// violation of the gate under test. Default package: the grouping folder is the
-// source root, and its kebab name cannot be a Java package.
+// Drives the shared enforce-single-blank-lines gate.
 class EnforceSingleBlankLinesGateIntegrationTests {
 
     private static final GateUnderTest GATE =
         new GateUnderTest("enforceSingleBlankLines", "single.blank.gate.script.path");
-
-    private static final String TASK_PATH = ":enforceSingleBlankLines";
 
     // A Kotlin tree reaches the gate the way it reaches the compiler: because a
     // source set declares it. The Kotlin plugin does that in a real Kotlin build;
@@ -48,7 +37,7 @@ class EnforceSingleBlankLinesGateIntegrationTests {
 
         var result = runGate(projectDir, false);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -84,7 +73,7 @@ class EnforceSingleBlankLinesGateIntegrationTests {
 
         var result = runGate(projectDir, false, KOTLIN_TREE_ON_TEST_SOURCE_SET);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -116,7 +105,7 @@ class EnforceSingleBlankLinesGateIntegrationTests {
 
         var result = runGate(projectDir, false);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -154,7 +143,7 @@ class EnforceSingleBlankLinesGateIntegrationTests {
             false,
             DECLARES_A_TOOLING_SOURCE_SET + EXEMPTS_THE_TOOLING_SOURCE_SET);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 

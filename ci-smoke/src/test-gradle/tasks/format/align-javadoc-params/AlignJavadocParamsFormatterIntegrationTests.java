@@ -11,25 +11,16 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Integration test for the shared align-javadoc-params formatter: it applies the
-// real script into a throwaway project, runs the task, and asserts on the source
-// text left behind. Lives in the Common-Java ci-smoke project - the script is
-// shared by every consumer; the tests live here beside it.
+// Drives the shared align-javadoc-params formatter, asserting on the source text it leaves behind.
 //
-// Unlike the lint gates, this pass rewrites files rather than reporting on them,
-// so a case is a before/after fixture pair and the assertion is on the resulting
-// text. Cases the pass must leave alone assert against their input fixture, which
-// is what stops the formatter from quietly acquiring an opinion about prose it
-// was never meant to restyle.
+// Unlike the lint gates, this pass rewrites files rather than reporting on them, so a case is a
+// before/after fixture pair and the assertion is on the resulting text. Cases the pass must leave
+// alone assert against their input fixture, which is what stops the formatter from quietly
+// acquiring an opinion about prose it was never meant to restyle.
 //
-// Fixtures load from .txt files under a java/ subfolder, so this tree's own
-// sources are never mistaken for them. Default package: the grouping folder is
-// the source root, and its kebab name cannot be a Java package.
-//
-// There is no Kotlin case even though the pass scans .kt. Reaching a .kt file
-// through a source set needs the Kotlin plugin to contribute one, and pulling a
-// compiler plugin into a fixture build is a cost no other test here pays; the
-// KDoc half is exercised by the Kotlin consumers instead.
+// There is no Kotlin case even though the pass scans .kt. Reaching a .kt file through a source set
+// needs the Kotlin plugin to contribute one, and pulling a compiler plugin into a fixture build is a
+// cost no other suite here pays; the KDoc half is exercised by the Kotlin consumers instead.
 class AlignJavadocParamsFormatterIntegrationTests {
     private static final String MAIN_SOURCE_PATH = "src/main/java/Sample.java";
     private static final String TEST_SOURCE_PATH = "src/test/java/Sample.java";

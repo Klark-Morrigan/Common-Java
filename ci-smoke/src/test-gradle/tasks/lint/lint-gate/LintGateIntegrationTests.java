@@ -24,7 +24,6 @@ class LintGateIntegrationTests {
     private static final GateUnderTest GATE =
         new GateUnderTest("enforceNoTrailingWhitespace", "trailing.whitespace.gate.script.path");
 
-    private static final String TASK_PATH = ":enforceNoTrailingWhitespace";
     private static final String STAMP_PATH = "build/lint/enforceNoTrailingWhitespace.stamp";
 
     private static final String CLEAN_SOURCE = "class Sample {\n}\n";
@@ -36,10 +35,10 @@ class LintGateIntegrationTests {
 
         stage(projectDir, CLEAN_SOURCE);
 
-        assertThat(runGate(projectDir, false).task(TASK_PATH).getOutcome())
+        assertThat(runGate(projectDir, false).task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
 
-        assertThat(runGate(projectDir, false).task(TASK_PATH).getOutcome())
+        assertThat(runGate(projectDir, false).task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.UP_TO_DATE);
     }
 
@@ -51,7 +50,7 @@ class LintGateIntegrationTests {
         runGate(projectDir, false);
         stage(projectDir, CLEAN_SOURCE_EDITED);
 
-        assertThat(runGate(projectDir, false).task(TASK_PATH).getOutcome())
+        assertThat(runGate(projectDir, false).task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -63,7 +62,7 @@ class LintGateIntegrationTests {
         runGate(projectDir, false);
         stage(projectDir, SOURCE_WITH_TRAILING_SPACE);
 
-        assertThat(runGate(projectDir, true).task(TASK_PATH).getOutcome())
+        assertThat(runGate(projectDir, true).task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.FAILED);
     }
 
@@ -74,10 +73,10 @@ class LintGateIntegrationTests {
         // and read as green.
         stage(projectDir, SOURCE_WITH_TRAILING_SPACE);
 
-        assertThat(runGate(projectDir, true).task(TASK_PATH).getOutcome())
+        assertThat(runGate(projectDir, true).task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.FAILED);
 
-        assertThat(runGate(projectDir, true).task(TASK_PATH).getOutcome())
+        assertThat(runGate(projectDir, true).task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.FAILED);
     }
 
@@ -110,7 +109,7 @@ class LintGateIntegrationTests {
             .runningTask("check")
             .runExpectingFailure();
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.FAILED);
     }
 

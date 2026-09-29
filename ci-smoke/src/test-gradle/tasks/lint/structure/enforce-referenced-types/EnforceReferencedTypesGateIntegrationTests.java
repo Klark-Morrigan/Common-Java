@@ -1,4 +1,3 @@
-import org.gradle.testkit.runner.TaskOutcome;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -9,26 +8,20 @@ import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Integration test for the shared enforce-referenced-types gate: it applies the
-// real gate script into a throwaway project, compiles that project, and runs the
-// task - asserting the build outcome and the message a developer sees. Lives in
-// the Common-Java ci-smoke project, the gate script being shared by every
-// consumer.
+// Drives the shared enforce-referenced-types gate, compiling the throwaway project before the task
+// runs.
 //
-// The fixtures are a library standing in for any whose internal names are not
-// promised, and a consumer built against it. Both are compiled by the throwaway
-// project, since what this gate reads is class files: a fixture filed as source
-// alone would leave it with nothing to scan.
+// The fixtures are a library standing in for any whose internal names are not promised, and a
+// consumer built against it. Both are compiled by the throwaway project, since what this gate reads
+// is class files: a fixture filed as source alone would leave it with nothing to scan.
 //
-// The library sits under the declared namespace, so the gate passes over its own
-// classes and judges the consumer's - which is the shape a real build has, the
-// library arriving as a jar rather than as sources.
+// The library sits under the declared namespace, so the gate passes over its own classes and judges
+// the consumer's - which is the shape a real build has, the library arriving as a jar rather than as
+// sources.
 class EnforceReferencedTypesGateIntegrationTests {
 
     private static final GateUnderTest GATE =
         new GateUnderTest("enforceReferencedTypes", "referenced.types.gate.script.path");
-
-    private static final String TASK_PATH = ":enforceReferencedTypes";
 
     // What the consuming build declares, and what the fixtures are written
     // against: one namespace, one published package inside it, one type named on
@@ -129,14 +122,11 @@ class EnforceReferencedTypesGateIntegrationTests {
     @Test
     void passesWhenOnlyThePublishedPackageIsNamed(@TempDir Path projectDir) {
 
-        var result = buildProject(projectDir, THE_PUBLISHED_PACKAGE_ALONE)
+        buildProject(projectDir, THE_PUBLISHED_PACKAGE_ALONE)
             .holdingFixture(
                 "src/main/java/example/consumer/Caller.java",
                 "java/caller-naming-the-published-type")
-            .runExpectingSuccess();
-
-        assertThat(result.task(TASK_PATH).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
+            .runExpectingGateToPass();
     }
 
     @Test
@@ -144,14 +134,11 @@ class EnforceReferencedTypesGateIntegrationTests {
 
         // A nested type is declared with its outer one, promised by the same
         // decision and renamed by the same release, so the allowance covers it.
-        var result = buildProject(projectDir, PUBLISHED_PACKAGE_AND_THE_SEAM)
+        buildProject(projectDir, PUBLISHED_PACKAGE_AND_THE_SEAM)
             .holdingFixture(
                 "src/main/java/example/consumer/Caller.java",
                 "java/caller-naming-a-type-nested-in-the-seam")
-            .runExpectingSuccess();
-
-        assertThat(result.task(TASK_PATH).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
+            .runExpectingGateToPass();
     }
 
     @Test
@@ -160,11 +147,8 @@ class EnforceReferencedTypesGateIntegrationTests {
         // The library's own seam hands back the unpromised type, so a scan that
         // judged it would report the library to itself. Nothing in the namespace
         // is asked to keep a promise it is the one making.
-        var result = buildProject(projectDir, NOTHING_IN_THE_NAMESPACE)
-            .runExpectingSuccess();
-
-        assertThat(result.task(TASK_PATH).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
+        buildProject(projectDir, NOTHING_IN_THE_NAMESPACE)
+            .runExpectingGateToPass();
     }
 
     @Test
@@ -191,27 +175,21 @@ class EnforceReferencedTypesGateIntegrationTests {
 
         // What every consumer that never declares one inherits, which is what
         // lets the conventions file apply the gate everywhere.
-        var result = buildProject(projectDir, NOTHING_DECLARED)
+        buildProject(projectDir, NOTHING_DECLARED)
             .holdingFixture(
                 "src/main/java/example/consumer/Caller.java",
                 "java/caller-naming-the-unpromised-type")
-            .runExpectingSuccess();
-
-        assertThat(result.task(TASK_PATH).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
+            .runExpectingGateToPass();
     }
 
     @Test
     void passesWhenThereIsNothingCompiled(@TempDir Path projectDir) {
 
-        var result = GateProject
+        GateProject
             .driving(GATE, projectDir)
             .applyingTheJavaPlugin()
             .configuringTheGate(PUBLISHED_PACKAGE_AND_THE_SEAM)
-            .runExpectingSuccess();
-
-        assertThat(result.task(TASK_PATH).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
+            .runExpectingGateToPass();
     }
 
     @Test

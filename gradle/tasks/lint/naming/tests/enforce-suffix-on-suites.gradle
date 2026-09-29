@@ -1,10 +1,9 @@
 // Suite-name gate, applied by java-conventions.gradle into every consuming project: a class that
 // holds tests is named '<Subject>Tests', and an integration suite '<Subject>IntegrationTests'.
 //
-// The convention already named integration suites with the plural, and the unit suites filed
-// beside them ended in the singular - one tree, two suffixes, for one meaning. Nothing in the
-// compiler or the runner has an opinion on a class name, so the two spellings sat side by side
-// until a gate held them to one.
+// One suffix for one meaning: a tree naming its integration suites in the plural and its unit
+// suites in the singular spells the same thing two ways. Nothing in the compiler or the runner has
+// an opinion on a class name, so the two spellings sit side by side until a gate holds them to one.
 //
 // A suite is any outermost class under src/test holding a @Nested group or a test method. That is
 // what tells it from a helper or a fixture filed in the same tree, which keeps whatever name says
@@ -27,7 +26,6 @@ def enforceSuffixOnSuites = tasks.register('enforceSuffixOnSuites') {
 
     doLast {
 
-        def suiteSuffix = 'Tests'
         def violations = []
 
         eachSourceFile(testRoots) { sourceFile ->
@@ -51,8 +49,12 @@ def enforceSuffixOnSuites = tasks.register('enforceSuffixOnSuites') {
                 def isTestMarker = (declared != null && declared.isNested)
                     || testMethodAnnotation.matcher(line.text).find()
 
-                // A test outside any class is enforceTestsNested's finding, not a name to judge.
-                if (!isTestMarker || isReported || outermost == null
+                // A test outside any class is enforceTestsNested's finding, not a name to judge. Read
+                // off the line's own scope rather than the last outermost class seen, which stays
+                // set after that class closes.
+                if (!isTestMarker
+                        || isReported
+                        || line.enclosingClass == null
                         || outermost.name.endsWith(suiteSuffix)) {
 
                     return

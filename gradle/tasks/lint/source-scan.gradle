@@ -16,6 +16,10 @@
 // catching @Testable or @TestInstance.
 ext.testMethodAnnotation = ~/@(?:Test|ParameterizedTest|RepeatedTest|TestFactory)\b/
 
+// The word a suite's class name ends in: enforceSuffixOnSuites holds suites to it, and the
+// test-double gates read it to tell a suite over a double from the double itself.
+ext.suiteSuffix = 'Tests'
+
 // Removes comment and string/char-literal bodies from one line before any token or brace is read,
 // along with Kotlin's backtick-quoted identifiers. Block comments and Kotlin triple-quoted strings
 // span lines, so their open state is threaded back in by the caller. Known heuristic limit: a quote

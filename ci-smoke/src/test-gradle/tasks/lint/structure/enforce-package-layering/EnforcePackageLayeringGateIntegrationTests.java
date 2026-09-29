@@ -7,24 +7,14 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Integration test for the shared enforce-package-layering gate: it applies the
-// real gate script into a throwaway project and runs the task, asserting the
-// build outcome and the message a developer sees. Lives in the Common-Java
-// ci-smoke project - the gate script is shared by every consumer, so the tests
-// live here beside it. Fixtures load from .txt files under java/ and kotlin/
-// subfolders so the gate, which scans every source set, never sees a fixture as
-// real source here; this tree is src/test-gradle, deliberately out of its reach.
+// Drives the shared enforce-package-layering gate.
 //
-// The fixture packages are 'example.framework' and 'example.feature' rather
-// than any real consumer's, because the gate owns only the mechanism and this
-// repo knows no consumer's layers. Default package: the grouping folder is the
-// source root, and its kebab name cannot be a Java package.
+// The fixture packages are 'example.framework' and 'example.feature' rather than any real
+// consumer's, because the gate owns only the mechanism and this repo knows no consumer's layers.
 class EnforcePackageLayeringGateIntegrationTests {
 
     private static final GateUnderTest GATE =
         new GateUnderTest("enforcePackageLayering", "package.layering.gate.script.path");
-
-    private static final String TASK_PATH = ":enforcePackageLayering";
 
     // What the consuming build declares, and what the fixtures are written
     // against: the framework root is closed to the feature root.
@@ -216,7 +206,7 @@ class EnforcePackageLayeringGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURE);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -232,7 +222,7 @@ class EnforcePackageLayeringGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, CLOSED_EXACTLY_TO_THE_FEATURE);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -245,7 +235,7 @@ class EnforcePackageLayeringGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURE);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -258,7 +248,7 @@ class EnforcePackageLayeringGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURE);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -271,7 +261,7 @@ class EnforcePackageLayeringGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURE);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -285,7 +275,7 @@ class EnforcePackageLayeringGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, NO_EDGE_DECLARED);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -294,7 +284,7 @@ class EnforcePackageLayeringGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURE);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 

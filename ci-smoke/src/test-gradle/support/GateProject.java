@@ -1,5 +1,6 @@
 import org.gradle.testkit.runner.BuildResult;
 import org.gradle.testkit.runner.GradleRunner;
+import org.gradle.testkit.runner.TaskOutcome;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -7,6 +8,8 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * The throwaway project a gate suite drives its gate in: a settings file, a build file applying the
@@ -22,8 +25,19 @@ import java.nio.file.Path;
  * Everything a caller stages lands on disk as it is stated, so a suite whose cases run a gate twice
  * over what a first run left may state the project afresh each time rather than carry one between
  * them.
+ *
+ * What every suite under src/test-gradle/tasks shares is stated here rather than in each header. A
+ * suite applies the real script into this project and runs a real build, asserting the outcome and
+ * the message a developer sees; it lives in Common-Java's ci-smoke beside the scripts every consumer
+ * applies. Each suite folder is a source root, so a suite sits in the default package: a kebab-case
+ * folder name cannot be a Java package.
  */
 final class GateProject {
+
+    // Where a gate reading the test tree finds the one sample a case poses, per language. The name
+    // is arbitrary; the root is what puts it under the gate's scan.
+    private static final String JAVA_TEST_SAMPLE_PATH = "src/test/java/Sample.java";
+    private static final String KOTLIN_TEST_SAMPLE_PATH = "src/test/kotlin/Sample.kt";
 
     private final GateUnderTest gate;
     private final Path projectDir;
@@ -53,6 +67,10 @@ final class GateProject {
      * The text of a fixture, loaded from the .txt files filed beside the suite. The name carries its
      * language subfolder ('java/...', 'kotlin/...', 'markdown/...'), which resolves under the
      * classpath root the source set exposes for resources.
+     *
+     * Fixtures are .txt rather than source files because most of them hold the very lines a gate
+     * rejects: filed as .java or .kt, they would be compiled, and read by the gates scanning this
+     * repository's own trees.
      *
      * @param fixtureName the fixture's path under its suite folder, without the .txt
      * @return the fixture's text
@@ -113,6 +131,24 @@ final class GateProject {
      */
     GateProject holdingFixture(String filePath, String fixtureName) {
         return holdingText(filePath, loadFixture(fixtureName));
+    }
+
+    /**
+     * Writes a Java fixture where a gate reading the test tree finds it.
+     *
+     * @param fixtureName the fixture's name under its suite's java/ folder, without the .txt
+     */
+    GateProject holdingJavaTestSample(String fixtureName) {
+        return holdingFixture(JAVA_TEST_SAMPLE_PATH, "java/" + fixtureName);
+    }
+
+    /**
+     * Writes a Kotlin fixture where a gate reading the test tree finds it.
+     *
+     * @param fixtureName the fixture's name under its suite's kotlin/ folder, without the .txt
+     */
+    GateProject holdingKotlinTestSample(String fixtureName) {
+        return holdingFixture(KOTLIN_TEST_SAMPLE_PATH, "kotlin/" + fixtureName);
     }
 
     /**
@@ -199,6 +235,23 @@ final class GateProject {
      */
     BuildResult runExpectingSuccess() {
         return createRunner().build();
+    }
+
+    /**
+     * Runs a build the gate is expected to pass, and checks the gate itself ran and passed. A build
+     * succeeding is not enough on its own: a gate skipped, or never scheduled, judges nothing and
+     * still leaves the build green.
+     *
+     * @return the result, for a case with more to read off it
+     */
+    BuildResult runExpectingGateToPass() {
+
+        var result = runExpectingSuccess();
+
+        assertThat(result.task(gate.taskPath()).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
+
+        return result;
     }
 
     private GradleRunner createRunner() {

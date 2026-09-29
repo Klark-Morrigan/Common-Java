@@ -9,6 +9,14 @@
 record GateUnderTest(String taskName, String scriptPathSystemProperty) {
 
     /**
+     * The gate's task as a build result names it, root project and all - derived from the name so a
+     * suite cannot state one and look up another.
+     */
+    String taskPath() {
+        return ":" + taskName;
+    }
+
+    /**
      * The gate script's path, handed in by the test task so a suite does not assume a working
      * directory. Forward slashes keep it valid inside the generated build script on Windows.
      */

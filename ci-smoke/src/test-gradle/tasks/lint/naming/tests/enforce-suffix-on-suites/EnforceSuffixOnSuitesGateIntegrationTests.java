@@ -1,4 +1,3 @@
-import org.gradle.testkit.runner.TaskOutcome;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -6,28 +5,21 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Integration test for the shared enforce-suffix-on-suites gate: it applies the real gate script
-// into a throwaway project and runs the task, asserting the build outcome and the message a
-// developer sees. Lives in the Common-Java ci-smoke project - the gate script is shared by every
-// consumer; the tests live here beside it. Fixtures load from .txt files under java/ and kotlin/
-// subfolders so the gate, which scans src/test, never sees a violating class here; this tree is
-// src/test-gradle, deliberately out of its reach.
+// Drives the shared enforce-suffix-on-suites gate.
 //
 // The case that matters most is the one the gate must NOT flag: a helper filed under src/test
 // holds no test and keeps its own name, so a suffix check over every class there would be wrong.
-// Default package: the grouping folder is the source root, and its kebab name cannot be a Java
-// package.
 class EnforceSuffixOnSuitesGateIntegrationTests {
 
     private static final GateUnderTest GATE =
         new GateUnderTest("enforceSuffixOnSuites", "suffix.on.suites.gate.script.path");
 
-    private static final String TASK_PATH = ":enforceSuffixOnSuites";
-
     @Test
     void failsWhenASuiteEndsInTest(@TempDir Path projectDir) {
 
-        var result = javaProject(projectDir, "suite-ending-in-test-is-flagged")
+        var result = GateProject
+            .driving(GATE, projectDir)
+            .holdingJavaTestSample("suite-ending-in-test-is-flagged")
             .runExpectingFailure();
 
         assertThat(result.getOutput())
@@ -40,7 +32,9 @@ class EnforceSuffixOnSuitesGateIntegrationTests {
     @Test
     void reportsASuiteOnce(@TempDir Path projectDir) {
 
-        var result = javaProject(projectDir, "suite-ending-in-test-is-flagged")
+        var result = GateProject
+            .driving(GATE, projectDir)
+            .holdingJavaTestSample("suite-ending-in-test-is-flagged")
             .runExpectingFailure();
 
         assertThat(result.getOutput())
@@ -52,7 +46,9 @@ class EnforceSuffixOnSuitesGateIntegrationTests {
     @Test
     void failsWhenAClassHoldsAGroupButNoTestYet(@TempDir Path projectDir) {
 
-        var result = javaProject(projectDir, "group-without-tests-is-flagged")
+        var result = GateProject
+            .driving(GATE, projectDir)
+            .holdingJavaTestSample("group-without-tests-is-flagged")
             .runExpectingFailure();
 
         assertThat(result.getOutput())
@@ -63,21 +59,19 @@ class EnforceSuffixOnSuitesGateIntegrationTests {
     @Test
     void passesWhenASuiteEndsInTests(@TempDir Path projectDir) {
 
-        var result = javaProject(projectDir, "suite-ending-in-tests-passes")
-            .runExpectingSuccess();
-
-        assertThat(result.task(TASK_PATH).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
+        GateProject
+            .driving(GATE, projectDir)
+            .holdingJavaTestSample("suite-ending-in-tests-passes")
+            .runExpectingGateToPass();
     }
 
     @Test
     void passesWhenAnIntegrationSuiteEndsInIntegrationTests(@TempDir Path projectDir) {
 
-        var result = javaProject(projectDir, "integration-suite-passes")
-            .runExpectingSuccess();
-
-        assertThat(result.task(TASK_PATH).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
+        GateProject
+            .driving(GATE, projectDir)
+            .holdingJavaTestSample("integration-suite-passes")
+            .runExpectingGateToPass();
     }
 
     // A fixture or helper under src/test holds no test, so its name is its own; a nested class it
@@ -85,11 +79,10 @@ class EnforceSuffixOnSuitesGateIntegrationTests {
     @Test
     void passesWhenAHelperHoldsNoTest(@TempDir Path projectDir) {
 
-        var result = javaProject(projectDir, "helper-without-tests-passes")
-            .runExpectingSuccess();
-
-        assertThat(result.task(TASK_PATH).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
+        GateProject
+            .driving(GATE, projectDir)
+            .holdingJavaTestSample("helper-without-tests-passes")
+            .runExpectingGateToPass();
     }
 
     // A Kotlin group is an 'inner class' and its tests are declared with 'fun'; the outermost
@@ -97,7 +90,9 @@ class EnforceSuffixOnSuitesGateIntegrationTests {
     @Test
     void failsWhenAKotlinSuiteEndsInTest(@TempDir Path projectDir) {
 
-        var result = kotlinProject(projectDir, "suite-ending-in-test-is-flagged")
+        var result = GateProject
+            .driving(GATE, projectDir)
+            .holdingKotlinTestSample("suite-ending-in-test-is-flagged")
             .runExpectingFailure();
 
         assertThat(result.getOutput())
@@ -105,28 +100,37 @@ class EnforceSuffixOnSuitesGateIntegrationTests {
             .contains("does not end in 'Tests'");
     }
 
+    // A Kotlin file may hold several top-level classes; each is judged on its own, so a helper
+    // above a suite is not blamed for the suite's name.
     @Test
-    void passesWhenThereIsNoTestTree(@TempDir Path projectDir) {
+    void namesTheSuiteRatherThanAHelperAboveIt(@TempDir Path projectDir) {
 
         var result = GateProject
             .driving(GATE, projectDir)
-            .runExpectingSuccess();
+            .holdingKotlinTestSample("helper-before-a-suite-in-one-file")
+            .runExpectingFailure();
 
-        assertThat(result.task(TASK_PATH).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
+        assertThat(result.getOutput())
+            .contains("'SampleTest'")
+            .doesNotContain("'SampleFixture'");
     }
 
-    private static GateProject javaProject(Path projectDir, String fixture) {
+    // A test outside any class is enforceTestsNested's finding. The class that closed above it
+    // is not its suite, and naming it would send its author to rename a helper.
+    @Test
+    void passesWhenATestSitsOutsideAnyClass(@TempDir Path projectDir) {
 
-        return GateProject
+        GateProject
             .driving(GATE, projectDir)
-            .holdingFixture("src/test/java/Sample.java", "java/" + fixture);
+            .holdingKotlinTestSample("test-outside-a-class-is-left-alone")
+            .runExpectingGateToPass();
     }
 
-    private static GateProject kotlinProject(Path projectDir, String fixture) {
+    @Test
+    void passesWhenThereIsNoTestTree(@TempDir Path projectDir) {
 
-        return GateProject
+        GateProject
             .driving(GATE, projectDir)
-            .holdingFixture("src/test/kotlin/Sample.kt", "kotlin/" + fixture);
+            .runExpectingGateToPass();
     }
 }

@@ -8,27 +8,18 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Integration test for the shared enforce-id-casing gate: it applies the real
-// gate script into a throwaway project and runs the task, asserting the build
-// outcome and the message a developer sees. Lives in the Common-Java ci-smoke
-// project - the gate script is shared by every consumer, so the tests live here
-// beside it. Fixtures load from .txt files under java/ and markdown/ subfolders
-// so the gate never sees a fixture as real source here.
+// Drives the shared enforce-id-casing gate.
 //
-// The cases are weighted towards passing rather than failing, because the gate's
-// difficulty is entirely in not firing: a rule about one two-letter word is
-// worthless if it also reports every field, column and file name that spells it.
+// The cases are weighted towards passing rather than failing, because the gate's difficulty is
+// entirely in not firing: a rule about one two-letter word is worthless if it also reports every
+// field, column and file name that spells it.
 //
-// The fixture package is 'example.production' rather than any real consumer's,
-// because the gate owns the rule and this repo knows no consumer's tree.
-// Default package: the grouping folder is the source root, and its kebab name
-// cannot be a Java package.
+// The fixture package is 'example.production' rather than any real consumer's, because the gate
+// owns the rule and this repo knows no consumer's tree.
 class EnforceIdCasingGateIntegrationTests {
 
     private static final GateUnderTest GATE =
         new GateUnderTest("enforceIdCasing", "id.casing.gate.script.path");
-
-    private static final String TASK_PATH = ":enforceIdCasing";
 
     private static final String PRODUCTION_PACKAGE_PATH = "example/production";
 
@@ -135,7 +126,7 @@ class EnforceIdCasingGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, NOTHING_EXEMPT);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -150,7 +141,7 @@ class EnforceIdCasingGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, NOTHING_EXEMPT);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -165,7 +156,7 @@ class EnforceIdCasingGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, NOTHING_EXEMPT);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -177,7 +168,7 @@ class EnforceIdCasingGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, EXEMPTING_THE_VENDORED_DOCUMENTS);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -187,7 +178,7 @@ class EnforceIdCasingGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, NOTHING_EXEMPT);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
