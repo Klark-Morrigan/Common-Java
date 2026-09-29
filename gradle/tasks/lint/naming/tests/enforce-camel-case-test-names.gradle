@@ -46,39 +46,28 @@ def enforceCamelCaseTestNames = tasks.register('enforceCamelCaseTestNames') {
         def snakeCallName = ~/(?<![.\w])([a-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+)\s*\(/
         def violations = []
 
-        testRoots
-            .findAll { it.exists() }
-            .each { testRoot ->
+        eachSourceFile(testRoots) { sourceFile ->
 
-                fileTree(testRoot)
-                    .matching { include '**/*.java', '**/*.kt' }
-                    .each { sourceFile ->
+            def isInBlockComment = false
+            def isInRawString = false
 
-                        def isInBlockComment = false
-                        def isInRawString = false
+            sourceFile.eachLine {
+                rawLine,
+                lineNumber ->
 
-                        sourceFile.eachLine {
-                            rawLine,
-                            lineNumber ->
+                    def stripped = stripSourceLine(rawLine, isInBlockComment, isInRawString)
 
-                                def stripped = stripSourceLine(
-                                    rawLine,
-                                    isInBlockComment,
-                                    isInRawString)
+                    isInBlockComment = stripped.inBlock
+                    isInRawString = stripped.inRaw
 
-                                isInBlockComment = stripped.inBlock
-                                isInRawString = stripped.inRaw
+                    def matcher = snakeCallName.matcher(stripped.text)
 
-                                def matcher = snakeCallName.matcher(stripped.text)
+                    while (matcher.find()) {
 
-                                while (matcher.find()) {
-
-                                    violations << "${sourceFile}:${lineNumber}: test method " +
-                                        "'${matcher.group(1)}' must be named in camelCase"
-                                }
-                            }
+                        violations << "${sourceFile}:${lineNumber}: test method " +
+                            "'${matcher.group(1)}' must be named in camelCase"
                     }
-            }
+                }
         }
 
         failOnViolations('Test-method naming convention violated', violations)

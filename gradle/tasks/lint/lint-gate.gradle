@@ -1,13 +1,17 @@
 // Shared plumbing for the lint gates: what every gate needs to be a gate, past
 // the rule it actually asserts.
 //
-// There are two such things, and they were written out at the foot of each gate
-// until the family reached fifteen copies of them. Both are about how a gate
-// meets Gradle rather than about any gate's subject, so neither is a decision a
-// gate author should be making again - and an author reaching for a sibling to
-// copy the shape from is how a gate ends up with one of the two and not the
-// other, which fails silently in both directions: a gate nothing depends on
-// never runs, and a gate with no output runs on every build forever.
+// Being a gate takes two things, and they were written out at the foot of each
+// gate until the family reached fifteen copies of them. Both are about how a
+// gate meets Gradle rather than about any gate's subject, so neither is a
+// decision a gate author should be making again - and an author reaching for a
+// sibling to copy the shape from is how a gate ends up with one of the two and
+// not the other, which fails silently in both directions: a gate nothing depends
+// on never runs, and a gate with no output runs on every build forever.
+//
+// The same goes for the two ends of most gates' own work, held below the pair:
+// declaring and walking the source roots it reads, and failing with what it
+// found.
 //
 // It lives in its own script, applied by each gate rather than by the
 // conventions file, because a gate has to stand on its own: its integration
@@ -97,6 +101,17 @@ ext.declareSourceRoots = { Task gate, List<String> paths ->
         }
     }
     roots
+}
+
+// Hands each Java and Kotlin file under the given roots to visitFile, skipping
+// a root that does not exist.
+ext.eachSourceFile = { List<File> roots, Closure visitFile ->
+
+    roots
+        .findAll { it.exists() }
+        .each { root ->
+            fileTree(root).matching { include '**/*.java', '**/*.kt' }.each(visitFile)
+        }
 }
 
 // Fails the gate when it found anything, one finding per line under its heading.

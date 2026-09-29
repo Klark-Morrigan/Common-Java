@@ -54,62 +54,58 @@ def enforceTestNamesOmitGroup = tasks.register('enforceTestNamesOmitGroup') {
 
         def violations = []
 
-        fileTree(testRoot)
-            .matching { include '**/*.java', '**/*.kt' }
-            .each { sourceFile ->
+        eachSourceFile(testRoots) { sourceFile ->
 
-                def declaration = sourceFile.name.endsWith('.kt')
-                    ? kotlinDeclaration
-                    : javaDeclaration
+            def declaration = sourceFile.name.endsWith('.kt')
+                ? kotlinDeclaration
+                : javaDeclaration
 
-                // The group of the test annotation still waiting for its method: a @Test is
-                // usually on a line of its own, with the declaration one or more annotation lines
-                // below it.
-                def awaitedGroup = null
-                def isAwaitingDeclaration = false
+            // The group of the test annotation still waiting for its method: a @Test is usually on
+            // a line of its own, with the declaration one or more annotation lines below it.
+            def awaitedGroup = null
+            def isAwaitingDeclaration = false
 
-                scanClassScopes(sourceFile) { line ->
+            scanClassScopes(sourceFile) { line ->
 
-                    def text = line.text
-                    def annotationMatcher = testMethodAnnotation.matcher(text)
+                def text = line.text
+                def annotationMatcher = testMethodAnnotation.matcher(text)
 
-                    if (annotationMatcher.find()) {
+                if (annotationMatcher.find()) {
 
-                        def enclosing = line.enclosingClass
+                    def enclosing = line.enclosingClass
 
-                        awaitedGroup = (enclosing != null && enclosing.isNested)
-                            ? enclosing.name
-                            : null
+                    awaitedGroup = (enclosing != null && enclosing.isNested)
+                        ? enclosing.name
+                        : null
 
-                        isAwaitingDeclaration = true
+                    isAwaitingDeclaration = true
 
-                        // The method may share the annotation's line.
-                        text = text.substring(annotationMatcher.end())
-                    }
+                    // The method may share the annotation's line.
+                    text = text.substring(annotationMatcher.end())
+                }
 
-                    if (!isAwaitingDeclaration) {
-                        return
-                    }
+                if (!isAwaitingDeclaration) {
+                    return
+                }
 
-                    def declared = declaration.matcher(text.replaceAll(anyAnnotation, ''))
-                    if (!declared.find()) {
-                        return
-                    }
+                def declared = declaration.matcher(text.replaceAll(anyAnnotation, ''))
+                if (!declared.find()) {
+                    return
+                }
 
-                    isAwaitingDeclaration = false
+                isAwaitingDeclaration = false
 
-                    // A backtick name leaves no identifier after 'fun'.
-                    def methodName = declared.group(1)
-                    if (awaitedGroup == null || methodName == null) {
-                        return
-                    }
+                // A backtick name leaves no identifier after 'fun'.
+                def methodName = declared.group(1)
+                if (awaitedGroup == null || methodName == null) {
+                    return
+                }
 
-                    if (repeatsGroupName(methodName, awaitedGroup)) {
+                if (repeatsGroupName(methodName, awaitedGroup)) {
 
-                        violations << "${sourceFile}:${line.number}: test method " +
-                            "'${methodName}' repeats its @Nested group '${awaitedGroup}'; name " +
-                            "the outcome and condition alone"
-                    }
+                    violations << "${sourceFile}:${line.number}: test method '${methodName}' " +
+                        "repeats its @Nested group '${awaitedGroup}'; name the outcome and " +
+                        "condition alone"
                 }
             }
         }
