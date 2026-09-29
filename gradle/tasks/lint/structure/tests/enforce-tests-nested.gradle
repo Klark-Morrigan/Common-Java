@@ -93,16 +93,9 @@ def enforceTestsNested = tasks.register('enforceTestsNested') {
                     }
                 }
             }
-
-        if (!violations.isEmpty()) {
-            // GradleException is the idiomatic build-failure signal; its clean
-            // message reads as the gate's verdict. The editor flags it as an
-            // unresolved class because an applied script has no Gradle API on
-            // its classpath - a known tooling false positive, not a defect, so
-            // do not "fix" it by swapping in a java.lang exception.
-            throw new GradleException("Nested-test convention violated:\n  " +
-                violations.join('\n  '))
         }
+
+        failOnViolations('Nested-test convention violated', violations)
     }
 }
 

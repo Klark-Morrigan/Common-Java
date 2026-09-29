@@ -124,14 +124,9 @@ def enforceTestNamesOmitGroup = tasks.register('enforceTestNamesOmitGroup') {
                     }
                 }
             }
-
-        if (!violations.isEmpty()) {
-            // GradleException is the idiomatic build-failure signal; the editor flags it as an
-            // unresolved class because an applied script has no Gradle API on its classpath - a
-            // known tooling false positive, not a defect.
-            throw new GradleException("Test-name convention violated:\n  " +
-                violations.join('\n  '))
         }
+
+        failOnViolations('Test-name convention violated', violations)
     }
 }
 
