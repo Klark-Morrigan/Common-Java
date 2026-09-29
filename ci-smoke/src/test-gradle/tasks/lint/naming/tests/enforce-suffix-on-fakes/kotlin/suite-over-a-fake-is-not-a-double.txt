@@ -1,4 +1,4 @@
-class ConditionRepositoryFakeTest {
+class ConditionRepositoryFakeTests {
     fun collectsWhatWasWritten() {
         val repositoryFake = ConditionRepositoryFake()
     }
