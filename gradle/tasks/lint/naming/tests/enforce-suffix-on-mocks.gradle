@@ -25,17 +25,11 @@ def enforceSuffixOnMocks = tasks.register('enforceSuffixOnMocks') {
             'not suffixed Mock.'
     group = 'verification'
 
-    def testRoot = file('src/test')
-    // Declare the input only when it exists: Gradle validates a declared input directory is
-    // present, so an absent src/test (a project with no tests) would otherwise fail configuration
-    // rather than skip. The scan guards the same absence at execution time.
-    if (testRoot.exists()) {
-        inputs.dir(testRoot).withPropertyName('testSources')
-    }
+    def testRoots = declareSourceRoots(it, ['src/test'])
 
     doLast {
         def violations = findDoubleNamingViolations(
-            testRoot: testRoot,
+            testRoots: testRoots,
             suffix: 'Mock',
             // A Mockito double factory, with or without a qualifier ('Mockito.mock'). The scan's
             // bracket anchor admits 'mock(', 'mockStatic(' and mockito-kotlin's 'mock<T>()' while

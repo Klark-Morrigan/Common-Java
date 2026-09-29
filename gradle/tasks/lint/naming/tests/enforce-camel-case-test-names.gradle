@@ -36,18 +36,7 @@ def enforceCamelCaseTestNames = tasks.register('enforceCamelCaseTestNames') {
 
     // Both trees a test name can live in. Fixtures are held to the same rule as the cases that
     // drive them: a helper is read in a report exactly as a case is.
-    def testRoots = ['src/test', 'src/testFixtures'].collect { file(it) }
-
-    // Declare only the roots that exist: Gradle validates a declared input directory is present, so
-    // a project with no tests would otherwise fail configuration rather than skip. The scan guards
-    // the same absence at execution time.
-    testRoots.eachWithIndex {
-        root,
-        index ->
-            if (root.exists()) {
-                inputs.dir(root).withPropertyName("testSources${index}")
-            }
-        }
+    def testRoots = declareSourceRoots(it, ['src/test', 'src/testFixtures'])
 
     doLast {
         // An identifier carrying an underscore that opens a call. The lookbehind keeps a qualified

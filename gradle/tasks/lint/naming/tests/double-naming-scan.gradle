@@ -38,8 +38,10 @@
 //
 // Applied by each gate rather than by the conventions file, on the same reasoning
 // lint-gate.gradle states: a gate is applied on its own by its integration test, so it has to
-// carry what it uses. Applying this more than once per project is harmless - the assignment below
-// simply overwrites an identical closure.
+// carry what it uses - which here includes lint-gate.gradle's walk over a gate's source roots.
+// Applying this more than once per project is harmless - the assignment below simply overwrites an
+// identical closure.
+apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate.gradle')
 
 /**
  * Scans a test tree for doubles whose names do not end in the required suffix.
@@ -47,7 +49,8 @@
  * Named arguments rather than a positional list: three of the four are strings and patterns that
  * would read alike in any order at a call site.
  *
- * - testRoot     the directory to scan; an absent one yields no violations
+ * - testRoots    the directories to scan, as declareSourceRoots answers them; an absent one yields
+ *                no violations
  * - suffix       the word a double's name must end in ('Fake'), which is also the noun a message
  *                calls it by in lower case
  * - factoryCall  a regex fragment matching the call a double is born from, up to but not including
@@ -57,16 +60,12 @@
  */
 ext.findDoubleNamingViolations = { Map spec ->
 
-    File testRoot = spec.testRoot
+    List<File> testRoots = spec.testRoots
     String suffix = spec.suffix
     String factoryCall = spec.factoryCall
 
     def typePattern = spec.typePattern
     def violations = []
-
-    if (!testRoot.exists()) {
-        return violations
-    }
 
     // What a message calls the double, taken from the suffix so the two cannot drift apart.
     def doubleNoun = suffix.toLowerCase()

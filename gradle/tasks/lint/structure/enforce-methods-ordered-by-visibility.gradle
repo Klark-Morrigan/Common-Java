@@ -44,19 +44,9 @@ def enforceMethodsOrderedByVisibility = tasks.register('enforceMethodsOrderedByV
 
     // Production code only: test classes order setup methods (@BeforeEach) and
     // helpers by role rather than visibility, so the ladder does not apply there.
-    def sourceRoot = file('src/main')
-    // Declare the input only when it exists: Gradle validates a declared input
-    // directory is present, so an absent src/main would otherwise fail
-    // configuration rather than skip. The doLast guards the same absence at
-    // execution time.
-    if (sourceRoot.exists()) {
-        inputs.dir(sourceRoot).withPropertyName('mainSources')
-    }
+    def sourceRoots = declareSourceRoots(it, ['src/main'])
 
     doLast {
-        if (!sourceRoot.exists()) {
-            return
-        }
         // A class-like declaration that opens a scope, capturing keyword and name.
         // The lookbehind rejects a Kotlin reference such as 'Foo::class' or
         // 'x.object', which are uses, not declarations. 'object' covers Kotlin

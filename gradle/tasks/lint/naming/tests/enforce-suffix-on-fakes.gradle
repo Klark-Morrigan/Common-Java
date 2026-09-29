@@ -22,17 +22,11 @@ def enforceSuffixOnFakes = tasks.register('enforceSuffixOnFakes') {
             'variables are not suffixed Fake.'
     group = 'verification'
 
-    def testRoot = file('src/test')
-    // Declare the input only when it exists: Gradle validates a declared input directory is
-    // present, so an absent src/test (a project with no tests) would otherwise fail configuration
-    // rather than skip. The scan guards the same absence at execution time.
-    if (testRoot.exists()) {
-        inputs.dir(testRoot).withPropertyName('testSources')
-    }
+    def testRoots = declareSourceRoots(it, ['src/test'])
 
     doLast {
         def violations = findDoubleNamingViolations(
-            testRoot: testRoot,
+            testRoots: testRoots,
             suffix: 'Fake',
             // A '*Fake(' or '*Fake<' constructor or factory, with or without Java's 'new'.
             // Anchoring on the call keeps real-typed fixtures (MarketAPI helpers, mocks) out of

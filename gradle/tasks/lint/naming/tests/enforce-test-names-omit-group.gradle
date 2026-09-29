@@ -29,21 +29,9 @@ def enforceTestNamesOmitGroup = tasks.register('enforceTestNamesOmitGroup') {
     description = 'Fails the build when a test method name repeats its @Nested group\'s name.'
     group = 'verification'
 
-    def testRoot = file('src/test')
-
-    // Declare the input only when it exists: Gradle validates a declared input directory is
-    // present, so an absent src/test (a project with no tests) would otherwise fail configuration
-    // rather than skip. The doLast guards the same absence at execution time.
-    if (testRoot.exists()) {
-        inputs.dir(testRoot).withPropertyName('testSources')
-    }
+    def testRoots = declareSourceRoots(it, ['src/test'])
 
     doLast {
-        // A project without a test tree has nothing to check.
-        if (!testRoot.exists()) {
-            return
-        }
-
         // Any annotation with its argument list, removed before the declaration is read: a
         // '@MethodSource(...)' between @Test and the method would otherwise read as a call named
         // MethodSource. Literals are already gone, so the arguments hold no quoted ')'.

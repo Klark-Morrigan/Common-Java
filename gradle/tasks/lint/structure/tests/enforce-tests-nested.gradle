@@ -34,22 +34,9 @@ def enforceTestsNested = tasks.register('enforceTestsNested') {
     description = 'Fails the build when a @Test method is not enclosed in a ' +
         '@Nested class.'
 
-    def testRoot = file('src/test')
-
-    // Declare the input only when it exists: Gradle validates a declared input
-    // directory is present, so an absent src/test (a project with no tests) would
-    // otherwise fail configuration rather than skip. The doLast guards the
-    // same absence at execution time.
-    if (testRoot.exists()) {
-        inputs.dir(testRoot).withPropertyName('testSources')
-    }
+    def testRoots = declareSourceRoots(it, ['src/test'])
 
     doLast {
-        // A project without a test tree has nothing to check.
-        if (!testRoot.exists()) {
-            return
-        }
-
         // The Kotlin 'inner' modifier on a class. A @Nested class must be a
         // non-static inner class; in Kotlin a plain nested 'class' is
         // static-equivalent, so this distinguishes a runnable @Nested group
