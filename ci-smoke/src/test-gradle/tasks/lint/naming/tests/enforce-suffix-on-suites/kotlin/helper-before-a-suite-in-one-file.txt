@@ -1,0 +1,18 @@
+import org.junit.jupiter.api.Nested
+import org.junit.jupiter.api.Test
+
+class SampleFixture {
+
+    fun buildOne(): Int = 1
+}
+
+class SampleTest {
+
+    @Nested
+    inner class Read {
+
+        @Test
+        fun `answers the stored value`() {
+        }
+    }
+}

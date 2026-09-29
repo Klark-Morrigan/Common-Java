@@ -112,6 +112,7 @@ to, for the reason given below:
 | `enforceSingleBlankLines` | at most one consecutive blank line |
 | `enforceSuffixOnFakes` | hand-written test doubles are suffixed `Fake`, or `_FAKE` where the holder is a constant |
 | `enforceSuffixOnMocks` | Mockito mock variables are suffixed `Mock`, or `_MOCK` where the holder is a constant |
+| `enforceSuffixOnSuites` | a class holding tests is suffixed `Tests` |
 | `enforceTestNamesOmitGroup` | a test method's name does not repeat its `@Nested` group's |
 | `enforceTestsNested` | every `@Test` sits inside a `@Nested` class |
 

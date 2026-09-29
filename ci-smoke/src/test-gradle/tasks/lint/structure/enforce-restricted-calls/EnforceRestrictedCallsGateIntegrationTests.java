@@ -7,27 +7,18 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Integration test for the shared enforce-restricted-calls gate: it applies the
-// real gate script into a throwaway project and runs the task, asserting the
-// build outcome and the message a developer sees. Lives in the Common-Java
-// ci-smoke project - the gate script is shared by every consumer, so the tests
-// live here beside it. Fixtures load from .txt files under java/ and kotlin/
-// subfolders so the gate, which scans every source set, never sees a fixture as
-// real source here; this tree is src/test-gradle, deliberately out of its reach.
+// Drives the shared enforce-restricted-calls gate.
 //
-// The fixture package is 'example.framework' and the contained call is
-// 'Example.getGlobalHandle()' rather than any real consumer's, because the gate
-// owns only the mechanism and this repo knows no consumer's architecture.
+// The fixture package is 'example.framework' and the contained call is 'Example.getGlobalHandle()'
+// rather than any real consumer's, because the gate owns only the mechanism and this repo knows no
+// consumer's architecture.
 //
-// Which type a fixture counts as is its file name, so every case writes its
-// source under the name the declaration does or does not allow - that pairing is
-// the whole of what the gate decides.
+// Which type a fixture counts as is its file name, so every case writes its source under the name
+// the declaration does or does not allow - that pairing is the whole of what the gate decides.
 class EnforceRestrictedCallsGateIntegrationTests {
 
     private static final GateUnderTest GATE =
         new GateUnderTest("enforceRestrictedCalls", "restricted.calls.gate.script.path");
-
-    private static final String TASK_PATH = ":enforceRestrictedCalls";
 
     // What the consuming build declares, and what the fixtures are written
     // against: one call contained beneath one root, to one type.
@@ -260,7 +251,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, CONTAINED_TO_THE_ADAPTER);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -277,7 +268,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, CONTAINED_TO_THE_ADAPTER);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -294,7 +285,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, CONTAINED_TO_THE_ADAPTER);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -309,7 +300,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, CONTAINED_TO_THE_ADAPTER);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -323,7 +314,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, CONTAINED_TO_THE_ADAPTER);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -334,7 +325,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, CONTAINED_TO_THE_ADAPTER);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -348,7 +339,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, NO_RESTRICTION_DECLARED);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -357,7 +348,7 @@ class EnforceRestrictedCallsGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, CONTAINED_TO_THE_ADAPTER);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 

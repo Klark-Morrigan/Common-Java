@@ -9,21 +9,11 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Integration test for the shared enforce-doc-links-resolve gate: it applies
-// the real gate script into a throwaway project and runs the task, asserting
-// the build outcome and the message a developer sees. Lives in the Common-Java
-// ci-smoke project - the gate script is shared by every consumer; the tests
-// live here beside it. Fixtures load from .txt files under a markdown/
-// subfolder rather than being written as .md, so the gate never scans this
-// tree's own fixtures when it runs over Common-Java itself. Default package:
-// the grouping folder is the source root, and its kebab name cannot be a Java
-// package.
+// Drives the shared enforce-doc-links-resolve gate.
 class EnforceDocLinksResolveGateIntegrationTests {
 
     private static final GateUnderTest GATE =
         new GateUnderTest("enforceDocLinksResolve", "doc.links.gate.script.path");
-
-    private static final String TASK_PATH = ":enforceDocLinksResolve";
 
     @Test
     void passesWhenRelativeLinksResolve(@TempDir Path projectDir) throws IOException {
@@ -33,7 +23,7 @@ class EnforceDocLinksResolveGateIntegrationTests {
 
         var result = runGate(projectDir, false);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -75,7 +65,7 @@ class EnforceDocLinksResolveGateIntegrationTests {
 
         var result = runGate(projectDir, false);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -101,7 +91,7 @@ class EnforceDocLinksResolveGateIntegrationTests {
 
         var result = runGate(projectDir, false);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -129,7 +119,7 @@ class EnforceDocLinksResolveGateIntegrationTests {
 
         var result = runGate(projectDir, false);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -147,7 +137,7 @@ class EnforceDocLinksResolveGateIntegrationTests {
             false,
             "docLinkScanExcludedDirectoryNames << 'generated'\n");
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -156,7 +146,7 @@ class EnforceDocLinksResolveGateIntegrationTests {
 
         var result = runGate(projectDir, false);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 

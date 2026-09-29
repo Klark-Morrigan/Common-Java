@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * this fails to compile or run - turning a convention regression into a red
  * build in Common-Java's own CI instead of surfacing first downstream.
  */
-class JavaConventionsSmokeTest {
+class JavaConventionsSmokeTests {
 
     @Nested
     class TestStack {

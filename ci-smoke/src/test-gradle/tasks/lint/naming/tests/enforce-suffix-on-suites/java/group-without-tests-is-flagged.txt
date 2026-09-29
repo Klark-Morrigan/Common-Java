@@ -1,0 +1,8 @@
+import org.junit.jupiter.api.Nested;
+
+class SampleTest {
+
+    @Nested
+    class Read {
+    }
+}

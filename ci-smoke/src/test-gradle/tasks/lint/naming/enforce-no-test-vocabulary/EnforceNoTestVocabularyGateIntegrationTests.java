@@ -8,23 +8,14 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Integration test for the shared enforce-no-test-vocabulary gate: it applies
-// the real gate script into a throwaway project and runs the task, asserting
-// the build outcome and the message a developer sees. Lives in the Common-Java
-// ci-smoke project - the gate script is shared by every consumer, so the tests
-// live here beside it. Fixtures load from .txt files under java/, kotlin/ and
-// markdown/ subfolders so the gate never sees a fixture as real source here.
+// Drives the shared enforce-no-test-vocabulary gate.
 //
-// The fixture package is 'example.production' rather than any real consumer's,
-// because the gate owns the word list and this repo knows no consumer's tree.
-// Default package: the grouping folder is the source root, and its kebab name
-// cannot be a Java package.
+// The fixture package is 'example.production' rather than any real consumer's, because the gate
+// owns the word list and this repo knows no consumer's tree.
 class EnforceNoTestVocabularyGateIntegrationTests {
 
     private static final GateUnderTest GATE =
         new GateUnderTest("enforceNoTestVocabulary", "test.vocabulary.gate.script.path");
-
-    private static final String TASK_PATH = ":enforceNoTestVocabulary";
 
     private static final String PRODUCTION_PACKAGE_PATH = "example/production";
 
@@ -257,7 +248,7 @@ class EnforceNoTestVocabularyGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, NOTHING_EXEMPT);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -272,7 +263,7 @@ class EnforceNoTestVocabularyGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, NOTHING_EXEMPT);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -287,7 +278,7 @@ class EnforceNoTestVocabularyGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, NOTHING_EXEMPT);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -300,7 +291,7 @@ class EnforceNoTestVocabularyGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, EXEMPTING_THE_FIXTURE_SOURCE_SET);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -316,7 +307,7 @@ class EnforceNoTestVocabularyGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, EXEMPTING_THE_FIXTURE_PACKAGE);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -331,7 +322,7 @@ class EnforceNoTestVocabularyGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, ALLOWING_THE_README);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 
@@ -341,7 +332,7 @@ class EnforceNoTestVocabularyGateIntegrationTests {
 
         var result = runGateExpectingSuccess(projectDir, NOTHING_EXEMPT);
 
-        assertThat(result.task(TASK_PATH).getOutcome())
+        assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
     }
 

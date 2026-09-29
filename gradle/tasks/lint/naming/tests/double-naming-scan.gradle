@@ -38,10 +38,11 @@
 //
 // Applied by each gate rather than by the conventions file, on the same reasoning
 // lint-gate.gradle states: a gate is applied on its own by its integration test, so it has to
-// carry what it uses - which here includes lint-gate.gradle's walk over a gate's source roots.
-// Applying this more than once per project is harmless - the assignment below simply overwrites an
-// identical closure.
+// carry what it uses - which here includes lint-gate.gradle's walk over a gate's source roots and
+// source-scan.gradle's suite suffix. Applying this more than once per project is harmless - the
+// assignment below simply overwrites an identical closure.
 apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../../source-scan.gradle')
 
 /**
  * Scans a test tree for doubles whose names do not end in the required suffix.
@@ -75,6 +76,16 @@ ext.findDoubleNamingViolations = { Map spec ->
     // reading only 'Fake' leaves a constant holding one with no compliant spelling at all. Derived
     // from the suffix rather than written out, so the two cannot drift apart either.
     def constantSuffix = '_' + suffix.toUpperCase()
+
+    // A suite over a double is named for what it covers, so it carries the double's whole name and
+    // the suite word after it. It is the one type holding the word that is not a double, and flagging
+    // it would leave a fixture nobody may write a suite for under its own name. The singular passes
+    // too: a suite spelled that way is enforceSuffixOnSuites' finding, and a second finding here
+    // would tell its author to end the name in the double's suffix, which is the wrong fix.
+    def singularSuiteSuffix = suiteSuffix.substring(0, suiteSuffix.length() - 1)
+    def isSuiteName = { String name ->
+        name.endsWith(suiteSuffix) || name.endsWith(singularSuiteSuffix)
+    }
 
     // Whether a name carries the suffix in whichever of the two casings its declaration calls for.
     // The constant spelling counts only on a name that is a constant's shape throughout, so a
@@ -116,12 +127,7 @@ ext.findDoubleNamingViolations = { Map spec ->
                 while (typeMatcher.find()) {
 
                     def typeName = typeMatcher.group(1)
-
-                    // A suite over a double is named for what it covers, so it carries the double's
-                    // whole name and 'Test' after it. It is the one type holding the word that is
-                    // not a double, and flagging it would leave a fixture nobody may write a suite
-                    // for under its own name.
-                    if (!typeName.endsWith(suffix) && !typeName.endsWith('Test')) {
+                    if (!typeName.endsWith(suffix) && !isSuiteName(typeName)) {
 
                         violations << "${sourceFile}:${lineNumber}: test-double type " +
                             "'${typeName}' must be suffixed '${suffix}'"

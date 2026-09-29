@@ -1,0 +1,76 @@
+// Suite-name gate, applied by java-conventions.gradle into every consuming project: a class that
+// holds tests is named '<Subject>Tests', and an integration suite '<Subject>IntegrationTests'.
+//
+// One suffix for one meaning: a tree naming its integration suites in the plural and its unit
+// suites in the singular spells the same thing two ways. Nothing in the compiler or the runner has
+// an opinion on a class name, so the two spellings sit side by side until a gate holds them to one.
+//
+// A suite is any outermost class under src/test holding a @Nested group or a test method. That is
+// what tells it from a helper or a fixture filed in the same tree, which keeps whatever name says
+// what it is. The outermost class is the one judged, since that is what the file is named for; a
+// @Nested group is named for the method it covers and carries no suffix. Which class is outermost
+// needs the class scopes source-scan.gradle reads, as enforceTestsNested does: a declaration with
+// no class open around it opens the outermost one.
+//
+// Applied by this script, not assumed from the conventions file: the gate is applied on its own by
+// its integration test, so it has to carry what it uses.
+apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../../source-scan.gradle')
+
+def enforceSuffixOnSuites = tasks.register('enforceSuffixOnSuites') {
+
+    description = 'Fails the build when a class holding tests is not suffixed Tests.'
+    group = 'verification'
+
+    def testRoots = declareSourceRoots(it, ['src/test'])
+
+    doLast {
+
+        def violations = []
+
+        eachSourceFile(testRoots) { sourceFile ->
+
+            // The outermost class open at this line, and whether it has been reported already: a
+            // suite holds many tests and is named once.
+            def outermost = null
+            def isReported = false
+
+            scanClassScopes(sourceFile) { line ->
+
+                def declared = line.declaredClass
+                if (declared != null && line.enclosingClass == null) {
+
+                    outermost = [name: declared.name, number: line.number]
+                    isReported = false
+                }
+
+                // A @Nested group counts before it holds its first test: a group is what a suite
+                // is built of, and a helper never declares one.
+                def isTestMarker = (declared != null && declared.isNested)
+                    || testMethodAnnotation.matcher(line.text).find()
+
+                // A test outside any class is enforceTestsNested's finding, not a name to judge. Read
+                // off the line's own scope rather than the last outermost class seen, which stays
+                // set after that class closes.
+                if (!isTestMarker
+                        || isReported
+                        || line.enclosingClass == null
+                        || outermost.name.endsWith(suiteSuffix)) {
+
+                    return
+                }
+
+                isReported = true
+                violations << "${sourceFile}:${outermost.number}: class '${outermost.name}' " +
+                    "holds tests and does not end in '${suiteSuffix}'; name a suite " +
+                    "<Subject>Tests and an integration suite <Subject>IntegrationTests"
+            }
+        }
+
+        failOnViolations('Suite naming convention violated', violations)
+    }
+}
+
+// Make it a gate: an output so it can be skipped while what it reads is unchanged, and a place in
+// the verification lifecycle; see lint-gate.gradle.
+installLintGate(enforceSuffixOnSuites)

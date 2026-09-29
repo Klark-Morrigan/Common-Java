@@ -1,0 +1,19 @@
+final class SampleFixture {
+
+    // A nested class without @Nested is a value the helper builds, not a group.
+    static final class Built {
+
+        final int size;
+
+        Built(int size) {
+            this.size = size;
+        }
+    }
+
+    private SampleFixture() {
+    }
+
+    static Built buildOne() {
+        return new Built(1);
+    }
+}
