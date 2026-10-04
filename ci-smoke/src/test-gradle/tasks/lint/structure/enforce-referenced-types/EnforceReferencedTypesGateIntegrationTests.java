@@ -44,6 +44,16 @@ class EnforceReferencedTypesGateIntegrationTests {
     private static final String NOTHING_IN_THE_NAMESPACE = buildNamespaceDeclaration(
         "namespace: '" + NAMESPACE + "'");
 
+    // A namespace closed in the shipped tree alone - the shape of a rule about what
+    // the runtime refuses to load, which a suite on a plain JVM is free to use.
+    private static final String NOTHING_IN_THE_NAMESPACE_IN_MAIN = buildNamespaceDeclaration(
+        "namespace: '" + NAMESPACE + "', inSourceSets: ['main']");
+
+    private static final String RUNTIME_REFUSAL = "the runtime refuses to load it";
+
+    private static final String NOTHING_IN_THE_NAMESPACE_WITH_A_REASON = buildNamespaceDeclaration(
+        "namespace: '" + NAMESPACE + "', reason: '" + RUNTIME_REFUSAL + "'");
+
     // A declaration naming only what is allowed, which says nothing about where -
     // the shape a misspelt or forgotten 'namespace:' takes.
     private static final String HALF_DECLARED_NAMESPACE = buildNamespaceDeclaration(
@@ -117,6 +127,47 @@ class EnforceReferencedTypesGateIntegrationTests {
 
         assertThat(result.getOutput())
             .contains("Caller in java/test references " + UNPROMISED_TYPE);
+    }
+
+    @Test
+    void passesWhenTestCodeNamesATypeTheRuleHoldsOnlyInMain(@TempDir Path projectDir) {
+
+        // A rule scoped to the shipped tree leaves the suites alone: what the
+        // runtime refuses is no concern of a JVM that never runs the game.
+        buildProject(projectDir, NOTHING_IN_THE_NAMESPACE_IN_MAIN)
+            .holdingFixture(
+                "src/test/java/example/consumer/Caller.java",
+                "java/caller-naming-the-unpromised-type")
+            .runExpectingGateToPass();
+    }
+
+    @Test
+    void failsWhenMainCodeNamesATypeTheRuleHoldsOnlyInMain(@TempDir Path projectDir) {
+
+        var result = buildProject(projectDir, NOTHING_IN_THE_NAMESPACE_IN_MAIN)
+            .holdingFixture(
+                "src/main/java/example/consumer/Caller.java",
+                "java/caller-naming-the-unpromised-type")
+            .runExpectingFailure();
+
+        assertThat(result.getOutput())
+            .contains("Caller in java/main references " + UNPROMISED_TYPE);
+    }
+
+    @Test
+    void endsAFindingWithTheReasonTheRuleGives(@TempDir Path projectDir) {
+
+        // The default sentence is about unstable spellings, which is false for a
+        // namespace closed for any other reason.
+        var result = buildProject(projectDir, NOTHING_IN_THE_NAMESPACE_WITH_A_REASON)
+            .holdingFixture(
+                "src/main/java/example/consumer/Caller.java",
+                "java/caller-naming-the-unpromised-type")
+            .runExpectingFailure();
+
+        assertThat(result.getOutput())
+            .contains("references " + UNPROMISED_TYPE + ", which " + RUNTIME_REFUSAL)
+            .doesNotContain("does not promise to keep spelled that way");
     }
 
     @Test
