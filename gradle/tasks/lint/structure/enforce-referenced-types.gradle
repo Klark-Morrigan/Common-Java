@@ -3,13 +3,16 @@
 // classpath, version, and test stack, while this owns one concern: the
 // verification rule.
 //
-// The convention: compiled code names a type from an unstable namespace only
-// where the consuming build has said that particular type is stable. A namespace
-// is unstable when the same library, at the same version, ships under different
-// type names to different audiences - a build per platform, a shaded
-// redistribution, an obfuscated release whose non-public names are regenerated.
-// Code compiled against one of those spellings then fails to link against
-// another, and it fails at the call rather than at load.
+// The convention: compiled code names a type from a restricted namespace only
+// where the consuming build has said that particular type is allowed.
+//
+// The first reason to restrict one is unstable spellings: the same library, at
+// the same version, ships under different type names to different audiences - a
+// build per platform, a shaded redistribution, an obfuscated release whose
+// non-public names are regenerated. Code compiled against one of those spellings
+// then fails to link against another, and it fails at the call rather than at
+// load. The second is a runtime that refuses to load a namespace at all, which
+// fails the same way: at the call, and nowhere a compiler or a suite can see.
 //
 // The fourth of the structure family, and the only one that reads compiled
 // classes rather than source text. It has to: what a class file records is not
@@ -25,7 +28,8 @@
 // anywhere may compile a reference to a type whose spelling is not promised.
 //
 // A namespace is a per-project fact rather than a shared one, so this script
-// owns only the mechanism and the consuming build declares what is stable in it.
+// owns only the mechanism and the consuming build declares what it allows. Each
+// namespace is declared once, in one call carrying its whole rule.
 // The names below are the ones this gate's own integration test is written
 // against, this repo knowing no consumer's dependencies:
 //
@@ -60,11 +64,18 @@
 // That is for a rule about where code runs rather than what it was compiled
 // against: a namespace the shipped runtime refuses to load is one a suite on a
 // plain JVM may use freely, and holding the suite to it would forbid the tools
-// that suite is written with. Left out, the rule holds everywhere.
+// that suite is written with. Left out, the rule holds everywhere. A name the
+// build has no source set for fails the build rather than checking nothing.
 //
 // A rule can also say why it holds, through 'reason', which then ends each of its
 // findings in place of the default about unstable spellings - a namespace banned
-// for another reason would otherwise be reported for one that is false.
+// for another reason would otherwise be reported for one that is false. It
+// continues a sentence, "X references T, which <reason>", so it is written as
+// the clause that follows "which":
+//
+//     restrictReferences namespace: 'java.lang.reflect',
+//         inSourceSets: ['main'],
+//         reason: 'the game refuses to load for mod code'
 //
 // What a violation names is the class that holds the reference and the type it
 // referenced, with no line number: a class file records which types a method
@@ -263,8 +274,8 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
     // Bracketed so the leading '+' continues this expression. Groovy ends a
     // statement at a line break wherever the line already parses whole, and
     // reads the next one as unary plus on a string - which fails at the call.
-    description = ('Fails the build when compiled code names a type from a '
-        + 'namespace outside what the consuming build declared stable in it.')
+    description = ('Fails the build when compiled code names a type from a restricted '
+        + 'namespace outside what the consuming build declared allowed in it.')
 
     // Declares one namespace. Named arguments rather than positional ones
     // because all three are plain text, so a transposition would otherwise
@@ -274,8 +285,18 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
         if (!namespaceRule.namespace) {
 
             throw new GradleException("restrictReferences needs 'namespace' "
-                + "(the package root whose type names are not promised); "
+                + "(the package root whose type names are restricted); "
                 + "got: ${namespaceRule}")
+        }
+
+        // One rule per namespace. The named types are gathered per namespace, so
+        // two rules over one would judge each other's allowances against a merged
+        // set - and a class both apply to would be held to both and allowed by
+        // neither.
+        if (namespaceRules.any { it.namespace == namespaceRule.namespace }) {
+
+            throw new GradleException("restrictReferences declares '${namespaceRule.namespace}' "
+                + "a second time; state the whole rule for a namespace in one call")
         }
 
         // Held as binary names, which is how a class file spells them, so the
@@ -348,15 +369,44 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
         namespaceRules
             .collect {
                 ("${it.namespace} only ${it.allowedPackages} "
-                    + "and ${it.allowedTypes} in ${it.sourceSets} because ${it.reason}").toString()
+                    + "and ${it.allowedTypes} in ${it.sourceSets} because ${it.reason ?: ''}").toString()
             }
             .sort()
     })
+
+    // The source sets the build has, read when the gate runs rather than when it
+    // is registered: a consumer declares its own after the conventions apply this
+    // script. An input too, so a source set added later re-runs the gate against
+    // the rules that name it.
+    def sourceSetNames = providers.provider {
+        project.extensions.findByName('sourceSets')?.names?.toList()?.sort() ?: []
+    }
+
+    inputs.property('sourceSetNames', sourceSetNames)
 
     doLast {
 
         if (namespaceRules.isEmpty()) {
             return
+        }
+
+        // A misspelt source set would match no compiled tree and turn its rule
+        // into one that checks nothing, which passes. Failed instead, so a typo
+        // fails safe the way a mistyped allowance key does.
+        def knownSourceSets = sourceSetNames.get()
+
+        namespaceRules.each { namespaceRule ->
+
+            def unknownSourceSets = namespaceRule
+                .sourceSets
+                .findAll { !(it in knownSourceSets) }
+
+            if (!unknownSourceSets.isEmpty()) {
+
+                throw new GradleException("restrictReferences for '${namespaceRule.namespace}' names "
+                    + "source set(s) ${unknownSourceSets} this build does not have; "
+                    + "it has ${knownSourceSets}")
+            }
         }
 
         def violations = []

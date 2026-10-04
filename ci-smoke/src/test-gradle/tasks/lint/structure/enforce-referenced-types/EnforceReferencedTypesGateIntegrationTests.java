@@ -54,6 +54,13 @@ class EnforceReferencedTypesGateIntegrationTests {
     private static final String NOTHING_IN_THE_NAMESPACE_WITH_A_REASON = buildNamespaceDeclaration(
         "namespace: '" + NAMESPACE + "', reason: '" + RUNTIME_REFUSAL + "'");
 
+    private static final String NOTHING_IN_THE_NAMESPACE_IN_A_MISSPELT_SOURCE_SET = buildNamespaceDeclaration(
+        "namespace: '" + NAMESPACE + "', inSourceSets: ['mian']");
+
+    private static final String THE_NAMESPACE_DECLARED_TWICE = buildNamespaceDeclaration(
+        "namespace: '" + NAMESPACE + "', inSourceSets: ['main']",
+        "namespace: '" + NAMESPACE + "', inSourceSets: ['test']");
+
     // A declaration naming only what is allowed, which says nothing about where -
     // the shape a misspelt or forgotten 'namespace:' takes.
     private static final String HALF_DECLARED_NAMESPACE = buildNamespaceDeclaration(
@@ -152,6 +159,33 @@ class EnforceReferencedTypesGateIntegrationTests {
 
         assertThat(result.getOutput())
             .contains("Caller in java/main references " + UNPROMISED_TYPE);
+    }
+
+    @Test
+    void failsWhenARuleNamesASourceSetTheBuildDoesNotHave(@TempDir Path projectDir) {
+
+        // A misspelt source set matches no compiled tree, so a rule held to it
+        // would check nothing and pass - the failure direction the gate refuses.
+        var result = buildProject(projectDir, NOTHING_IN_THE_NAMESPACE_IN_A_MISSPELT_SOURCE_SET)
+            .holdingFixture(
+                "src/main/java/example/consumer/Caller.java",
+                "java/caller-naming-the-unpromised-type")
+            .runExpectingFailure();
+
+        assertThat(result.getOutput())
+            .contains("names source set(s) [mian] this build does not have");
+    }
+
+    @Test
+    void failsTheBuildWhenANamespaceIsDeclaredTwice(@TempDir Path projectDir) {
+
+        // What was named is gathered per namespace, so two rules over one would
+        // judge each other's allowances against a merged set.
+        var result = buildProject(projectDir, THE_NAMESPACE_DECLARED_TWICE)
+            .runExpectingFailure();
+
+        assertThat(result.getOutput())
+            .contains("restrictReferences declares '" + NAMESPACE + "' a second time");
     }
 
     @Test

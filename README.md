@@ -310,16 +310,24 @@ each was written.
 A namespace can also be closed for a reason other than unstable spellings,
 such as a runtime that refuses to load it.
 `inSourceSets` then holds the rule to the trees that ship,
-since a suite on a plain JVM may use what the runtime refuses,
-and `reason` ends each finding with the true cause in place of the default sentence:
+since a suite on a plain JVM may use what the runtime refuses;
+a source set the build does not have fails the build rather than checking nothing.
+`reason` ends each finding with the true cause in place of the default sentence.
+It continues "X references T, which",
+so it is written as the clause that follows:
 
 ```groovy
 enforceReferencedTypes {
     restrictReferences namespace: 'java.lang.reflect',
         inSourceSets: ['main'],
-        reason: 'the game refuses mod code that package'
+        reason: 'the game refuses to load for mod code'
 }
 ```
+
+Each namespace is declared once, its whole rule in one call.
+A second declaration over the same namespace fails the build:
+the gate gathers what was named per namespace,
+so two rules would judge each other's allowances.
 
 A class the walk cannot follow - one carrying a constant-pool tag from a
 class-file version newer than the walk knows - fails the build ahead of
