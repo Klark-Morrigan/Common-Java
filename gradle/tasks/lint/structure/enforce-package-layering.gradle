@@ -43,6 +43,23 @@
 // all. The imported side stays a subtree either way: what a package is closed to
 // is a layer, and no caller has yet needed to name one package of it.
 //
+// A closed subtree may leave subtrees of its own out:
+//
+//     enforcePackageLayering {
+//         forbidImport under: 'example.framework',
+//             except: 'example.framework.kinds',
+//             of: 'example.framework.kinds'
+//     }
+//
+// which is the shape a framework takes when the fillers of its own seams live
+// inside it: the rest of the framework may not reach them, while they reach
+// each other freely. Spelt instead as one edge per sibling package, the rule
+// fails open for the next package anybody adds beside them. 'except' takes one
+// package or a list, each strictly beneath the closed root - naming one outside
+// it, or the root itself, exempts nothing the rule reaches or everything it
+// does, so either is refused where it is written. It narrows the 'under' width
+// alone: a package closed 'exactly' has no subtree to leave out.
+//
 // A build that declares no edge inherits the task and checks nothing, which is
 // what lets the conventions file apply it everywhere rather than leaving each
 // consumer to opt in.
@@ -51,9 +68,10 @@
 // applied on its own by its integration test, so it has to carry what it uses.
 apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
 
-// How a package declaration is read, and what it means for one dotted name to
-// sit under another. Shared with enforceRestrictedCalls, which asks the same
-// question about the same syntax; see package-roots.gradle.
+// How a package declaration is read, what it means for one dotted name to sit
+// under another, and how the subtrees an edge leaves out are read. Shared with
+// enforceRestrictedCalls, which asks the same question about the same syntax;
+// see package-roots.gradle.
 apply from: new File(buildscript.sourceFile.parentFile, '../package-roots.gradle')
 
 // An import, static or not, aliased or not. The captured name runs to the
@@ -74,11 +92,13 @@ def findForbiddenImports = { File sourceFile, List forbiddenEdges ->
         // The default package sits under no root, so no edge can name it.
         return forbidden
     }
-    def applicableEdges = forbiddenEdges.findAll {
+    def applicableEdges = forbiddenEdges.findAll { edge ->
 
-        it.isClosedExactly
-            ? declaredPackage == it.closedRoot
-            : isAtOrUnderPackageRoot(declaredPackage, it.closedRoot)
+        if (edge.isClosedExactly) {
+            return declaredPackage == edge.closedRoot
+        }
+        return isAtOrUnderPackageRoot(declaredPackage, edge.closedRoot)
+            && !edge.exceptedRoots.any { isAtOrUnderPackageRoot(declaredPackage, it) }
     }
     if (applicableEdges.isEmpty()) {
         return forbidden
@@ -149,18 +169,24 @@ def enforcePackageLayering = tasks.register('enforcePackageLayering') {
         // spelling one declaration per pair states the closed side over and over
         // for a rule a reader holds as one.
         def forbiddenImports = edge.of instanceof Collection ? edge.of : [edge.of]
+        def exceptedRoots = readExceptedRoots('forbidImport', edge, closedRoot)
 
-        // The label carries the width into every message the edge produces,
-        // including the input-property snapshot below: the two widths are
-        // different rules over the same pair of roots, so a run cleared under
-        // one must not read as UP-TO-DATE under the other.
+        // The label carries the width and the left-out subtrees into every
+        // message the edge produces, including the input-property snapshot
+        // below: each is a different rule over the same pair of roots, so a run
+        // cleared under one must not read as UP-TO-DATE under another.
+        def closedSideLabel = edge.exactly
+            ? "${closedRoot} itself"
+            : closedRoot
+        if (!exceptedRoots.isEmpty()) {
+            closedSideLabel = "${closedSideLabel} except ${exceptedRoots.join(', ')}"
+        }
         forbiddenImports.each { forbiddenImport ->
             forbiddenEdges << [
                 closedRoot: closedRoot,
                 isClosedExactly: edge.exactly as boolean,
-                closedSideLabel: edge.exactly
-                    ? "${closedRoot} itself"
-                    : closedRoot,
+                exceptedRoots: exceptedRoots,
+                closedSideLabel: closedSideLabel,
                 of: forbiddenImport,
             ]
         }

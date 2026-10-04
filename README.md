@@ -107,7 +107,7 @@ to, for the reason given below:
 | `enforceNoTrailingWhitespace` | no line ends in whitespace |
 | `enforcePackageLayering` | a package root does not import one the consumer declared it closed to |
 | `enforcePackageVocabulary` | a package root does not say a word the consumer declared it closed to |
-| `enforceReferencedTypes` | compiled code names a type from an unstable namespace only where the consumer declared that type stable |
+| `enforceReferencedTypes` | compiled code names a type from a restricted namespace only where the consumer declared that type allowed |
 | `enforceRestrictedCalls` | a call a package root is closed to is made only in the types the consumer named |
 | `enforceSingleBlankLines` | at most one consecutive blank line |
 | `enforceSuffixOnFakes` | hand-written test doubles are suffixed `Fake`, or `_FAKE` where the holder is a constant |
@@ -172,6 +172,23 @@ enforcePackageLayering {
 closed to several at once - the siblings it must not reach into. Each
 entry is still its own edge; the list only spares the closed side from
 being restated once per pair.
+
+A closed root may leave subtrees of its own out with `except` - one package or a list, each strictly beneath the root:
+
+```groovy
+enforcePackageLayering {
+    forbidImport under: 'example.framework',
+                 except: 'example.framework.kinds',
+                 of: 'example.framework.kinds'
+}
+```
+
+That is the shape a framework takes when the fillers of its own seams live inside it:
+the rest of it may not reach them, while they reach each other freely.
+Spelt as one edge per sibling package instead, the rule fails open for the next package anybody adds.
+An `except` outside the root, or naming the root itself, is refused where it is written,
+and `exactly` takes none, since a package closed alone has no subtree to leave out.
+`enforcePackageVocabulary`'s `forbidWords` takes the same `except` on the same terms.
 
 Every source set is scanned, not `main` and `test` alone: a layering rule
 that exempts a tree is a layering rule with a hole in it. Test sources
@@ -289,6 +306,28 @@ definition, and it is the one place the promise does not apply. A
 violation names the class and the type it referenced, with no line
 number - a class file records which types a method touches, not where
 each was written.
+
+A namespace can also be closed for a reason other than unstable spellings,
+such as a runtime that refuses to load it.
+`inSourceSets` then holds the rule to the trees that ship,
+since a suite on a plain JVM may use what the runtime refuses;
+a source set the build does not have fails the build rather than checking nothing.
+`reason` ends each finding with the true cause in place of the default sentence.
+It continues "X references T, which",
+so it is written as the clause that follows:
+
+```groovy
+enforceReferencedTypes {
+    restrictReferences namespace: 'java.lang.reflect',
+        inSourceSets: ['main'],
+        reason: 'the game refuses to load for mod code'
+}
+```
+
+Each namespace is declared once, its whole rule in one call.
+A second declaration over the same namespace fails the build:
+the gate gathers what was named per namespace,
+so two rules would judge each other's allowances.
 
 A class the walk cannot follow - one carrying a constant-pool tag from a
 class-file version newer than the walk knows - fails the build ahead of

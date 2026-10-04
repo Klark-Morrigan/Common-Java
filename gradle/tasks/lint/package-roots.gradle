@@ -13,10 +13,12 @@
 // on its own, since its integration test applies that one script into a
 // throwaway project with no conventions script in sight.
 //
-// enforcePackageVocabulary deliberately does not use this. It judges by
-// directory rather than by declaration, because markdown carries no package
-// declaration and is half of what that rule is about - a different question that
-// only looks alike.
+// enforcePackageVocabulary judges a file by directory rather than by
+// declaration, because markdown carries no package declaration and is half of
+// what that rule is about - a different question that only looks alike. It
+// applies this script for the one thing all three share: the subtrees a closed
+// root leaves out, which are declared as dotted names whichever way a file is
+// later judged.
 //
 // Applying this more than once per project is harmless - each gate applies it,
 // and the assignments below simply overwrite identical values.
@@ -48,4 +50,40 @@ ext.readDeclaredPackage = { List<String> lines ->
 // `example.frameworks` is not read as living under `example.framework`.
 ext.isAtOrUnderPackageRoot = { String dottedName, String packageRoot ->
     return dottedName == packageRoot || dottedName.startsWith(packageRoot + '.')
+}
+
+// The subtrees a closed root leaves out, read off a declaration's 'except' - one
+// package or a list, empty when the declaration names none.
+//
+// Each must sit strictly beneath the closed root, and anything else is refused
+// where it is written: one outside the root exempts nothing the rule reaches,
+// and the root itself exempts everything, so either reads in the build as a
+// rule while enforcing a different one. 'exactly' takes none, since a package
+// closed alone has no subtree to leave out.
+ext.readExceptedRoots = { String declaringCall, Map declaration, String closedRoot ->
+
+    if (declaration.except == null) {
+        return []
+    }
+
+    if (declaration.exactly) {
+
+        throw new GradleException("${declaringCall} leaves subtrees out of an "
+            + "'under' root only - a package closed 'exactly' has none to leave "
+            + "out; got: ${declaration}")
+    }
+
+    def exceptedRoots = declaration.except instanceof Collection
+        ? declaration.except.collect { it.toString() }
+        : [declaration.except.toString()]
+
+    exceptedRoots.each { exceptedRoot ->
+
+        if (exceptedRoot == closedRoot || !isAtOrUnderPackageRoot(exceptedRoot, closedRoot)) {
+
+            throw new GradleException("${declaringCall} 'except' names a package "
+                + "strictly beneath the closed root ${closedRoot}; got: ${exceptedRoot}")
+        }
+    }
+    return exceptedRoots
 }

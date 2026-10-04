@@ -35,6 +35,22 @@ class EnforcePackageLayeringGateIntegrationTests {
     private static final String CLOSED_EXACTLY_TO_THE_FEATURE = buildEdgeDeclaration(
         "exactly: '" + CLOSED_PACKAGE_ROOT + "', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
 
+    // The wide rule with a subtree of the closed root left out: the fixtures'
+    // importing package is that subtree in one case and its sibling in the other.
+    private static final String CLOSED_EXCEPT_THE_RENDER_SUBTREE = buildEdgeDeclaration(
+        "under: '" + CLOSED_PACKAGE_ROOT + "', except: '" + CLOSED_PACKAGE_ROOT
+            + ".render', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
+
+    private static final String CLOSED_EXCEPT_A_SIBLING_SUBTREE = buildEdgeDeclaration(
+        "under: '" + CLOSED_PACKAGE_ROOT + "', except: ['" + CLOSED_PACKAGE_ROOT
+            + ".paint'], of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
+
+    // A left-out subtree the closed root does not hold, which exempts nothing
+    // while reading in the build as though it did.
+    private static final String CLOSED_EXCEPT_A_PACKAGE_OUTSIDE_THE_ROOT = buildEdgeDeclaration(
+        "under: '" + CLOSED_PACKAGE_ROOT + "', except: '" + FORBIDDEN_PACKAGE_ROOT
+            + ".render', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
+
     // An edge naming only the closed root, which says nothing about what it is
     // closed to - the shape a misspelt or forgotten 'of:' takes.
     private static final String HALF_DECLARED_EDGE = buildEdgeDeclaration(
@@ -185,6 +201,34 @@ class EnforcePackageLayeringGateIntegrationTests {
     }
 
     @Test
+    void failsWhenASiblingOfTheLeftOutSubtreeImportsTheForbiddenRoot(@TempDir Path projectDir) {
+
+        // Leaving one subtree out must not leave the rest of the root with it:
+        // the importing package sits beside the excepted one, not inside it.
+        writeJavaSource(projectDir, "src/main/java", "framework-importing-the-feature");
+
+        var result = runGateExpectingFailure(projectDir, CLOSED_EXCEPT_A_SIBLING_SUBTREE);
+
+        assertThat(result.getOutput())
+            .contains("example.framework except example.framework.paint may not import "
+                + "example.feature: example.feature.view.FeatureView");
+    }
+
+    @Test
+    void failsWhenTheLeftOutSubtreeSitsOutsideTheClosedRoot(@TempDir Path projectDir) {
+
+        // Refused where it is written rather than accepted as an exemption
+        // that can never apply.
+        writeJavaSource(projectDir, "src/main/java", "framework-importing-nothing-forbidden");
+
+        var result = runGateExpectingFailure(projectDir, CLOSED_EXCEPT_A_PACKAGE_OUTSIDE_THE_ROOT);
+
+        assertThat(result.getOutput())
+            .contains("forbidImport 'except' names a package strictly beneath the closed root "
+                + "example.framework; got: example.feature.render");
+    }
+
+    @Test
     void failsAgainAfterAPassingRunOnceAnEdgeIsDeclared(@TempDir Path projectDir) {
 
         // The edges are a task input, not just a closure the action reads. If
@@ -221,6 +265,19 @@ class EnforcePackageLayeringGateIntegrationTests {
         writeJavaSource(projectDir, "src/main/java", "framework-importing-the-feature");
 
         var result = runGateExpectingSuccess(projectDir, CLOSED_EXACTLY_TO_THE_FEATURE);
+
+        assertThat(result.task(GATE.taskPath()).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
+    }
+
+    @Test
+    void passesWhenOnlyTheLeftOutSubtreeImportsTheForbiddenRoot(@TempDir Path projectDir) {
+
+        // The whole reason 'except' exists: the fillers of a root's own seams
+        // live inside it and may reach what the rest of the root may not.
+        writeJavaSource(projectDir, "src/main/java", "framework-importing-the-feature");
+
+        var result = runGateExpectingSuccess(projectDir, CLOSED_EXCEPT_THE_RENDER_SUBTREE);
 
         assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);

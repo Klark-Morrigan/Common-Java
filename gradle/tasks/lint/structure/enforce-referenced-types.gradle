@@ -3,13 +3,16 @@
 // classpath, version, and test stack, while this owns one concern: the
 // verification rule.
 //
-// The convention: compiled code names a type from an unstable namespace only
-// where the consuming build has said that particular type is stable. A namespace
-// is unstable when the same library, at the same version, ships under different
-// type names to different audiences - a build per platform, a shaded
-// redistribution, an obfuscated release whose non-public names are regenerated.
-// Code compiled against one of those spellings then fails to link against
-// another, and it fails at the call rather than at load.
+// The convention: compiled code names a type from a restricted namespace only
+// where the consuming build has said that particular type is allowed.
+//
+// The first reason to restrict one is unstable spellings: the same library, at
+// the same version, ships under different type names to different audiences - a
+// build per platform, a shaded redistribution, an obfuscated release whose
+// non-public names are regenerated. Code compiled against one of those spellings
+// then fails to link against another, and it fails at the call rather than at
+// load. The second is a runtime that refuses to load a namespace at all, which
+// fails the same way: at the call, and nowhere a compiler or a suite can see.
 //
 // The fourth of the structure family, and the only one that reads compiled
 // classes rather than source text. It has to: what a class file records is not
@@ -25,14 +28,15 @@
 // anywhere may compile a reference to a type whose spelling is not promised.
 //
 // A namespace is a per-project fact rather than a shared one, so this script
-// owns only the mechanism and the consuming build declares what is stable in it.
+// owns only the mechanism and the consuming build declares what it allows. Each
+// namespace is declared once, in one call carrying its whole rule.
 // The names below are the ones this gate's own integration test is written
 // against, this repo knowing no consumer's dependencies:
 //
 //     enforceReferencedTypes {
 //         restrictReferences namespace: 'example.library',
-//             allowingPackages: ['example.library.api'],
-//             allowingTypes: ['example.library.internal.Seam']
+//                     allowingPackages: ['example.library.api'],
+//                        allowingTypes: ['example.library.internal.Seam']
 //     }
 //
 // All of it arrives in one call rather than through a fluent chain, for the
@@ -55,6 +59,23 @@
 // alike. A reference this gate would fail is compiled the same way in either, and
 // a rule about how a library may be reached that stopped at the test tree would
 // be a rule with a hole in it.
+//
+// A rule can still name the source sets it holds for, through 'inSourceSets'.
+// That is for a rule about where code runs rather than what it was compiled
+// against: a namespace the shipped runtime refuses to load is one a suite on a
+// plain JVM may use freely, and holding the suite to it would forbid the tools
+// that suite is written with. Left out, the rule holds everywhere. A name the
+// build has no source set for fails the build rather than checking nothing.
+//
+// A rule can also say why it holds, through 'reason', which then ends each of its
+// findings in place of the default about unstable spellings - a namespace banned
+// for another reason would otherwise be reported for one that is false. It
+// continues a sentence, "X references T, which <reason>", so it is written as
+// the clause that follows "which":
+//
+//     restrictReferences namespace: 'java.lang.reflect',
+//         inSourceSets: ['main'],
+//         reason: 'the game refuses to load for mod code'
 //
 // What a violation names is the class that holds the reference and the type it
 // referenced, with no line number: a class file records which types a method
@@ -132,10 +153,10 @@ def DOUBLE_WIDTH_CONSTANTS = [CONSTANT_LONG, CONSTANT_DOUBLE]
 def readTextConstants = { File classFile ->
 
     def texts = []
-
     def unreadable = classFile.withDataInputStream { classBytes ->
 
         classBytes.skipBytes(8)
+
         int poolEntryCount = classBytes.readUnsignedShort()
 
         // Numbered from one, and the count is one past the last, which is why
@@ -143,13 +164,12 @@ def readTextConstants = { File classFile ->
         for (int entry = 1; entry < poolEntryCount; entry++) {
 
             int tag = classBytes.readUnsignedByte()
-
             if (tag == CONSTANT_UTF8) {
                 texts << classBytes.readUTF()
                 continue
             }
-            def payloadBytes = CONSTANT_PAYLOAD_BYTES[tag]
 
+            def payloadBytes = CONSTANT_PAYLOAD_BYTES[tag]
             if (payloadBytes == null) {
                 // A tag from a class-file version this walk does not know.
                 // Stopping here reads the file as holding nothing rather than
@@ -157,6 +177,7 @@ def readTextConstants = { File classFile ->
                 // spells, which would be a violation nobody could act on.
                 return true
             }
+
             classBytes.skipBytes(payloadBytes)
 
             if (tag in DOUBLE_WIDTH_CONSTANTS) {
@@ -219,7 +240,8 @@ def isTypeAllowed = { String referencedType, Map namespaceRule ->
 // so the first two segments are the tree and the rest is the class.
 def readCompiledClass = { File classFile, File classesDir ->
 
-    def compiledPath = classesDir.toPath()
+    def compiledPath = classesDir
+        .toPath()
         .relativize(classFile.toPath())
         .toString()
         .replace(File.separator, '/')
@@ -228,10 +250,11 @@ def readCompiledClass = { File classFile, File classesDir ->
     def pathSegments = compiledPath.split('/')
 
     if (pathSegments.length <= 2) {
-        return [binaryName: compiledPath, compiledFrom: '']
+        return [binaryName: compiledPath, compiledFrom: '', sourceSet: '']
     }
     return [
         binaryName: pathSegments[2..-1].join('/'),
+        sourceSet: pathSegments[1],
         // Named in the report because the same class name can be compiled from
         // more than one tree, and because which tree a reference sits in is the
         // first thing a reader of the report asks.
@@ -247,11 +270,12 @@ def namespaceRules = []
 def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
 
     group = 'verification'
+
     // Bracketed so the leading '+' continues this expression. Groovy ends a
     // statement at a line break wherever the line already parses whole, and
     // reads the next one as unary plus on a string - which fails at the call.
-    description = ('Fails the build when compiled code names a type from a '
-        + 'namespace outside what the consuming build declared stable in it.')
+    description = ('Fails the build when compiled code names a type from a restricted '
+        + 'namespace outside what the consuming build declared allowed in it.')
 
     // Declares one namespace. Named arguments rather than positional ones
     // because all three are plain text, so a transposition would otherwise
@@ -261,9 +285,20 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
         if (!namespaceRule.namespace) {
 
             throw new GradleException("restrictReferences needs 'namespace' "
-                + "(the package root whose type names are not promised); "
+                + "(the package root whose type names are restricted); "
                 + "got: ${namespaceRule}")
         }
+
+        // One rule per namespace. The named types are gathered per namespace, so
+        // two rules over one would judge each other's allowances against a merged
+        // set - and a class both apply to would be held to both and allowed by
+        // neither.
+        if (namespaceRules.any { it.namespace == namespaceRule.namespace }) {
+
+            throw new GradleException("restrictReferences declares '${namespaceRule.namespace}' "
+                + "a second time; state the whole rule for a namespace in one call")
+        }
+
         // Held as binary names, which is how a class file spells them, so the
         // scan compares what it read rather than converting per match. The
         // declaration stays in source spelling, that being what a reader of the
@@ -273,6 +308,7 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
                 .collect { it.replace('.', '/') }
                 .sort()
         }
+
         def namespacePath = namespaceRule.namespace.replace('.', '/')
 
         namespaceRules << [
@@ -283,6 +319,10 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
             referenceMatcher: ~/\Q${namespacePath}\E\/[\w$\/]+/,
             allowedPackages: toBinaryNames(namespaceRule.allowingPackages ?: []),
             allowedTypes: toBinaryNames(namespaceRule.allowingTypes ?: []),
+            // Empty means every source set, so a rule that never names one
+            // holds everywhere.
+            sourceSets: (namespaceRule.inSourceSets ?: []).collect { it.toString() }.sort(),
+            reason: namespaceRule.reason,
         ]
     }
 
@@ -329,16 +369,46 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
         namespaceRules
             .collect {
                 ("${it.namespace} only ${it.allowedPackages} "
-                    + "and ${it.allowedTypes}").toString()
+                    + "and ${it.allowedTypes} in ${it.sourceSets} because ${it.reason ?: ''}").toString()
             }
             .sort()
     })
+
+    // The source sets the build has, read when the gate runs rather than when it
+    // is registered: a consumer declares its own after the conventions apply this
+    // script. An input too, so a source set added later re-runs the gate against
+    // the rules that name it.
+    def sourceSetNames = providers.provider {
+        project.extensions.findByName('sourceSets')?.names?.toList()?.sort() ?: []
+    }
+
+    inputs.property('sourceSetNames', sourceSetNames)
 
     doLast {
 
         if (namespaceRules.isEmpty()) {
             return
         }
+
+        // A misspelt source set would match no compiled tree and turn its rule
+        // into one that checks nothing, which passes. Failed instead, so a typo
+        // fails safe the way a mistyped allowance key does.
+        def knownSourceSets = sourceSetNames.get()
+
+        namespaceRules.each { namespaceRule ->
+
+            def unknownSourceSets = namespaceRule
+                .sourceSets
+                .findAll { !(it in knownSourceSets) }
+
+            if (!unknownSourceSets.isEmpty()) {
+
+                throw new GradleException("restrictReferences for '${namespaceRule.namespace}' names "
+                    + "source set(s) ${unknownSourceSets} this build does not have; "
+                    + "it has ${knownSourceSets}")
+            }
+        }
+
         def violations = []
         def unreadableClasses = []
         def classesDir = layout.buildDirectory.dir('classes').get().asFile
@@ -364,18 +434,20 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
             // over is one nothing would have been done with.
             def applicableRules = namespaceRules.findAll {
                 !isClassInsideNamespace(compiledClass.binaryName, it)
+                    && (it.sourceSets.isEmpty() || compiledClass.sourceSet in it.sourceSets)
             }
+
             if (applicableRules.isEmpty()) {
                 return
             }
-            def texts = readTextConstants(classFile)
 
+            def texts = readTextConstants(classFile)
             if (texts == null) {
                 unreadableClasses << compiledClass.binaryName
                 return
             }
-            hasReadAnyClass = true
 
+            hasReadAnyClass = true
             applicableRules.each { namespaceRule ->
 
                 findReferencedTypes(texts, namespaceRule).each { referencedType ->
@@ -384,9 +456,11 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
 
                     if (!isTypeAllowed(referencedType, namespaceRule)) {
 
+                        def why = namespaceRule.reason
+                            ?: "${namespaceRule.namespace} does not promise to keep spelled that way"
+
                         violations << ("${compiledClass.binaryName}${compiledClass.compiledFrom}"
-                            + " references ${referencedType}, which ${namespaceRule.namespace}"
-                            + " does not promise to keep spelled that way")
+                            + " references ${referencedType}, which ${why}")
                     }
                 }
             }
@@ -457,7 +531,7 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
                 + "${unreadableClasses.sort().take(5)}")
         }
 
-        failOnViolations('Unstable type references', violations.sort())
+        failOnViolations('Restricted type references', violations.sort())
     }
 }
 

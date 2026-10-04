@@ -44,6 +44,22 @@ class EnforcePackageVocabularyGateIntegrationTests {
         "allowWord word: 'bloc', inFile: 'src/main/java/"
             + FRAMEWORK_PACKAGE_PATH + "/GONE.md'");
 
+    // The closed root with one subtree of its own left out, where the words are
+    // that subtree's subject. The fixtures sit in it in one case and beside it in
+    // the other.
+    private static final String KINDS_PACKAGE_PATH = FRAMEWORK_PACKAGE_PATH + "/kinds";
+    private static final String CORE_PACKAGE_PATH = FRAMEWORK_PACKAGE_PATH + "/core";
+
+    private static final String CLOSED_EXCEPT_THE_KINDS = buildDeclaration(
+        "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "', except: '" + CLOSED_PACKAGE_ROOT
+            + ".kinds', words: [" + FORBIDDEN_WORDS + "]");
+
+    // A left-out subtree the closed root does not hold, which exempts nothing
+    // while reading in the build as though it did.
+    private static final String CLOSED_EXCEPT_A_PACKAGE_OUTSIDE_THE_ROOT = buildDeclaration(
+        "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "', except: ['example.feature.kinds'], "
+            + "words: [" + FORBIDDEN_WORDS + "]");
+
     // A declaration naming only the closed root, which says nothing about what
     // it may not say - the shape a misspelt or forgotten 'words:' takes.
     private static final String HALF_DECLARED_RULE = buildDeclaration(
@@ -183,6 +199,34 @@ class EnforcePackageVocabularyGateIntegrationTests {
     }
 
     @Test
+    void failsWhenASiblingOfTheLeftOutSubtreeSaysAForbiddenWord(@TempDir Path projectDir) {
+
+        // Leaving one subtree out must not leave the rest of the root with it.
+        writeJavaSource(projectDir, "src/main/java", CORE_PACKAGE_PATH,
+            "framework-saying-a-forbidden-word");
+
+        var result = runGateExpectingFailure(projectDir, CLOSED_EXCEPT_THE_KINDS);
+
+        assertThat(result.getOutput())
+            .contains("example.framework except example.framework.kinds may not say \"territory\"");
+    }
+
+    @Test
+    void failsWhenTheLeftOutSubtreeSitsOutsideTheClosedRoot(@TempDir Path projectDir) {
+
+        // Refused where it is written rather than accepted as an exemption
+        // that can never apply.
+        writeJavaSource(projectDir, "src/main/java", FRAMEWORK_PACKAGE_PATH,
+            "framework-saying-nothing-forbidden");
+
+        var result = runGateExpectingFailure(projectDir, CLOSED_EXCEPT_A_PACKAGE_OUTSIDE_THE_ROOT);
+
+        assertThat(result.getOutput())
+            .contains("forbidWords 'except' names a package strictly beneath the closed root "
+                + "example.framework; got: example.feature.kinds");
+    }
+
+    @Test
     void failsAgainAfterAPassingRunOnceAWordIsDeclared(@TempDir Path projectDir) {
 
         // The declarations are a task input, not just a closure the action
@@ -232,6 +276,23 @@ class EnforcePackageVocabularyGateIntegrationTests {
             "framework-readme-saying-an-allowed-word");
 
         var result = runGateExpectingSuccess(projectDir, CLOSED_BUT_ALLOWING_THE_README);
+
+        assertThat(result.task(GATE.taskPath()).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
+    }
+
+    @Test
+    void passesWhenTheLeftOutSubtreeSaysAForbiddenWord(@TempDir Path projectDir) {
+
+        // The whole reason 'except' exists: a subtree whose subject the words
+        // are, kept inside a root that may not say them anywhere else. Markdown
+        // too, since a subtree's README is written in its own words.
+        writeJavaSource(projectDir, "src/main/java", KINDS_PACKAGE_PATH,
+            "framework-saying-a-forbidden-word");
+        writeMarkdown(projectDir, "src/main/java", KINDS_PACKAGE_PATH,
+            "framework-readme-saying-a-forbidden-word");
+
+        var result = runGateExpectingSuccess(projectDir, CLOSED_EXCEPT_THE_KINDS);
 
         assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
