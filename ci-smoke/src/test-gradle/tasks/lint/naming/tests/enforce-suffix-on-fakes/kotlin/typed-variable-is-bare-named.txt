@@ -1,3 +1,0 @@
-class Probe {
-    private val market: EditableMarket = EditableMarketFake()
-}

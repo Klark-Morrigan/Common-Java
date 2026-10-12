@@ -1,32 +1,65 @@
-// Nested-test structure gate, applied by java-conventions.gradle into every
-// consuming project. Kept in its own script so the conventions file stays about
-// classpath, version, and jar output, while this owns one concern: the
-// verification rule.
+// Nested-test structure gate.
 //
-// The convention: every test method lives inside a @Nested class named for the
-// method under test, so a suite reports as a per-method tree rather than a flat
-// list. The outermost test class holds only shared setup (@BeforeEach /
-// @AfterEach), helpers, and the @Nested groups - never a @Test directly. This
-// gate enforces the structural half of that rule: a @Test-family method must be
-// enclosed in a @Nested class. The naming half (the group is named for the
-// method under test) needs the production symbol to compare against and so
-// stays a convention, not a gate; that a test method does not repeat its group's
-// name is enforceTestNamesOmitGroup's.
+// The convention: every test method lives inside a @Nested class named for the method under test,
+// so a suite reports as a per-method tree rather than a flat list. The outermost test class holds
+// only shared setup (@BeforeEach / @AfterEach), helpers, and the @Nested groups - never a @Test
+// directly. This gate enforces the structural half of that rule: a @Test-family method must be
+// enclosed in a @Nested class. The naming half (the group is named for the method under test) needs
+// the production symbol to compare against and so stays a convention, not a gate; that a test
+// method does not repeat its group's name is enforceTestNamesOmitGroup's.
 //
-// It also enforces the one Kotlin twist this would otherwise hide: a @Nested
-// class must be 'inner'. A plain Kotlin nested 'class' compiles but is
-// static-equivalent, so JUnit5 silently skips its tests - they never run and
-// the build still goes green. Catching it at build time turns a silent gap
-// into a loud failure.
+// It also enforces the trap each language sets: a @Nested class JUnit will not run. A Kotlin
+// @Nested class must be 'inner', since a plain nested 'class' is static-equivalent; a Java one must
+// not be 'static'. Either compiles, and JUnit skips its tests while the build stays green.
 //
-// Unlike a line-local gate, telling a top-level @Test from a nested one needs
-// each annotation's enclosing class, which source-scan.gradle reads for Kotlin
-// as well as Java.
-//
-// Applied by this script, not assumed from the conventions file: the gate is
-// applied on its own by its integration test, so it has to carry what it uses.
+// Telling a top-level @Test from a nested one needs each annotation's enclosing class, which
+// source-scan.gradle reads for Kotlin as well as Java.
 apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, '../../source-scan.gradle')
+
+// The Kotlin 'inner' modifier on a class, which makes a @Nested group one JUnit runs.
+def innerModifier = ~/\binner\s+class\b/
+
+// The Java 'static' modifier on a declaration line, which makes a @Nested group one JUnit skips.
+def staticModifier = ~/\bstatic\b/
+
+// Every nested-test violation in one source file.
+def findNestingViolations = { File sourceFile ->
+
+    def isKotlin = sourceFile.name.endsWith('.kt')
+    def violations = []
+
+    scanClassScopes(sourceFile) { line ->
+
+        // A @Test binds to the method that follows it, but that method's enclosing class is
+        // already open, so the verdict reads here without waiting for the method body.
+        if (testMethodAnnotation.matcher(line.text).find()
+                && !(line.enclosingClass?.isNested)) {
+
+            violations << "${sourceFile}:${line.number}: @Test method must live inside a @Nested class"
+        }
+
+        def declared = line.declaredClass
+
+        if (declared == null || !declared.isNested) {
+            return
+        }
+
+        if (isKotlin && !innerModifier.matcher(line.text).find()) {
+
+            violations << "${sourceFile}:${line.number}: Kotlin @Nested class must be declared " +
+                "`inner class` (a plain nested class is skipped by JUnit5)"
+        }
+
+        if (!isKotlin && staticModifier.matcher(line.text).find()) {
+
+            violations << "${sourceFile}:${line.number}: Java @Nested class must not be static " +
+                "(a static nested class is skipped by JUnit5)"
+        }
+    }
+
+    return violations
+}
 
 def enforceTestsNested = tasks.register('enforceTestsNested') {
 
@@ -34,55 +67,14 @@ def enforceTestsNested = tasks.register('enforceTestsNested') {
     description = 'Fails the build when a @Test method is not enclosed in a ' +
         '@Nested class.'
 
-    def testRoots = declareSourceRoots(it, ['src/test'])
+    def scannedFiles = declareScannedFiles(it, testSourceRoots, jvmSourceIncludes)
 
     doLast {
-        // The Kotlin 'inner' modifier on a class. A @Nested class must be a
-        // non-static inner class; in Kotlin a plain nested 'class' is
-        // static-equivalent, so this distinguishes a runnable @Nested group
-        // from one JUnit5 silently skips.
-        def innerModifier = ~/\binner\s+class\b/
-        def violations = []
 
-        eachSourceFile(testRoots) { sourceFile ->
-            // The 'inner class' rule below is Kotlin-only: a Java @Nested class
-            // is already a non-static inner class unless marked 'static', so
-            // the keyword check would mis-fire on every correct Java group.
-            def isKotlin = sourceFile.name.endsWith('.kt')
-
-            scanClassScopes(sourceFile) { line ->
-                // A @Test binds to the method that follows it, but that method's
-                // enclosing class is already open, so the verdict reads here
-                // without waiting for the method body.
-                if (testMethodAnnotation.matcher(line.text).find()) {
-
-                    def enclosing = line.enclosingClass
-                    if (enclosing == null || !enclosing.isNested) {
-
-                        violations << "${sourceFile}:${line.number}: @Test method " +
-                            "must live inside a @Nested class"
-                    }
-                }
-                // A Kotlin @Nested class must be 'inner'. A plain nested 'class'
-                // compiles but is static-equivalent, so JUnit5 silently skips its
-                // tests - they never run yet the build stays green. Flag it here,
-                // where the declaration line (carrying any 'inner' modifier) and
-                // its @Nested marker are both known.
-                def declared = line.declaredClass
-                if (isKotlin && declared != null && declared.isNested
-                        && !innerModifier.matcher(line.text).find()) {
-
-                    violations << "${sourceFile}:${line.number}: Kotlin " +
-                        "@Nested class must be declared `inner class` " +
-                        "(a plain nested class is skipped by JUnit5)"
-                }
-            }
-        }
+        def violations = scannedFiles.collectMany { sourceFile -> findNestingViolations(sourceFile) }
 
         failOnViolations('Nested-test convention violated', violations)
     }
 }
 
-// Make it a gate: an output so it can be skipped while what it reads is
-// unchanged, and a place in the verification lifecycle; see lint-gate.gradle.
 installLintGate(enforceTestsNested)

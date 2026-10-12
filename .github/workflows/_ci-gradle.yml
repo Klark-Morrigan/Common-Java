@@ -3,9 +3,8 @@
 # The leading underscore marks this as the reusable ENGINE - the building
 # block other workflows invoke via `uses:`, never a direct entry. Each repo
 # (including Common-Java itself) has a plain `ci-gradle.yml` that triggers on
-# PRs and calls this. Keeping the two names distinct is deliberate: when the
-# engine and the per-repo caller shared the name `ci-gradle.yml`, it was easy
-# to mistake one for the other.
+# PRs and calls this. The names differ so the engine and a caller cannot be
+# mistaken for each other.
 #
 # Deliberately language-agnostic: `./gradlew <tasks>` is identical whether
 # the project applies the `java` or `kotlin.jvm` plugin, so one workflow
@@ -67,7 +66,9 @@ on:
         required: false
         default: ''
       gradle-tasks:
-        description: Gradle tasks to run.
+        # Split on whitespace only: an argument carrying a space cannot be
+        # passed, and quotes reach Gradle as literal characters.
+        description: Gradle tasks to run, separated by spaces.
         type: string
         required: false
         default: test jar
@@ -129,6 +130,12 @@ on:
         description: Token for cloning private sibling repos.
         required: false
 
+# Every step only reads: the checkouts, the build, and the artifact upload,
+# which authenticates with the runner's own token rather than this one. A
+# caller granting more still hands the engine no more than this.
+permissions:
+  contents: read
+
 jobs:
   gradle:
     # Runner selection, highest precedence first: the `runner` input (a
@@ -156,9 +163,8 @@ jobs:
         # SHA-pinned for supply-chain hardening: a mutable tag (@v5) can be
         # repointed at malicious code, a commit SHA cannot. v5 line runs on
         # Node 24. This engine runs on whatever runner the caller picks,
-        # including self-hosted ones, so those runners must provide Node 24
-        # (provisioning tracked separately); pinned to v5 ahead of that, so
-        # a not-yet-provisioned self-hosted caller fails here by design.
+        # including self-hosted ones, so those runners must provide Node 24;
+        # one that does not fails here.
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
           path: ${{ inputs.checkout-path }}
@@ -194,11 +200,18 @@ jobs:
       # plugin's internals - and that is the only thing deciding who fixes it.
       # A clean build prints nothing extra, so this costs no noise and makes the
       # next deprecation visible in the run that introduces it.
+      #
+      # The task list reaches the shell through env rather than an inline
+      # expression, so a value carrying shell syntax is data, never code. It
+      # is split on whitespace into one argument per task; read -a does that
+      # without the glob expansion a bare unquoted expansion would add.
       - name: Build and test
         working-directory: ${{ inputs.working-directory }}
-        run: >-
-          ./gradlew ${{ inputs.gradle-tasks }}
-          --no-daemon --console=plain --warning-mode all
+        env:
+          GRADLE_TASKS: ${{ inputs.gradle-tasks }}
+        run: |
+          read -r -a gradle_tasks <<< "${GRADLE_TASKS}"
+          ./gradlew "${gradle_tasks[@]}" --no-daemon --console=plain --warning-mode all
 
       # Gradle's failure message points at the HTML report by file:// path,
       # which on a self-hosted runner names a disk nobody reading the run can

@@ -1,7 +1,0 @@
-class Probe {
-    fun make() {
-        openDialog(
-            dialog = mock(InteractionDialogAPI::class.java),
-        )
-    }
-}

@@ -1,0 +1,5 @@
+class RepositoryFakeTests {
+    void collectsWhatWasWritten() {
+        var repositoryFake = new RepositoryFake();
+    }
+}

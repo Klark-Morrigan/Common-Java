@@ -1,0 +1,7 @@
+class Sample {
+    void alpha() {
+    }
+
+    protected void beta() {
+    }
+}

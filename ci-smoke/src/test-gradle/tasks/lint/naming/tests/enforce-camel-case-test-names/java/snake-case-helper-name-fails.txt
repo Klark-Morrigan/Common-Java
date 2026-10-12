@@ -1,0 +1,9 @@
+class Sample {
+    @Test
+    void readsTheOwnerOffTheRecord() {
+        build_record("first");
+    }
+
+    private void build_record(String recordKey) {
+    }
+}

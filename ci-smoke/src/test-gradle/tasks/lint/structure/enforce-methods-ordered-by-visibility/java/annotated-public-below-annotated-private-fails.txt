@@ -1,0 +1,11 @@
+class Sample {
+    @Deprecated public void alpha() {
+    }
+
+    @SuppressWarnings("unused") @Deprecated private void helper() {
+    }
+
+    @Override public String toString() {
+        return "";
+    }
+}

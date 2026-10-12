@@ -1,0 +1,10 @@
+/**
+ * A doc example the gate must not read: {@code class FakeClock} and
+ * {@code clock = new ClockFake();}
+ */
+class Sample {
+    void make() {
+        // var clock = new ClockFake();
+        var clockFake = new ClockFake(); /* clock = new ClockFake(); */
+    }
+}

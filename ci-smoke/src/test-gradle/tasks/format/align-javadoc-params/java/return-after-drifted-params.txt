@@ -1,0 +1,11 @@
+class Sample {
+
+    /**
+     * @param alpha   the first
+     * @param b the second
+     * @return  the result
+     */
+    int doThing(int alpha, int b) {
+        return alpha;
+    }
+}

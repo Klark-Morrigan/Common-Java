@@ -1,98 +1,38 @@
-// Referenced-types gate, applied by java-conventions.gradle into every
-// consuming project. Kept in its own script so the conventions file stays about
-// classpath, version, and test stack, while this owns one concern: the
-// verification rule.
+// Referenced-types gate: compiled code names a type from a restricted namespace only where the
+// consuming build allowed that type.
 //
-// The convention: compiled code names a type from a restricted namespace only
-// where the consuming build has said that particular type is allowed.
+// It guards against two failures that surface at the call rather than at compile or load time: a
+// library whose non-public names differ between builds of one version, and a runtime that refuses
+// to load a namespace at all.
 //
-// The first reason to restrict one is unstable spellings: the same library, at
-// the same version, ships under different type names to different audiences - a
-// build per platform, a shaded redistribution, an obfuscated release whose
-// non-public names are regenerated. Code compiled against one of those spellings
-// then fails to link against another, and it fails at the call rather than at
-// load. The second is a runtime that refuses to load a namespace at all, which
-// fails the same way: at the call, and nowhere a compiler or a suite can see.
-//
-// The fourth of the structure family, and the only one that reads compiled
-// classes rather than source text. It has to: what a class file records is not
-// what the source said. A source file that never names a type still compiles a
-// reference to it wherever an inferred local, a returned value or an implicit
-// cast puts one in a descriptor, and that reference is what the JVM resolves. A
-// source pass would clear such a file and a bytecode pass fails it, which is the
-// whole reason this exists as its own gate rather than as another import rule.
-//
-// The shape it exists for: a library whose published surface is stable and whose
-// internals are not, reached through a seam. The seam may name the stable types;
-// everything below it is reached by name at runtime instead, and nothing
-// anywhere may compile a reference to a type whose spelling is not promised.
-//
-// A namespace is a per-project fact rather than a shared one, so this script
-// owns only the mechanism and the consuming build declares what it allows. Each
-// namespace is declared once, in one call carrying its whole rule.
-// The names below are the ones this gate's own integration test is written
-// against, this repo knowing no consumer's dependencies:
+// It reads class files rather than source, because a class records references its source never
+// spells: an inferred local or a returned value puts a type into a descriptor, and the descriptor is
+// what the JVM resolves.
 //
 //     enforceReferencedTypes {
 //         restrictReferences namespace: 'example.library',
-//                     allowingPackages: ['example.library.api'],
-//                        allowingTypes: ['example.library.internal.Seam']
+//             allowingPackages: ['example.library.api'],
+//             allowingTypes: ['example.library.internal.Seam'],
+//             inSourceSets: ['main'],
+//             reason: 'the runtime refuses to load it'
 //     }
 //
-// All of it arrives in one call rather than through a fluent chain, for the
-// reason the layering gate gives: a half-declared rule is then never a state
-// anything can hold or a caller can forget to finish.
+// Each namespace is declared once. Both allowances take one name or a list; left out, the namespace
+// is closed outright, so a mistyped key closes it rather than opens it. A package allowance covers
+// everything beneath it. A type allowance covers that type and the types nested in it, which are
+// declared, promised and renamed with it.
 //
-// Both allowances are optional, and omitting them closes the namespace
-// altogether. They are optional rather than required so a total ban needs no
-// empty list, and the failure direction of a mistyped key is the safe one - the
-// namespace is closed rather than silently opened.
+// 'inSourceSets' limits a rule to the trees it names, for a rule about where code runs: a suite on a
+// plain JVM may use what the shipped runtime refuses. Left out, the rule holds in every tree.
+// 'reason' ends each finding as the clause after "which", in place of the default about unstable
+// spellings.
 //
-// A package allowance covers everything beneath it, a type allowance covers that
-// one type and the types nested inside it. Nested types ride with their outer
-// one because they are declared with it: a nested type is written in the same
-// file, promised by the same decision, and renamed by the same release. Nothing
-// else is implied - a sibling in the same package as an allowed type is its own
-// declaration.
-//
-// Every class under the build's class trees is scanned, production and test
-// alike. A reference this gate would fail is compiled the same way in either, and
-// a rule about how a library may be reached that stopped at the test tree would
-// be a rule with a hole in it.
-//
-// A rule can still name the source sets it holds for, through 'inSourceSets'.
-// That is for a rule about where code runs rather than what it was compiled
-// against: a namespace the shipped runtime refuses to load is one a suite on a
-// plain JVM may use freely, and holding the suite to it would forbid the tools
-// that suite is written with. Left out, the rule holds everywhere. A name the
-// build has no source set for fails the build rather than checking nothing.
-//
-// A rule can also say why it holds, through 'reason', which then ends each of its
-// findings in place of the default about unstable spellings - a namespace banned
-// for another reason would otherwise be reported for one that is false. It
-// continues a sentence, "X references T, which <reason>", so it is written as
-// the clause that follows "which":
-//
-//     restrictReferences namespace: 'java.lang.reflect',
-//         inSourceSets: ['main'],
-//         reason: 'the game refuses to load for mod code'
-//
-// What a violation names is the class that holds the reference and the type it
-// referenced, with no line number: a class file records which types a method
-// touches, not where in the source each was written. That is enough to open the
-// file at, and the alternative - carrying the line tables through - would buy a
-// line number for a reference the source may not spell anywhere.
-//
-// A build that declares no namespace inherits the task and checks nothing,
-// which is what lets the conventions file apply it everywhere rather than
-// leaving each consumer to opt in.
+// A finding names the class and the type with no line: a class file records which types a method
+// touches, not where the source wrote them.
 
-// Applied by this script, not assumed from the conventions file: the gate is
-// applied on its own by its integration test, so it has to carry what it uses.
 apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
 
-// Constant-pool tags, by the size of what follows them. Only the Utf8 entries
-// are read; the rest exist so the walk can step over them, a pool being a
+// Constant-pool tags. Only the Utf8 entries are read; the rest are stepped over, a pool being a
 // sequence of variable-width entries with no index to seek by.
 def CONSTANT_UTF8 = 1
 def CONSTANT_INTEGER = 3
@@ -112,8 +52,7 @@ def CONSTANT_INVOKE_DYNAMIC = 18
 def CONSTANT_MODULE = 19
 def CONSTANT_PACKAGE = 20
 
-// Entries whose payload is a fixed number of bytes after the tag, so the walk
-// steps over them without knowing what they mean.
+// The bytes after each fixed-width tag.
 def CONSTANT_PAYLOAD_BYTES = [
     (CONSTANT_INTEGER): 4,
     (CONSTANT_FLOAT): 4,
@@ -133,48 +72,46 @@ def CONSTANT_PAYLOAD_BYTES = [
     (CONSTANT_PACKAGE): 2,
 ]
 
-// The eight-byte constants take two pool slots each, a rule the pool's own
-// numbering depends on and the one thing a naive walk gets wrong.
+// The eight-byte constants take two pool slots each, which the pool's numbering depends on.
 def DOUBLE_WIDTH_CONSTANTS = [CONSTANT_LONG, CONSTANT_DOUBLE]
 
-// Every text constant in a class file. That is where every type name in it
-// lives, whichever way the class names one: a class constant holds the name
-// itself, and a field or method descriptor spells its types inside a signature,
-// which is the half a reference can hide in - a call's return type is written
-// nowhere else.
+// What precedes the constant pool: the magic number (4 bytes), the minor version (2), the major (2).
+def CLASS_FILE_HEADER_BYTES = 8
+
+// How many unreadable classes a failure names; the cause is a class-file version, so it tends to
+// hold for everything compiled.
+def UNREADABLE_CLASSES_NAMED = 5
+
+// Every text constant in a class file, which is where every type name in it lives: a class constant
+// holds the name itself, and a descriptor spells its types inside a signature. Only the pool is read;
+// it holds every name the class can refer to.
 //
-// Only the pool is read. It sits at the head of the file and holds every name
-// the class can refer to, so there is nothing after it worth the walk.
-//
-// Answers null for a file the walk cannot follow, which is a different thing
-// from a file that names nothing: the caller fails the build over those rather
-// than passing them silently, since a class read as empty is a class nothing was
-// checked in and that is indistinguishable from a class that passed.
+// Answers null for a file the walk cannot follow, so the caller can fail over it rather than read it
+// as naming nothing.
 def readTextConstants = { File classFile ->
 
     def texts = []
-    def unreadable = classFile.withDataInputStream { classBytes ->
+    def isUnreadable = classFile.withDataInputStream { classBytes ->
 
-        classBytes.skipBytes(8)
+        classBytes.skipBytes(CLASS_FILE_HEADER_BYTES)
 
         int poolEntryCount = classBytes.readUnsignedShort()
 
-        // Numbered from one, and the count is one past the last, which is why
-        // this reads one entry fewer than the number suggests.
+        // Numbered from one, and the count is one past the last entry.
         for (int entry = 1; entry < poolEntryCount; entry++) {
 
             int tag = classBytes.readUnsignedByte()
+
             if (tag == CONSTANT_UTF8) {
                 texts << classBytes.readUTF()
                 continue
             }
 
             def payloadBytes = CONSTANT_PAYLOAD_BYTES[tag]
+
+            // A tag this walk does not know. Stepping on blindly would report whatever the
+            // misalignment spells.
             if (payloadBytes == null) {
-                // A tag from a class-file version this walk does not know.
-                // Stopping here reads the file as holding nothing rather than
-                // stepping blindly and reporting whatever the misalignment
-                // spells, which would be a violation nobody could act on.
                 return true
             }
 
@@ -184,60 +121,65 @@ def readTextConstants = { File classFile ->
                 entry++
             }
         }
+
         return false
     }
-    return unreadable ? null : texts
+
+    return isUnreadable ? null : texts
 }
 
-// The types a class names from this namespace, deduplicated.
-//
-// A name is matched wherever it appears in a text constant rather than only at
-// its start, because a descriptor carries it mid-string: '()Lcom/fs/x/Y;' names
-// the type after the 'L'. The characters taken after the prefix are the ones a
-// binary name is written in, so a descriptor's closing ';' and a signature's
-// following types end the name on their own.
-//
-// The matcher is the rule's own, compiled when the rule was declared: this runs
-// once per class per rule, and a pattern rebuilt there is rebuilt a thousand
-// times over a library's class tree to say the same thing each time.
+// Answers whether a binary type name is the outer type or a type nested in it.
+def isTypeOrNestedIn = { String type, String outerType ->
+    return type == outerType || type.startsWith(outerType + '$')
+}
+
+// Declared names in the binary spelling a class file uses, so the scan compares what it read
+// without converting per match. The declaration keeps source spelling, which is what a reader knows.
+def readBinaryNames = { names ->
+    return readOneOrMany(names).collect { it.toString().replace('.', '/') }.sort()
+}
+
+// Where a class file can spell a type of the namespace: as a whole text (a class constant), after a
+// character no binary name holds, or after a descriptor's 'L'. That 'L' follows such a character or a
+// run of primitive descriptors, as in '(ILexample/library/Type;)V'. Anchored so a longer path that
+// merely contains the namespace, such as 'org/example/library/Type', is not read as it.
+def compileReferencePattern = { String namespacePath ->
+    return ~/(?:^|[^\w$\/]|(?:^|[^\w$\/])[BCDFIJSZ]*L)(\Q${namespacePath}\E\/[\w$\/]+)/
+}
+
+// The types a class names from this namespace, deduplicated. The name runs over the characters a
+// binary name is written in, so a descriptor's ';' and a signature's next type end it.
 def findReferencedTypes = { List<String> texts, Map namespaceRule ->
 
     def referencedTypes = new TreeSet<String>()
 
     texts.each { text ->
-        namespaceRule.referenceMatcher.matcher(text).each { referencedTypes << it }
+
+        def matcher = namespaceRule.referencePattern.matcher(text)
+
+        while (matcher.find()) {
+            referencedTypes << matcher.group(1)
+        }
     }
+
     return referencedTypes
 }
 
-// Whether a class compiled here is itself part of the namespace being judged.
-//
-// Such a class is exempt: what the rule is about is code of one authorship
-// depending on names of another's, and a class compiled into the namespace is
-// declaring itself part of it - a shim filed under a library's own package is
-// written to that library's internals by definition, and reporting each of its
-// references would be noise about the one place the rule does not apply.
+// Answers whether a class compiled here is itself part of the namespace. Such a class is exempt: a
+// shim filed under a library's own package is written to that library's internals by definition.
 def isClassInsideNamespace = { String className, Map namespaceRule ->
     return className.startsWith(namespaceRule.namespacePath + '/')
 }
 
-// Whether a type is one the consuming build promised is stable.
+// Answers whether a type is one the consuming build promised is stable.
 def isTypeAllowed = { String referencedType, Map namespaceRule ->
 
-    if (namespaceRule.allowedPackages.any { referencedType.startsWith(it + '/') }) {
-        return true
-    }
-    // A nested type rides with the outer one it is declared beside; a sibling in
-    // the same package does not.
-    return namespaceRule.allowedTypes.any {
-        referencedType == it || referencedType.startsWith(it + '$')
-    }
+    return namespaceRule.allowedPackages.any { referencedType.startsWith(it + '/') } ||
+        namespaceRule.allowedTypes.any { isTypeOrNestedIn(referencedType, it) }
 }
 
-// The class a file holds, named as the source that wrote it would be found: a
-// binary name with its nesting kept, and the tree it was compiled from beside
-// it. Everything under the class trees is <language>/<source set>/<binary name>,
-// so the first two segments are the tree and the rest is the class.
+// The class a file holds: its binary name with nesting kept, and the tree it was compiled from.
+// Everything under the class trees is <language>/<source set>/<binary name>.
 def readCompiledClass = { File classFile, File classesDir ->
 
     def compiledPath = classesDir
@@ -252,61 +194,153 @@ def readCompiledClass = { File classFile, File classesDir ->
     if (pathSegments.length <= 2) {
         return [binaryName: compiledPath, compiledFrom: '', sourceSet: '']
     }
+
     return [
         binaryName: pathSegments[2..-1].join('/'),
         sourceSet: pathSegments[1],
-        // Named in the report because the same class name can be compiled from
-        // more than one tree, and because which tree a reference sits in is the
-        // first thing a reader of the report asks.
+        // One class name can be compiled from more than one tree.
         compiledFrom: " in ${pathSegments[0]}/${pathSegments[1]}",
     ]
 }
 
-// Filled by the consuming build through the task's own `restrictReferences`, so
-// it is captured here rather than inside the task: the execution-time action
-// reads the same list the declarations appended to.
+// A misspelt source set matches no compiled tree, so its rule would check nothing and pass.
+def failOnUnknownSourceSets = { List namespaceRules, List knownSourceSets ->
+
+    namespaceRules.each { namespaceRule ->
+
+        def unknownSourceSets = namespaceRule.sourceSets.findAll { !(it in knownSourceSets) }
+
+        if (!unknownSourceSets.isEmpty()) {
+
+            throw new GradleException("restrictReferences for '${namespaceRule.namespace}' names " +
+                "source set(s) ${unknownSourceSets} this build does not have; " +
+                "it has ${knownSourceSets}")
+        }
+    }
+}
+
+// Reads every compiled class the rules apply to. Answers the references no rule allows, the classes
+// the walk could not follow, the types each rule saw named, and the rules that read any class.
+def scanCompiledClasses = { List namespaceRules, Iterable classFiles, File classesDir ->
+
+    def scan = [
+        violations: [],
+        unreadableClasses: [],
+        referencedTypesByNamespace: namespaceRules.collectEntries { [(it.namespace): new TreeSet<String>()] },
+        namespacesRead: [] as Set,
+    ]
+
+    classFiles.each { classFile ->
+
+        def compiledClass = readCompiledClass(classFile, classesDir)
+
+        // Settled before the file is opened, so a class every rule passes over is never read.
+        def applicableRules = namespaceRules.findAll {
+            !isClassInsideNamespace(compiledClass.binaryName, it) &&
+                (it.sourceSets.isEmpty() || compiledClass.sourceSet in it.sourceSets)
+        }
+
+        if (applicableRules.isEmpty()) {
+            return
+        }
+
+        def texts = readTextConstants(classFile)
+
+        if (texts == null) {
+            scan.unreadableClasses << compiledClass.binaryName
+            return
+        }
+
+        applicableRules.each { namespaceRule ->
+
+            scan.namespacesRead << namespaceRule.namespace
+
+            findReferencedTypes(texts, namespaceRule).each { referencedType ->
+
+                scan.referencedTypesByNamespace[namespaceRule.namespace] << referencedType
+
+                if (!isTypeAllowed(referencedType, namespaceRule)) {
+
+                    def why = namespaceRule.reason ?:
+                        "${namespaceRule.namespace} does not promise to keep spelled that way"
+
+                    scan.violations << "${compiledClass.binaryName}${compiledClass.compiledFrom}" +
+                        " references ${referencedType}, which ${why}"
+                }
+            }
+        }
+    }
+
+    return scan
+}
+
+// A type allowance nothing names reads as a dependency the project does not have, and pre-approves
+// the next reference to that type. Judged only for a rule that read a class: with nothing compiled
+// in its trees, every allowance would read as unused. A package allowance is a policy over a tree
+// and is not judged.
+def findUnusedTypeAllowances = { List namespaceRules, Map scan ->
+
+    return namespaceRules
+        .findAll { it.namespace in scan.namespacesRead }
+        .collectMany { namespaceRule ->
+
+            def referencedTypes = scan.referencedTypesByNamespace[namespaceRule.namespace]
+
+            namespaceRule.allowedTypes
+                .findAll { allowedType -> !referencedTypes.any { isTypeOrNestedIn(it, allowedType) } }
+                .collect { allowedType ->
+
+                    // In source spelling, since the reader deletes a line written that way.
+                    "${allowedType.replace('/', '.')} is allowed for ${namespaceRule.namespace} " +
+                        'and nothing compiled here names it, so the allowance says a dependency ' +
+                        'exists where none does'
+                }
+        }
+}
+
+// A class the walk cannot follow was checked for nothing, which looks like a pass. The cause is a
+// constant-pool tag the walk does not know yet, so this is raised before the findings, which are
+// incomplete while it holds.
+def failOnUnreadableClasses = { List unreadableClasses ->
+
+    if (!unreadableClasses.isEmpty()) {
+
+        throw new GradleException("Classes this gate could not read, so nothing in them was" +
+            " checked - each carries a constant-pool tag the walk does not know, which is a" +
+            " tag to add to it rather than anything in the code:\n  " +
+            "${unreadableClasses.size()} class(es), including " +
+            "${unreadableClasses.sort().take(UNREADABLE_CLASSES_NAMED)}")
+    }
+}
+
 def namespaceRules = []
 
-def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
+// Everything the build compiles, taken as the directory the language plugins write into rather than
+// from the source sets: a consumer declares its own source sets after the conventions apply this,
+// and the directory is also what the jar is built from.
+def classesRoot = layout.buildDirectory.dir('classes')
+
+def enforceReferencedTypes = tasks.register('enforceReferencedTypes') { gate ->
 
     group = 'verification'
+    description = 'Fails the build when compiled code names a type from a restricted ' +
+        'namespace outside what the consuming build declared allowed in it.'
 
-    // Bracketed so the leading '+' continues this expression. Groovy ends a
-    // statement at a line break wherever the line already parses whole, and
-    // reads the next one as unary plus on a string - which fails at the call.
-    description = ('Fails the build when compiled code names a type from a restricted '
-        + 'namespace outside what the consuming build declared allowed in it.')
-
-    // Declares one namespace. Named arguments rather than positional ones
-    // because all three are plain text, so a transposition would otherwise
-    // declare a namespace named after a package and still pass.
     ext.restrictReferences = { Map namespaceRule ->
 
         if (!namespaceRule.namespace) {
 
-            throw new GradleException("restrictReferences needs 'namespace' "
-                + "(the package root whose type names are restricted); "
-                + "got: ${namespaceRule}")
+            throw new GradleException("restrictReferences needs 'namespace' " +
+                "(the package root whose type names are restricted); " +
+                "got: ${namespaceRule}")
         }
 
-        // One rule per namespace. The named types are gathered per namespace, so
-        // two rules over one would judge each other's allowances against a merged
-        // set - and a class both apply to would be held to both and allowed by
-        // neither.
+        // What was named is gathered per namespace, so two rules over one would judge each other's
+        // allowances against a merged set.
         if (namespaceRules.any { it.namespace == namespaceRule.namespace }) {
 
-            throw new GradleException("restrictReferences declares '${namespaceRule.namespace}' "
-                + "a second time; state the whole rule for a namespace in one call")
-        }
-
-        // Held as binary names, which is how a class file spells them, so the
-        // scan compares what it read rather than converting per match. The
-        // declaration stays in source spelling, that being what a reader of the
-        // build knows the types by.
-        def toBinaryNames = { names ->
-            (names instanceof Collection ? names : [names])
-                .collect { it.replace('.', '/') }
-                .sort()
+            throw new GradleException("restrictReferences declares '${namespaceRule.namespace}' " +
+                "a second time; state the whole rule for a namespace in one call")
         }
 
         def namespacePath = namespaceRule.namespace.replace('.', '/')
@@ -314,70 +348,33 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
         namespaceRules << [
             namespace: namespaceRule.namespace,
             namespacePath: namespacePath,
-            // Compiled here rather than per class, for the reason
-            // findReferencedTypes gives.
-            referenceMatcher: ~/\Q${namespacePath}\E\/[\w$\/]+/,
-            allowedPackages: toBinaryNames(namespaceRule.allowingPackages ?: []),
-            allowedTypes: toBinaryNames(namespaceRule.allowingTypes ?: []),
-            // Empty means every source set, so a rule that never names one
-            // holds everywhere.
-            sourceSets: (namespaceRule.inSourceSets ?: []).collect { it.toString() }.sort(),
+            // Compiled once per rule rather than once per class.
+            referencePattern: compileReferencePattern(namespacePath),
+            allowedPackages: readBinaryNames(namespaceRule.allowingPackages),
+            allowedTypes: readBinaryNames(namespaceRule.allowingTypes),
+            // Empty means every source set.
+            sourceSets: readOneOrMany(namespaceRule.inSourceSets).collect { it.toString() }.sort(),
             reason: namespaceRule.reason,
         ]
     }
 
-    // Everything the build compiles, taken as the directory the language plugins
-    // write into rather than from the source sets that name it.
-    //
-    // The directory is what cannot miss a tree. A consumer applies the
-    // conventions first and declares its own source sets after, so a scan built
-    // from the source sets known at that moment is built from the language
-    // plugin's defaults and nothing else - and a tree left out is a tree that
-    // quietly stopped being checked, which is the failure this gate exists to
-    // have none of. It is also what the jar is built from, so a class sitting
-    // there is a class that ships whether or not a source still produces it.
-    //
-    // Declared as the matched files rather than as the directory: an absent tree
-    // is then an empty scan rather than the configuration failure a
-    // declared-but-missing input directory would be.
-    def scannedClasses = fileTree(layout.buildDirectory.dir('classes')) {
-        include '**/*.class'
-    }
+    def scannedClasses = declareScannedFiles(gate, classesRoot, ['**/*.class'], 'scannedClasses')
 
-    // Compilation has to have happened for there to be anything to read, which
-    // is the one way this gate differs from its source-text siblings.
-    //
-    // Matched live and twice over rather than named, so a consumer's Kotlin,
-    // Groovy or fixture compilation is covered without this script knowing it
-    // exists. By type catches everything built on Gradle's own compile task; by
-    // name catches the Kotlin plugin, which stopped extending it. Either alone
-    // leaves a language out, and a compilation missed here is a gate that reads
-    // the previous build's classes.
+    // Compilation has to happen first. Matched live and two ways, so a consumer's other languages are
+    // covered without this script naming them: by type for Gradle's own compile tasks, by name for
+    // Kotlin's, which are not AbstractCompile.
     dependsOn tasks.withType(AbstractCompile)
     dependsOn tasks.matching { it.name.startsWith('compile') && it.name.endsWith('Kotlin') }
 
-    inputs.files(scannedClasses).withPropertyName('scannedClasses')
+    declareRuleSnapshot(gate, 'namespaceRules') {
+        namespaceRules.collect {
+            "${it.namespace} only ${it.allowedPackages} and ${it.allowedTypes} " +
+                "in ${it.sourceSets} because ${it.reason ?: ''}"
+        }
+    }
 
-    // The namespaces are an input as much as the classes are - declaring one has
-    // to re-run the gate rather than leave it UP-TO-DATE against the rule it was
-    // last cleared under. Wrapped in a provider because they are declared after
-    // this registration runs, and snapshotted as plain strings rather than as
-    // the maps themselves, since an input property's value has to be
-    // serialisable.
-    inputs.property('namespaceRules', providers.provider {
-
-        namespaceRules
-            .collect {
-                ("${it.namespace} only ${it.allowedPackages} "
-                    + "and ${it.allowedTypes} in ${it.sourceSets} because ${it.reason ?: ''}").toString()
-            }
-            .sort()
-    })
-
-    // The source sets the build has, read when the gate runs rather than when it
-    // is registered: a consumer declares its own after the conventions apply this
-    // script. An input too, so a source set added later re-runs the gate against
-    // the rules that name it.
+    // Read when the gate runs, since a consumer declares its own source sets after this is applied.
+    // An input too, so a source set added later re-runs the gate against the rules naming it.
     def sourceSetNames = providers.provider {
         project.extensions.findByName('sourceSets')?.names?.toList()?.sort() ?: []
     }
@@ -390,151 +387,15 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') {
             return
         }
 
-        // A misspelt source set would match no compiled tree and turn its rule
-        // into one that checks nothing, which passes. Failed instead, so a typo
-        // fails safe the way a mistyped allowance key does.
-        def knownSourceSets = sourceSetNames.get()
+        failOnUnknownSourceSets(namespaceRules, sourceSetNames.get())
 
-        namespaceRules.each { namespaceRule ->
+        def scan = scanCompiledClasses(namespaceRules, scannedClasses, classesRoot.get().asFile)
 
-            def unknownSourceSets = namespaceRule
-                .sourceSets
-                .findAll { !(it in knownSourceSets) }
-
-            if (!unknownSourceSets.isEmpty()) {
-
-                throw new GradleException("restrictReferences for '${namespaceRule.namespace}' names "
-                    + "source set(s) ${unknownSourceSets} this build does not have; "
-                    + "it has ${knownSourceSets}")
-            }
-        }
-
-        def violations = []
-        def unreadableClasses = []
-        def classesDir = layout.buildDirectory.dir('classes').get().asFile
-
-        // What was named, gathered per rule as the scan goes, so the allowances
-        // can be judged against it once the whole build has been read.
-        def referencedTypesByNamespace = namespaceRules
-            .collectEntries { [(it.namespace): new TreeSet<String>()] }
-
-        // Whether anything was read at all, which decides whether the allowances
-        // can be judged. A build with nothing compiled - a fresh checkout, a
-        // module that produces no classes - names nothing, and reporting every
-        // allowance as unused there would be reporting the absence of a build.
-        def hasReadAnyClass = false
-
-        scannedClasses.each { classFile ->
-
-            def compiledClass = readCompiledClass(classFile, classesDir)
-
-            // Which rules have anything to say about this class, settled before
-            // the file is opened: reading a constant pool costs a pass over the
-            // head of every class in the build, and a class every rule passes
-            // over is one nothing would have been done with.
-            def applicableRules = namespaceRules.findAll {
-                !isClassInsideNamespace(compiledClass.binaryName, it)
-                    && (it.sourceSets.isEmpty() || compiledClass.sourceSet in it.sourceSets)
-            }
-
-            if (applicableRules.isEmpty()) {
-                return
-            }
-
-            def texts = readTextConstants(classFile)
-            if (texts == null) {
-                unreadableClasses << compiledClass.binaryName
-                return
-            }
-
-            hasReadAnyClass = true
-            applicableRules.each { namespaceRule ->
-
-                findReferencedTypes(texts, namespaceRule).each { referencedType ->
-
-                    referencedTypesByNamespace[namespaceRule.namespace] << referencedType
-
-                    if (!isTypeAllowed(referencedType, namespaceRule)) {
-
-                        def why = namespaceRule.reason
-                            ?: "${namespaceRule.namespace} does not promise to keep spelled that way"
-
-                        violations << ("${compiledClass.binaryName}${compiledClass.compiledFrom}"
-                            + " references ${referencedType}, which ${why}")
-                    }
-                }
-            }
-        }
-
-        // An allowance nothing names is the same defect as an undeclared
-        // reference, seen from the other end, and it is the one the scan alone
-        // cannot show: it reads as "this project depends on that type" when the
-        // project does not, and whoever writes the next reference to it finds it
-        // already approved for reasons nobody checked.
-        //
-        // Failed rather than warned, for the reason the whole family states its
-        // rules as named lists: an entry is a line a reviewer reads in the diff,
-        // and a warning about one is a line nobody reads at all - the gate is
-        // skipped while its inputs hold, so it would be said once and then never
-        // again. Nothing legitimate is caught by it: a package allowance is a
-        // policy about a whole tree and is not judged here, and a type allowance
-        // exists because some class names that type.
-        if (hasReadAnyClass) {
-
-            namespaceRules.each { namespaceRule ->
-
-                def referencedTypes = referencedTypesByNamespace[namespaceRule.namespace]
-
-                namespaceRule.allowedTypes.each { allowedType ->
-
-                    def isNamed = referencedTypes.any {
-                        it == allowedType || it.startsWith(allowedType + '$')
-                    }
-
-                    if (!isNamed) {
-
-                        // Named back in the spelling it was declared in, unlike a
-                        // reference: what a reader does with this is open the
-                        // build file and delete the line, and the line is written
-                        // in source names. A reference has no declaration to
-                        // match and is reported as the class file spells it.
-                        violations << ("${allowedType.replace('/', '.')} is allowed for"
-                            + " ${namespaceRule.namespace} and nothing compiled here names it,"
-                            + " so the allowance says a dependency exists where none does")
-                    }
-                }
-            }
-        }
-
-        // Raised before the references are reported, and raised at all rather
-        // than warned about.
-        //
-        // A class the walk could not follow is a class nothing was checked in,
-        // which reads from the outside exactly like a class that passed. The
-        // cause is this gate falling behind a class-file version rather than
-        // anything the code under it did - but a gate that cannot read a class
-        // cannot honour the one thing it promises, and the whole reason it exists
-        // is a failure that only appears on a machine the author does not have.
-        // Passing quietly there is the failure mode, not the remedy.
-        //
-        // First, because the reference findings below are incomplete while this
-        // holds: the tag is taught to the walk, and then the build says what it
-        // actually found. A count with a few names rather than the whole list,
-        // since the condition is a version rather than a class - when it fires at
-        // all it tends to fire for everything compiled.
-        if (!unreadableClasses.isEmpty()) {
-
-            throw new GradleException("Classes this gate could not read, so nothing in them was"
-                + " checked - each carries a constant-pool tag the walk does not know, which is a"
-                + " tag to add to it rather than anything in the code:\n  "
-                + "${unreadableClasses.size()} class(es), including "
-                + "${unreadableClasses.sort().take(5)}")
-        }
-
-        failOnViolations('Restricted type references', violations.sort())
+        failOnUnreadableClasses(scan.unreadableClasses)
+        failOnViolations(
+            'Restricted type references',
+            (scan.violations + findUnusedTypeAllowances(namespaceRules, scan))*.toString().sort())
     }
 }
 
-// Make it a gate: an output so it can be skipped while what it reads is
-// unchanged, and a place in the verification lifecycle; see lint-gate.gradle.
 installLintGate(enforceReferencedTypes)

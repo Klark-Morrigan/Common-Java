@@ -1,0 +1,5 @@
+package example.framework.render
+
+val template = """
+import example.feature.view.FeatureView
+"""

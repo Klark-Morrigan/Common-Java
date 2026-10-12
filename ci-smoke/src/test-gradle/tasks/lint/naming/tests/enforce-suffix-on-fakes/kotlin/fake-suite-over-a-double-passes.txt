@@ -1,0 +1,5 @@
+class RepositoryFakeTests {
+    fun collectsWhatWasWritten() {
+        val repositoryFake = RepositoryFake()
+    }
+}

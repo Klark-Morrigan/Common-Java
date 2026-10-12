@@ -1,4 +1,0 @@
-object Sample {
-
-    val EMPTY_FAKE = EditableMarketFake()
-}

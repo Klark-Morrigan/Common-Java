@@ -1,12 +1,6 @@
-import org.gradle.testkit.runner.BuildResult;
-import org.gradle.testkit.runner.GradleRunner;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -22,205 +16,221 @@ import static org.assertj.core.api.Assertions.assertThat;
 // needs the Kotlin plugin to contribute one, and pulling a compiler plugin into a fixture build is a
 // cost no other suite here pays; the KDoc half is exercised by the Kotlin consumers instead.
 class AlignJavadocParamsFormatterIntegrationTests {
-    private static final String MAIN_SOURCE_PATH = "src/main/java/Sample.java";
-    private static final String TEST_SOURCE_PATH = "src/test/java/Sample.java";
+
+    private static final GateUnderTest FORMATTER =
+        new GateUnderTest("alignJavadocParams", "format/align-javadoc-params");
+
+    private static final String MAIN_SAMPLE_PATH = GateProject.MAIN_JAVA_ROOT + "/Sample.java";
+    private static final String TEST_SAMPLE_PATH = GateProject.TEST_JAVA_ROOT + "/Sample.java";
+
+    // A source set of a build's own, named nothing the java plugin knows about.
+    private static final String TOOLING_JAVA_ROOT = "src/tooling/java";
+    private static final String TOOLING_SAMPLE_PATH = TOOLING_JAVA_ROOT + "/Sample.java";
+
+    private static final String DECLARES_A_TOOLING_SOURCE_SET =
+        "sourceSets { tooling { java.srcDirs = ['" + TOOLING_JAVA_ROOT + "'] } }\n";
+
+    // The exemption list is shared with Spotless, so a case holding a set out also covers the pass
+    // reading the list at all.
+    private static final String EXEMPTS_THE_TEST_SOURCE_SET =
+        "ext.formatterExcludedSourceSets = ['test']\n";
+
+    private static final String NOTHING_TO_ALIGN = "every @param column already aligned";
 
     @Test
-    void realignsDescriptionsWhenParamColumnsDisagree(@TempDir Path projectDir) throws IOException {
-        writeSource(projectDir, MAIN_SOURCE_PATH, "drifted-columns");
+    void realignsDescriptionsWhenParamColumnsDisagree(@TempDir Path projectDir) {
 
-        runFormatter(projectDir);
+        var project = formatting(projectDir, MAIN_SAMPLE_PATH, "drifted-columns");
 
-        assertThat(readSource(projectDir, MAIN_SOURCE_PATH))
-                .isEqualTo(loadFixture("java/drifted-columns-aligned"));
+        project.runExpectingGateToPass();
+
+        assertThat(project.readText(MAIN_SAMPLE_PATH))
+            .isEqualTo(GateProject.loadFixture("java/drifted-columns-aligned"));
     }
 
     @Test
-    void pullsAWrappedContinuationOntoTheDescriptionColumn(@TempDir Path projectDir)
-            throws IOException {
-        writeSource(projectDir, MAIN_SOURCE_PATH, "drifted-continuation");
+    void pullsAWrappedContinuationOntoTheDescriptionColumn(@TempDir Path projectDir) {
 
-        runFormatter(projectDir);
+        var project = formatting(projectDir, MAIN_SAMPLE_PATH, "drifted-continuation");
 
-        assertThat(readSource(projectDir, MAIN_SOURCE_PATH))
-                .isEqualTo(loadFixture("java/drifted-continuation-aligned"));
+        project.runExpectingGateToPass();
+
+        assertThat(project.readText(MAIN_SAMPLE_PATH))
+            .isEqualTo(GateProject.loadFixture("java/drifted-continuation-aligned"));
     }
 
     @Test
-    void movesOnlyTheContinuationOfALoneParam(@TempDir Path projectDir) throws IOException {
-        // A single @param has no sibling to disagree with, so the column it already
-        // sets is the answer: its own line must come through untouched and only the
-        // wrapped line moves.
-        writeSource(projectDir, MAIN_SOURCE_PATH, "lone-param-drifted-continuation");
+    void movesOnlyTheContinuationOfALoneParam(@TempDir Path projectDir) {
 
-        runFormatter(projectDir);
+        // A single @param has no sibling to disagree with, so the column it already sets is the
+        // answer: its own line must come through untouched and only the wrapped line moves.
+        var project = formatting(projectDir, MAIN_SAMPLE_PATH, "lone-param-drifted-continuation");
 
-        assertThat(readSource(projectDir, MAIN_SOURCE_PATH))
-                .isEqualTo(loadFixture("java/lone-param-drifted-continuation-aligned"));
+        project.runExpectingGateToPass();
+
+        assertThat(project.readText(MAIN_SAMPLE_PATH))
+            .isEqualTo(GateProject.loadFixture("java/lone-param-drifted-continuation-aligned"));
     }
 
     @Test
-    void leavesABlockAloneWhenEveryParamUsesOneSpace(@TempDir Path projectDir)
-            throws IOException {
+    void leavesATagAfterTheParamsWhereItIs(@TempDir Path projectDir) {
+
+        // A tag ends the description above it, so an @return is never pulled onto the @param
+        // column as if it were a wrapped line.
+        var project = formatting(projectDir, MAIN_SAMPLE_PATH, "return-after-drifted-params");
+
+        project.runExpectingGateToPass();
+
+        assertThat(project.readText(MAIN_SAMPLE_PATH))
+            .isEqualTo(GateProject.loadFixture("java/return-after-drifted-params-aligned"));
+    }
+
+    @Test
+    void leavesABlockAloneWhenEveryParamUsesOneSpace(@TempDir Path projectDir) {
+
         // Nobody aligned this block on purpose, so there is no column to restore.
-        writeSource(projectDir, MAIN_SOURCE_PATH, "single-space-params");
+        var project = formatting(projectDir, MAIN_SAMPLE_PATH, "single-space-params");
 
-        runFormatter(projectDir);
+        project.runExpectingGateToPass();
 
-        assertThat(readSource(projectDir, MAIN_SOURCE_PATH))
-                .isEqualTo(loadFixture("java/single-space-params"));
+        assertThat(project.readText(MAIN_SAMPLE_PATH))
+            .isEqualTo(GateProject.loadFixture("java/single-space-params"));
     }
 
     @Test
-    void leavesABlockAloneWhenDescriptionsAlreadyAgree(@TempDir Path projectDir)
-            throws IOException {
-        // Padded on purpose and still in true: the second guard, which is what keeps
-        // the pass from re-cutting every aligned block to its own preferred width.
-        writeSource(projectDir, MAIN_SOURCE_PATH, "already-aligned-params");
+    void leavesABlockAloneWhenDescriptionsAlreadyAgree(@TempDir Path projectDir) {
 
-        var result = runFormatter(projectDir);
+        // Padded on purpose and still in true: the second guard, which is what keeps the pass from
+        // re-cutting every aligned block to its own preferred width.
+        var project = formatting(projectDir, MAIN_SAMPLE_PATH, "already-aligned-params");
 
-        assertThat(readSource(projectDir, MAIN_SOURCE_PATH))
-                .isEqualTo(loadFixture("java/already-aligned-params"));
-        assertThat(result.getOutput()).contains("every @param column already aligned");
+        var result = project.runExpectingGateToPass();
+
+        assertThat(project.readText(MAIN_SAMPLE_PATH))
+            .isEqualTo(GateProject.loadFixture("java/already-aligned-params"));
+        assertThat(result.getOutput())
+            .contains(NOTHING_TO_ALIGN);
     }
 
     @Test
-    void scopesADocBlockThatOpensAndClosesOnOneLine(@TempDir Path projectDir)
-            throws IOException {
-        // A one-line /** ... */ must close where it opened. Left open, it would run
-        // on to the next comment's terminator and swallow the block below it.
-        writeSource(projectDir, MAIN_SOURCE_PATH, "one-line-block-before-drifted-block");
+    void scopesADocBlockThatOpensAndClosesOnOneLine(@TempDir Path projectDir) {
 
-        runFormatter(projectDir);
+        // A one-line /** ... */ must close where it opened. Left open, it would run on to the next
+        // comment's terminator and swallow the block below it.
+        var project = formatting(projectDir, MAIN_SAMPLE_PATH, "one-line-block-before-drifted-block");
 
-        assertThat(readSource(projectDir, MAIN_SOURCE_PATH))
-                .isEqualTo(loadFixture("java/one-line-block-before-drifted-block-aligned"));
+        project.runExpectingGateToPass();
+
+        assertThat(project.readText(MAIN_SAMPLE_PATH))
+            .isEqualTo(GateProject.loadFixture("java/one-line-block-before-drifted-block-aligned"));
     }
 
     @Test
-    void keepsTheLineEndingsTheFileArrivedWith(@TempDir Path projectDir) throws IOException {
-        // Consumer mods are checked out CRLF, so a pass that rewrote a block to LF
-        // would turn one realigned column into a whole-file diff.
-        Files.createDirectories(projectDir.resolve(MAIN_SOURCE_PATH).getParent());
-        Files.writeString(projectDir.resolve(MAIN_SOURCE_PATH),
-                asCrlf(loadFixture("java/drifted-continuation")));
+    void keepsTheLineEndingsTheFileArrivedWith(@TempDir Path projectDir) {
 
-        runFormatter(projectDir);
+        // A pass that rewrote a CRLF checkout's block to LF would turn one realigned column into a
+        // whole-file diff.
+        var project = GateProject
+            .driving(FORMATTER, projectDir)
+            .applyingTheJavaPlugin()
+            .holdingText(MAIN_SAMPLE_PATH, asCrlf(GateProject.loadFixture("java/drifted-continuation")));
 
-        assertThat(readSource(projectDir, MAIN_SOURCE_PATH))
-                .isEqualTo(asCrlf(loadFixture("java/drifted-continuation-aligned")));
+        project.runExpectingGateToPass();
+
+        assertThat(project.readText(MAIN_SAMPLE_PATH))
+            .isEqualTo(asCrlf(GateProject.loadFixture("java/drifted-continuation-aligned")));
     }
 
     @Test
-    void skipsASourceSetHeldOutOfTheFormatter(@TempDir Path projectDir) throws IOException {
-        // The exemption list is shared with Spotless, so this also covers the pass
-        // reading it at all.
-        writeSource(projectDir, TEST_SOURCE_PATH, "drifted-columns");
+    void alignsASourceSetDeclaredAfterTheFormatter(@TempDir Path projectDir) {
 
-        var result = runFormatter(projectDir, "ext.formatterExcludedSourceSets = ['test']\n");
+        // A consumer declares its own source sets after applying the shared scripts.
+        var project = formatting(projectDir, TOOLING_SAMPLE_PATH, "drifted-columns")
+            .configuringTheGate(DECLARES_A_TOOLING_SOURCE_SET);
 
-        assertThat(readSource(projectDir, TEST_SOURCE_PATH))
-                .isEqualTo(loadFixture("java/drifted-columns"));
-        assertThat(result.getOutput()).contains("every @param column already aligned");
+        project.runExpectingGateToPass();
+
+        assertThat(project.readText(TOOLING_SAMPLE_PATH))
+            .isEqualTo(GateProject.loadFixture("java/drifted-columns-aligned"));
     }
 
     @Test
-    void refusesAnExemptionListLeftOnTheOldPropertyName(@TempDir Path projectDir)
-            throws IOException {
-        // Reading the old spelling as "nothing is exempt" would format the very
-        // source the list names, so the rename fails loudly rather than quietly.
-        var result = runFormatterExpectingFailure(projectDir,
-                "ext.spotlessExcludedSourceSets = ['test']\n");
+    void skipsASourceSetHeldOutOfTheFormatter(@TempDir Path projectDir) {
 
-        assertThat(result.getOutput()).contains(
-                "spotlessExcludedSourceSets has been renamed to formatterExcludedSourceSets");
+        var project = formatting(projectDir, TEST_SAMPLE_PATH, "drifted-columns")
+            .withBuildPreamble(EXEMPTS_THE_TEST_SOURCE_SET);
+
+        var result = project.runExpectingGateToPass();
+
+        assertThat(project.readText(TEST_SAMPLE_PATH))
+            .isEqualTo(GateProject.loadFixture("java/drifted-columns"));
+        assertThat(result.getOutput())
+            .contains(NOTHING_TO_ALIGN);
     }
 
     @Test
-    void namesTheFilesItRewrote(@TempDir Path projectDir) throws IOException {
+    void skipsASourceSetHeldOutAfterTheFormatterIsApplied(@TempDir Path projectDir) {
+
+        var project = formatting(projectDir, TEST_SAMPLE_PATH, "drifted-columns")
+            .configuringTheGate(EXEMPTS_THE_TEST_SOURCE_SET);
+
+        project.runExpectingGateToPass();
+
+        assertThat(project.readText(TEST_SAMPLE_PATH))
+            .isEqualTo(GateProject.loadFixture("java/drifted-columns"));
+    }
+
+    @Test
+    void namesTheFilesItRewrote(@TempDir Path projectDir) {
+
         // The pass is read as a diff, so its report has to say which files to look at.
-        writeSource(projectDir, MAIN_SOURCE_PATH, "drifted-columns");
+        var result = formatting(projectDir, MAIN_SAMPLE_PATH, "drifted-columns")
+            .runExpectingGateToPass();
 
-        var result = runFormatter(projectDir);
-
-        assertThat(result.getOutput()).contains("re-aligned 1 file(s)");
-        assertThat(result.getOutput()).contains("Sample.java (1)");
+        assertThat(result.getOutput())
+            .contains("re-aligned 1 file(s)")
+            .contains("Sample.java (1)");
     }
 
     @Test
-    void passesWhenThereIsNoSourceAtAll(@TempDir Path projectDir) throws IOException {
-        var result = runFormatter(projectDir);
+    void passesWhenThereIsNoSourceAtAll(@TempDir Path projectDir) {
 
-        assertThat(result.getOutput()).contains("every @param column already aligned");
+        var result = GateProject
+            .driving(FORMATTER, projectDir)
+            .applyingTheJavaPlugin()
+            .runExpectingGateToPass();
+
+        assertThat(result.getOutput())
+            .contains(NOTHING_TO_ALIGN);
     }
 
-    private BuildResult runFormatter(Path projectDir) throws IOException {
-        return runFormatter(projectDir, "");
+    @Test
+    void staysOutOfCheck(@TempDir Path projectDir) {
+
+        // It rewrites source, so a build must never run it unasked.
+        var project = formatting(projectDir, MAIN_SAMPLE_PATH, "drifted-columns")
+            .runningTask("check");
+
+        var result = project.runExpectingSuccess();
+
+        assertThat(result.task(FORMATTER.taskPath()))
+            .isNull();
+        assertThat(project.readText(MAIN_SAMPLE_PATH))
+            .isEqualTo(GateProject.loadFixture("java/drifted-columns"));
     }
 
-    private BuildResult runFormatter(Path projectDir, String buildScriptPrelude)
-            throws IOException {
-        return createRunner(projectDir, buildScriptPrelude).build();
+    // The java plugin, because the pass reads source sets rather than guessing at directory names.
+    private static GateProject formatting(Path projectDir, String samplePath, String fixtureName) {
+
+        return GateProject
+            .driving(FORMATTER, projectDir)
+            .applyingTheJavaPlugin()
+            .holdingFixture(samplePath, "java/" + fixtureName);
     }
 
-    private BuildResult runFormatterExpectingFailure(Path projectDir, String buildScriptPrelude)
-            throws IOException {
-        return createRunner(projectDir, buildScriptPrelude).buildAndFail();
-    }
-
-    private GradleRunner createRunner(Path projectDir, String buildScriptPrelude)
-            throws IOException {
-        // An explicit settings file stops Gradle walking up into a real build.
-        Files.writeString(projectDir.resolve("settings.gradle"),
-                "rootProject.name = 'formatter-fixture'\n");
-        // The java plugin is the one piece of the real chain the pass needs: it reads
-        // source sets rather than guessing at directory names, so there have to be
-        // some. The prelude lands before the script is applied because the pass
-        // resolves its source sets as it is applied.
-        Files.writeString(projectDir.resolve("build.gradle"),
-                "apply plugin: 'java'\n"
-                + buildScriptPrelude
-                + "apply from: '" + scriptPath() + "'\n");
-
-        return GradleRunner.create()
-                .withProjectDir(projectDir.toFile())
-                .withArguments("alignJavadocParams");
-    }
-
-    private void writeSource(Path projectDir, String sourcePath, String fixture)
-            throws IOException {
-        var target = projectDir.resolve(sourcePath);
-        Files.createDirectories(target.getParent());
-        Files.writeString(target, loadFixture("java/" + fixture));
-    }
-
-    private String readSource(Path projectDir, String sourcePath) throws IOException {
-        return Files.readString(projectDir.resolve(sourcePath));
-    }
-
-    // Fixtures are stored LF (.gitattributes pins this repo's text files), so a CRLF
-    // case is made from one rather than checked in as a second copy that git would
-    // normalise back anyway.
-    private String asCrlf(String text) {
+    // Fixtures are stored LF (.gitattributes pins this repo's text files), so a CRLF case is made
+    // from one rather than checked in as a second copy that git would normalise back anyway.
+    private static String asCrlf(String text) {
         return text.replace("\n", "\r\n");
-    }
-
-    // The script path is handed in by the test task so the test does not assume a
-    // working directory; forward slashes keep it valid inside the generated build
-    // script on Windows.
-    private String scriptPath() {
-        return System.getProperty("align.javadoc.params.script.path").replace('\\', '/');
-    }
-
-    // The fixture name carries its java/ subfolder, which resolves under the
-    // classpath root the source set exposes for resources.
-    private String loadFixture(String name) throws IOException {
-        try (InputStream in = getClass().getResourceAsStream("/" + name + ".txt")) {
-            if (in == null) {
-                throw new IllegalStateException("Missing fixture: " + name);
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
     }
 }

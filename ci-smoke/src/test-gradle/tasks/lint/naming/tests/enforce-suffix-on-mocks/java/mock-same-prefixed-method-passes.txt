@@ -1,0 +1,6 @@
+class Sample {
+    void make() {
+        var lookup = mockMap(Clock.class);
+        var names = spyOn(Clock.class);
+    }
+}

@@ -1,0 +1,3 @@
+class Sample {
+    private val clock: Clock = mock(Clock::class.java)
+}

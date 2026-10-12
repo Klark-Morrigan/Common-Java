@@ -1,5 +1,3 @@
-import org.gradle.testkit.runner.BuildResult;
-import org.gradle.testkit.runner.TaskOutcome;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -17,20 +15,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 // alike.
 class ReportAwtEnvironmentIntegrationTests {
 
-    private static final GateUnderTest PROBE =
-        new GateUnderTest("reportAwtEnvironment", "awt.environment.script.path");
+    private static final GateUnderTest GATE =
+        new GateUnderTest("reportAwtEnvironment", "diagnostics/report-awt-environment");
 
     // More families than any machine offers, so the requirement cannot be met wherever this runs.
     private static final String REQUIRES_MORE_FONTS_THAN_EXIST =
         "awtFontFamiliesRequired = 999999\n";
 
     @Test
-    void reportsEveryFactItCanGather(@TempDir Path projectDir) {
+    void reportsEveryFactAndPassesWhenNothingIsRequired(@TempDir Path projectDir) {
 
-        var result = runProbe(projectDir, false, "");
-
-        assertThat(result.task(PROBE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
+        // No java plugin: the probe reads the machine rather than the project, so it has to work in
+        // a build that declares no sources at all. Nothing required is the default: every consumer
+        // inherits the task, and a repo with no UI code is never failed by it.
+        var result = GateProject
+            .driving(GATE, projectDir)
+            .runExpectingGateToPass();
 
         // The facts, not their values: what makes this worth running on a red runner is that the
         // log names the JVM, the headless setting, the JDK's own font directory, how many families
@@ -41,24 +41,16 @@ class ReportAwtEnvironmentIntegrationTests {
             .contains("java.awt.headless: ")
             .contains("lib" + java.io.File.separator + "fonts")
             .contains("font families: ")
-            .contains("Dialog 12");
-    }
-
-    @Test
-    void passesWhenNothingIsRequiredOfTheMachine(@TempDir Path projectDir) {
-
-        // The default: every consumer inherits the task, and a repo with no UI code is never
-        // failed by it, however little its runner can draw.
-        var result = runProbe(projectDir, false, "");
-
-        assertThat(result.task(PROBE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
+            .contains("text measurement: ");
     }
 
     @Test
     void failsWhenTheMachineCannotOfferTheFontsAConsumerDeclared(@TempDir Path projectDir) {
 
-        var result = runProbe(projectDir, true, REQUIRES_MORE_FONTS_THAN_EXIST);
+        var result = GateProject
+            .driving(GATE, projectDir)
+            .configuringTheGate(REQUIRES_MORE_FONTS_THAN_EXIST)
+            .runExpectingGateToFail();
 
         // The verdict names the number asked for, the environment behind it, and the package to
         // install - the three things the InternalError this replaces says nothing about.
@@ -73,11 +65,9 @@ class ReportAwtEnvironmentIntegrationTests {
 
         // The whole point of the gate: one failure naming the machine, ahead of the suites, rather
         // than every suite that builds a text component failing with a JDK internal.
-        var result = runTaskOnProbingProject(
-            projectDir, "test", true, REQUIRES_MORE_FONTS_THAN_EXIST);
-
-        assertThat(result.getOutput())
-            .contains("AWT environment:");
+        var result = projectWithATestTask(projectDir)
+            .configuringTheGate(REQUIRES_MORE_FONTS_THAN_EXIST)
+            .runExpectingGateToFail();
 
         // Never reached, which is what "before the tests" means.
         assertThat(result.task(":test"))
@@ -87,47 +77,23 @@ class ReportAwtEnvironmentIntegrationTests {
     @Test
     void leavesTheTestTaskAloneWhenNoFontsAreRequired(@TempDir Path projectDir) {
 
-        var result = runTaskOnProbingProject(projectDir, "test", false, "");
+        var result = projectWithATestTask(projectDir)
+            .runExpectingSuccess();
 
         assertThat(result.getOutput())
             .doesNotContain("AWT environment:");
-        assertThat(result.task(PROBE.taskPath()))
+        assertThat(result.task(GATE.taskPath()))
             .isNull();
-    }
-
-    private BuildResult runProbe(
-            Path projectDir,
-            boolean expectFailure,
-            String probeConfiguration) {
-
-        // No java plugin: the probe reads the machine rather than the project, so it has to work in
-        // a build that declares no sources at all.
-        var project = GateProject
-            .driving(PROBE, projectDir)
-            .configuringTheGate(probeConfiguration);
-
-        return expectFailure
-            ? project.runExpectingFailure()
-            : project.runExpectingSuccess();
     }
 
     // The java plugin, for the cases about what the probe is wired into: a 'test' task has to exist
     // before anything can run ahead of it. It has no tests to run, which is all these cases need -
     // whether the probe ran, and whether 'test' was reached.
-    private BuildResult runTaskOnProbingProject(
-            Path projectDir,
-            String taskName,
-            boolean expectFailure,
-            String probeConfiguration) {
+    private static GateProject projectWithATestTask(Path projectDir) {
 
-        var project = GateProject
-            .driving(PROBE, projectDir)
+        return GateProject
+            .driving(GATE, projectDir)
             .applyingTheJavaPlugin()
-            .configuringTheGate(probeConfiguration)
-            .runningTask(taskName);
-
-        return expectFailure
-            ? project.runExpectingFailure()
-            : project.runExpectingSuccess();
+            .runningTask("test");
     }
 }

@@ -1,30 +1,29 @@
 #!/usr/bin/env bash
 
 # Local mirror of _ci-gradle.yml: runs a Gradle build/test with the same
-# tasks and flags the reusable workflow uses, so a green local run means a
-# green CI run.
+# flags the reusable workflow uses, so a green local run means a green CI run.
 #
 # Target-aware, the JVM counterpart to Common-Automation's
-# run-ci-yaml-and-bash.sh and Common-DotNet's run-ci-dotnet.sh:
+# run-ci-yaml-and-bash.sh:
 #   - A consumer repo ships a same-named run-ci-gradle.sh shim that sets
-#     COMMON_JAVA_TARGET_REPO and execs this; the build runs at that repo's
-#     root (its gradlew), mirroring its own ci-gradle.yml (default: test jar).
+#     COMMON_JAVA_TARGET_REPO and execs this with its tasks; the build runs at
+#     that repo's root (its gradlew). The tasks are required: only the
+#     consumer knows which ones its own ci-gradle.yml runs.
 #   - With no target this runs against Common-Java itself. Common-Java's only
 #     Gradle project is the CI smoke project under ci-smoke/, which exercises
-#     gradle/java-conventions.gradle - the same build ci.yml runs - so the
+#     the shared Gradle scripts - the same build ci-gradle.yml runs - so the
 #     self-run builds that (default: build), a local mirror of that CI gate.
 #
 # A Gradle build is a single gradlew invocation, so - unlike the bash root -
 # there are no separate underscored sub-runners to orchestrate: this script
 # is both the entry and the engine. It holds no knowledge of any consumer's
-# build: the install root a Gradle build might need (e.g. via an env var its
-# build script reads) is the build's concern - if missing, the build fails
-# with its own message.
-#
-# Common-Automation is expected as a sibling checkout for the shared
-# double-click hold-window helper.
+# build: whatever a build needs from its machine is the build's concern - if
+# missing, the build fails with its own message.
 
 set -euo pipefail
+
+# What ci-gradle.yml runs for the self build.
+readonly -a SELF_BUILD_TASKS=(build)
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 common_java_root="$(cd "${script_dir}/.." && pwd)"
@@ -39,18 +38,16 @@ source "${script_dir}/imports/_hold-window.sh"
 if [[ -n "${COMMON_JAVA_TARGET_REPO:-}" ]]; then
     # Consumer build: the Gradle project is at the target repo's root.
     build_dir="${COMMON_JAVA_TARGET_REPO}"
-    default_tasks=(test jar)
+    if [[ "$#" -eq 0 ]]; then
+        echo "No Gradle tasks given for ${build_dir}; pass the tasks its ci-gradle.yml runs." >&2
+        exit 2
+    fi
 else
     # Self build: Common-Java's only Gradle project is the CI smoke project.
     build_dir="${common_java_root}/ci-smoke"
-    default_tasks=(build)
-fi
-
-# No tasks given -> the default for this build, kept in step with the
-# workflow that runs it (_ci-gradle.yml's gradle-tasks for a consumer, ci.yml's
-# `build` for the self/smoke case).
-if [[ "$#" -eq 0 ]]; then
-    set -- "${default_tasks[@]}"
+    if [[ "$#" -eq 0 ]]; then
+        set -- "${SELF_BUILD_TASKS[@]}"
+    fi
 fi
 
 if [[ ! -f "${build_dir}/gradlew" ]]; then

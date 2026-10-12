@@ -4,12 +4,12 @@ import org.junit.jupiter.api.Test
 class Sample {
 
     @Nested
-    inner class GetDrawnLayer {
+    inner class ReadTotal {
 
         // A backtick name is prose, so even one opening with the method's own spelling has no
         // camel-case identifier to repeat the group in.
         @Test
-        fun `getDrawnLayer answers the layer last registered`() {
+        fun `readTotal answers the sum of every entry`() {
         }
     }
 }

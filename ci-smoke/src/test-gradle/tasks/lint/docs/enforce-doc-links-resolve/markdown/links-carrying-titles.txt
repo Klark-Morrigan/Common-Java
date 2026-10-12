@@ -1,0 +1,5 @@
+# Guide
+
+A double-quoted title: [one](missing-one.md "The first").
+A single-quoted title: [two](missing-two.md 'The second').
+A bracketed title: [three](missing-three.md (The third)).

@@ -1,6 +1,6 @@
-// Test-method naming gate, applied by java-conventions.gradle into every consumer. Sits beside the
-// double-naming gates (enforce-suffix-on-fakes.gradle, enforce-suffix-on-mocks.gradle) as the same
-// kind of concern keyed on the method rather than on what a variable holds.
+// Test-method naming gate. Sits beside the double-naming gates (enforce-suffix-on-fakes.gradle,
+// enforce-suffix-on-mocks.gradle) as the same kind of concern keyed on the method rather than on
+// what a variable holds.
 //
 // The convention: a test method is named in camelCase, like every other method in the family. Both
 // spellings read fine on their own, so what makes this a gate is that a tree carrying both is worse
@@ -8,24 +8,27 @@
 // slip, and neither can whoever writes the next case. Nothing in a compiler or a test runner has an
 // opinion, so a mixed tree drifts further apart with every suite added.
 //
-// Kotlin's backtick-quoted names are deliberately untouched. `does not bill a null facility` is the
+// Kotlin's backtick-quoted names are deliberately untouched. `does not bill an empty order` is the
 // language's own idiom for a test name, is not an identifier a camelCase rule can be stated over,
 // and is stripped out with the string literals.
 //
 // The rule is keyed on an underscored identifier that opens a call, which catches a declaration and
 // any call of one alike - the declaration is in the same tree, so flagging both only says the same
-// thing twice rather than reaching anything the gate cannot fix. A snake_case string (a faction id,
-// an entity type, a settings key) is data rather than a name and is left alone: source-scan.gradle
-// strips the literals, raw strings spanning lines included, before the rule ever sees them.
+// thing twice rather than reaching anything the gate cannot fix. A snake_case string (a record key,
+// a settings key) is data rather than a name and is left alone: source-scan.gradle strips the
+// literals, raw strings spanning lines included, before the rule ever sees them.
 //
 // Line-local, so it reads only the stripped line and not the class scopes the test-structure gates
 // need - those have to know which class a @Test sits in, while this one can read its verdict off
 // the line the name is written on.
-//
-// Applied by this script, not assumed from the conventions file: the gate is applied on its own by
-// its integration test, so it has to carry what it uses.
 apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, '../../source-scan.gradle')
+
+// An identifier carrying an underscore that opens a call. The lookbehind refuses to start
+// mid-identifier or after a '.', since a qualified call names a method its own declaration answers
+// for. The leading lower-case letter leaves a CONSTANT_NAME( alone - a constant is not a method name,
+// and the enum constants of a switch would otherwise read as violations.
+def snakeCallName = ~/(?<![.\w])([a-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+)\s*\(/
 
 def enforceCamelCaseTestNames = tasks.register('enforceCamelCaseTestNames') {
 
@@ -34,46 +37,28 @@ def enforceCamelCaseTestNames = tasks.register('enforceCamelCaseTestNames') {
 
     group = 'verification'
 
-    // Both trees a test name can live in. Fixtures are held to the same rule as the cases that
-    // drive them: a helper is read in a report exactly as a case is.
-    def testRoots = declareSourceRoots(it, ['src/test', 'src/testFixtures'])
+    def scannedFiles = declareScannedFiles(it, testSourceRoots, jvmSourceIncludes)
 
     doLast {
-        // An identifier carrying an underscore that opens a call. The lookbehind keeps a qualified
-        // call ('fixtures.a_b()') in scope while refusing to start mid-identifier, and the leading
-        // lower-case letter leaves a CONSTANT_NAME( alone - a constant is not a method name, and
-        // the enum constants of a switch would otherwise read as violations.
-        def snakeCallName = ~/(?<![.\w])([a-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+)\s*\(/
+
         def violations = []
 
-        eachSourceFile(testRoots) { sourceFile ->
+        scannedFiles.each { sourceFile ->
 
-            def isInBlockComment = false
-            def isInRawString = false
+            eachStrippedLine(sourceFile) { text, lineNumber ->
 
-            sourceFile.eachLine {
-                rawLine,
-                lineNumber ->
+                def matcher = snakeCallName.matcher(text)
 
-                    def stripped = stripSourceLine(rawLine, isInBlockComment, isInRawString)
+                while (matcher.find()) {
 
-                    isInBlockComment = stripped.inBlock
-                    isInRawString = stripped.inRaw
-
-                    def matcher = snakeCallName.matcher(stripped.text)
-
-                    while (matcher.find()) {
-
-                        violations << "${sourceFile}:${lineNumber}: test method " +
-                            "'${matcher.group(1)}' must be named in camelCase"
-                    }
+                    violations << "${sourceFile}:${lineNumber}: test method " +
+                        "'${matcher.group(1)}' must be named in camelCase"
                 }
+            }
         }
 
         failOnViolations('Test-method naming convention violated', violations)
     }
 }
 
-// Make it a gate: an output so it can be skipped while what it reads is
-// unchanged, and a place in the verification lifecycle; see lint-gate.gradle.
 installLintGate(enforceCamelCaseTestNames)

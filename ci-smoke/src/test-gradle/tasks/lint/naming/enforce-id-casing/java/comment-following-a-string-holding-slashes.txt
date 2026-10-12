@@ -1,0 +1,10 @@
+package example.production;
+
+final class Sample {
+
+    private static final String ROOT = "https://example.invalid/"; // the id goes after this
+
+    String readRoot() {
+        return ROOT;
+    }
+}

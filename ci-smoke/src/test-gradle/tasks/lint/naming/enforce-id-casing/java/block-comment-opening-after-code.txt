@@ -1,0 +1,11 @@
+package example.production;
+
+final class Sample {
+
+    private static final int FIRST = 1; /* Read before the id is known,
+     * so the id stays unset until then. */
+
+    int readFirst() {
+        return FIRST;
+    }
+}

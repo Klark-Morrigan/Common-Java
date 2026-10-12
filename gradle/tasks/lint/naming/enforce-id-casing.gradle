@@ -1,87 +1,59 @@
-// ID-casing gate, applied by java-conventions.gradle into every consuming
-// project. It
-// keeps the abbreviation spelt "ID" wherever it is being written as English,
-// and leaves it lower case wherever it is being quoted as code.
+// ID-casing gate: the abbreviation is spelt "ID" wherever it is written as English, and stays lower case
+// wherever it is quoted as code.
 //
-// The rule exists because the two spellings are not a style toss-up: "ID" is
-// the standard abbreviation of "identification", while `id` is the spelling of
-// a field. Prose drifts to the lower-case form on its own, because a sentence
-// written beside `market.getId()` borrows the casing of the symbol it is
-// describing. Left alone the drift wins by sheer volume - a sweep of one
-// consumer's trees found lower-case prose outnumbering "ID" several hundred to a
-// handful -
-// and the repositories end up spelling an English word the way a Java field is
-// spelt.
+// "ID" abbreviates "identification", while `id` is the spelling of a field. A sentence written beside
+// `entity.getId()` borrows the casing of the symbol it describes, and left alone that drift wins by volume.
 //
-// So the gate's whole difficulty is telling prose from code, and nearly all of
-// it is spent NOT firing:
+// So the gate's difficulty is telling prose from code, and nearly all of it is spent not firing:
 //
-//   - a backticked `id`, a {@code id}, a <pre> sample or a fenced block is
-//     source being quoted, and keeps the casing the source has;
+//   - a backticked `id`, a {@code id}, a <pre> sample or a fenced block is quoted source;
 //   - the token after @param is a parameter's name, not a noun;
-//   - `mod-id`, `entity.id` and `field_id` are file, column and path spellings;
-//   - in Java and Kotlin only comment text is judged at all, so no identifier,
-//     string or CSV column is ever reached.
+//   - `mod-id`, `entity.id` and `field_id` are file, path and column spellings;
+//   - in Java and Kotlin only comment text is judged, so no identifier, string or column is ever reached.
 //
-// What is left - a bare "id" in a sentence - is the drift, and is reported.
-//
-// It sits beside enforce-no-test-vocabulary rather than under structure/
-// because both judge the words a tree is written in rather than how the tree is
-// arranged. It differs in owning no per-project vocabulary at all: the correct
-// spelling of an abbreviation is the same in every repository, so a consuming
-// build declares only the paths it wants left alone.
-//
-// A consuming build declares only its exemptions, which is what a tree of
-// vendored or generated prose takes - text the repository carries but does not
-// author, and so cannot restyle:
+// The spelling of an abbreviation is the same in every repository, so the gate owns the whole rule. A consuming
+// build declares only the prose it carries without authoring, which it cannot restyle:
 //
 //     enforceIdCasing {
 //         exemptPath glob: 'docs/vendor/**/*.md'
 //     }
-//
-// A build that declares nothing still gets the gate, which is what lets the
-// conventions file apply it everywhere rather than leaving each consumer to opt
-// in.
 
-// Applied by this script, not assumed from the conventions file: the gate is
-// applied on its own by its integration test, so it has to carry what it uses.
-apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../markdown-scan.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../source-scan.gradle')
 
-// The misspellings, as whole words. `Id` and `Ids` are listed beside the bare
-// lower-case forms because a sentence-initial "Id" is the same error wearing a
-// capital - the abbreviation is two capitals or it is code.
+// The misspellings, as whole words. `Id` and `Ids` are listed because a sentence-initial "Id" is the same
+// error wearing a capital: the abbreviation is two capitals or it is code.
 //
-// Neighbours that make a token part of a larger spelling are excluded by the
-// lookarounds rather than by a word boundary: `\b` would happily match the `id`
-// inside `mod-id` and `entity.id`, which are a file name and a dotted path.
-// A word character is excluded for the obvious reason - `modId` and `valid` say
-// no such word.
+// Neighbours are excluded by lookarounds rather than a word boundary: `\b` would match the `id` inside
+// `mod-id` and `entity.id`, which are a file name and a dotted path.
 def proseIdPattern = ~/(?<![\p{L}\p{N}_\-.\/])(id|ids|Id|Ids)(?![\p{L}\p{N}_\-.\/])/
 
-// Spans a line may contain that are code rather than prose, skipped wherever
-// they sit. Quoted text and &lt;...&gt; placeholders are included because a
-// comment that quotes something is quoting a literal, not speaking English.
-def codeSpanPattern = ~(/`[^`]*`|\{@(?:code|link|linkplain|literal)[^}]*\}|<code>.*?<\/code>/
-    + /|\]\([^)]*\)|https?:\/\/\S+|"[^"]*"|&lt;[^&]*&gt;/)
+// Spans a line may contain that are code rather than prose. Quoted text and &lt;...&gt; placeholders are
+// included because a comment that quotes something is quoting a literal, not speaking English.
+def codeSpanPattern = ~(markdownCodeSpanPattern.pattern() +
+    /|\{@(?:code|link|linkplain|literal)[^}]*\}|<code>.*?<\/code>/ +
+    /|\]\([^)]*\)|https?:\/\/\S+|"[^"]*"|&lt;[^&]*&gt;/)
 
-// The file types prose lives in. Markdown is scanned across the whole project
-// the way the doc-links gate scans it, because a repository's longest prose -
-// its READMEs - sits outside src/. Code is scanned under src/ only, and only
-// its comments are read.
-def markdownInclude = '**/*.md'
-def codeIncludes = ['**/*.java', '**/*.kt']
+// An indented Markdown line opening with a brace, quote or tag is a code block rather than a wrapped list
+// item, which is the only other thing that deep in a document.
+def indentedCodeLinePattern = ~/^\s{4,}[\{\}"<]/
 
-// Directories whose contents are generated, copied or vendored rather than
-// authored. Scanning them would report a violation against a file nobody edits
-// and tie the gate's up-to-dateness to build artefacts.
-def excludedDirectoryNames = [
-    '.git', '.gradle', 'build', 'bin', 'out', 'node_modules',
-    'graphify-out', '.sources-cache',
-]
+// The token after @param names a parameter and keeps the source's casing.
+def paramTagPattern = ~/^(\s*\*?\s*@param\s+)(\S+)/
 
-// Rewrites every code span to spaces of the same width, so what remains is the
-// prose of the line with its columns intact. Blanking rather than deleting is
-// what lets a reported column still point at the word a reader sees.
+def lineCommentOpening = '//'
+def blockCommentOpening = '/*'
+def blockCommentClosing = '*/'
+def preOpeningTag = '<pre>'
+def preClosingTag = '</pre>'
+
+// A NUL character, which no source line holds, appended to a line prefix before it is stripped. The source
+// scan keeps it only when the prefix ends in code, so it tells a '//' or '/*' that opens a comment from one
+// inside a literal.
+def codeProbe = '\u0000'
+
+// Rewrites every code span to spaces of the same width, so what remains is the prose of the line with its
+// columns intact.
 def readProseOf = { String line ->
 
     def prose = new StringBuilder(line)
@@ -93,113 +65,148 @@ def readProseOf = { String line ->
             prose.setCharAt(index, ' ' as char)
         }
     }
+
     return prose.toString()
 }
 
 // The prose lines of a Markdown file, paired with the line each sits on.
-// Fenced blocks are dropped whole: everything between a pair of fences is
-// source, however it is spelt.
 def readMarkdownProse = { File sourceFile ->
 
     def proseLines = []
-    def inFence = false
 
-    sourceFile.eachLine { line, lineNumber ->
+    visitLinesOutsideFences(sourceFile) { String line, int lineNumber ->
 
-        if (line =~ /^\s*(```|~~~)/) {
-            inFence = !inFence
-            return
+        if (!indentedCodeLinePattern.matcher(line).find()) {
+            proseLines << [text: readProseOf(line), line: lineNumber]
         }
-        // An indented block opening with a brace, quote or tag is a code block
-        // rather than a wrapped list item, which is the only other thing this
-        // deep in a document.
-        if (inFence || line =~ /^\s{4,}[\{\}"<]/) {
-            return
-        }
-        proseLines << [text: readProseOf(line), line: lineNumber]
     }
+
     return proseLines
 }
 
-// The comment lines of a Java or Kotlin file, paired with the line each sits
-// on. Block comments are tracked across lines, a <pre> sample inside one is
-// dropped whole, and a trailing // on a code line contributes just its tail.
+// Answers whether a raw line is in code at index, given the comment and raw-string state it opened in.
+def isCodeAt = { String rawLine, int index, boolean isInBlock, boolean isInRaw ->
+
+    def probed = stripSourceLine(rawLine.substring(0, index) + codeProbe, isInBlock, isInRaw)
+
+    return probed.text.endsWith(codeProbe)
+}
+
+// Where the next comment opens at or after position, or -1 when none does.
+def findCommentOpening = { String rawLine, int position, boolean isInBlock, boolean isInRaw ->
+
+    for (int index = position; index < rawLine.length() - 1; index++) {
+
+        def isOpening = rawLine.startsWith(lineCommentOpening, index) || rawLine.startsWith(blockCommentOpening, index)
+
+        if (isOpening && isCodeAt(rawLine, index, isInBlock, isInRaw)) {
+            return index
+        }
+    }
+
+    return -1
+}
+
+// A block comment's text from textStart to its closing on this line, or to the end of the line when it runs on.
+def readBlockComment = { String rawLine, int textStart ->
+
+    def closing = rawLine.indexOf(blockCommentClosing, textStart)
+    def textEnd = closing < 0 ? rawLine.length() : closing
+
+    return [text: rawLine.substring(textStart, textEnd),
+        isBlock: true,
+        isClosed: closing >= 0,
+        end: textEnd + (closing < 0 ? 0 : blockCommentClosing.length())]
+}
+
+// The comments one raw line holds, in order, each as its text without delimiters. Found by the source scan's
+// own literal and comment rules, so a comment opening after code is read and a '//' inside a string is not.
+def readLineComments = { String rawLine, boolean isInBlock, boolean isInRaw ->
+
+    def comments = []
+    def position = 0
+
+    if (isInBlock) {
+
+        def continued = readBlockComment(rawLine, 0)
+
+        comments << continued
+
+        if (!continued.isClosed) {
+            return comments
+        }
+
+        position = continued.end
+    }
+
+    def opening = findCommentOpening(rawLine, position, isInBlock, isInRaw)
+
+    while (opening >= 0) {
+
+        if (rawLine.startsWith(lineCommentOpening, opening)) {
+
+            comments << [text: rawLine.substring(opening + lineCommentOpening.length()), isBlock: false]
+            return comments
+        }
+
+        def block = readBlockComment(rawLine, opening + blockCommentOpening.length())
+
+        comments << block
+
+        if (!block.isClosed) {
+            return comments
+        }
+
+        opening = findCommentOpening(rawLine, block.end, isInBlock, isInRaw)
+    }
+
+    return comments
+}
+
+// The comment text of a Java or Kotlin file, paired with the line each comment sits on. A <pre> sample inside
+// a block comment is dropped whole, up to its closing tag or the end of its comment.
 //
-// Everything else in the file is invisible to the gate. That is deliberate and
-// is what makes the rule safe to enforce: no identifier, literal or resource
-// column can be reported, so the gate can never ask for a rename.
+// Everything else in the file is invisible to the gate, so no identifier, literal or column can be reported
+// and the gate can never ask for a rename.
 def readCodeComments = { File sourceFile ->
 
     def commentLines = []
-    def inBlock = false
-    def inPre = false
+    def isInBlock = false
+    def isInRaw = false
+    def isInPre = false
 
-    sourceFile.eachLine { line, lineNumber ->
+    sourceFile.readLines(sourceEncoding).eachWithIndex { String rawLine, int index ->
 
-        if (inPre) {
+        readLineComments(rawLine, isInBlock, isInRaw).each { comment ->
 
-            if (line =~ /<\/pre>/) {
-                inPre = false
+            if (comment.isBlock && (isInPre || comment.text.contains(preOpeningTag))) {
+
+                isInPre = !comment.text.contains(preClosingTag) && !comment.isClosed
+                return
             }
-            if (line =~ /\*\//) {
-                inBlock = false
-            }
-            return
-        }
-        if ((inBlock || line =~ /^\s*\/\*/) && line =~ /<pre>/) {
 
-            inPre = !(line =~ /<\/pre>/)
-            return
+            commentLines << [text: readProseOf(comment.text), line: index + 1]
         }
 
-        if (inBlock) {
+        def stripped = stripSourceLine(rawLine, isInBlock, isInRaw)
 
-            commentLines << [text: readProseOf(line), line: lineNumber]
-
-            if (line =~ /\*\//) {
-                inBlock = false
-            }
-            return
-        }
-        if (line =~ /^\s*\/\*/) {
-
-            commentLines << [text: readProseOf(line), line: lineNumber]
-
-            if (!(line =~ /\*\//)) {
-                inBlock = true
-            }
-            return
-        }
-        // A // inside a string literal opens no comment. Counted rather than
-        // parsed: an odd number of quotes before it means it is quoted text.
-        def lineComment = line =~ /^(.*?)(\/\/.*)$/
-
-        if (lineComment.find()) {
-
-            def code = lineComment.group(1)
-            def quotes = (code =~ /(?<!\\)"/).count
-
-            if (quotes % 2 == 0) {
-                commentLines << [text: readProseOf(lineComment.group(2)), line: lineNumber]
-            }
-        }
+        isInBlock = stripped.inBlock
+        isInRaw = stripped.inRaw
     }
+
     return commentLines
 }
 
-// The token immediately after @param names a parameter and keeps the source's
-// casing, so it is blanked before the line is judged.
+// Blanks the token after @param before the line is judged.
 def readJavadocProse = { String text ->
 
-    def paramTag = text =~ /^(\s*\*?\s*@param\s+)(\S+)/
+    def paramTag = paramTagPattern.matcher(text)
 
-    if (paramTag.find()) {
-
-        return text.substring(0, paramTag.end(1))
-            + ' ' * paramTag.group(2).length()
-            + text.substring(paramTag.end(2))
+    if (!paramTag.find()) {
+        return text
     }
-    return text
+
+    return text.substring(0, paramTag.end(1)) + ' ' * paramTag.group(2).length() + text.substring(paramTag.end(2))
 }
 
 // Reports one message per misspelling the file says.
@@ -214,117 +221,77 @@ def findMisspeltIds = { List proseLines, String reportedPath, boolean isCode ->
 
         while (matcher.find()) {
 
-            found << ("${reportedPath}:${proseLine.line}: prose says "
-                + "\"${matcher.group()}\"; the abbreviation is \"ID\" "
-                + '(backtick it instead if it names code)')
+            found << "${reportedPath}:${proseLine.line}: prose says \"${matcher.group()}\"; the abbreviation is " +
+                '"ID" (backtick it instead if it names code)'
         }
     }
+
     return found
 }
 
-// Filled by the consuming build through the task's own declarations, so they
-// are captured here rather than inside the task: the execution-time action
-// reads the same list the declarations appended to.
 def exemptGlobs = []
 
 def enforceIdCasing = tasks.register('enforceIdCasing') {
 
-    description = ('Fails the build when prose spells the abbreviation "id" '
-        + 'rather than "ID".')
-
+    description = 'Fails the build when prose spells the abbreviation "id" rather than "ID".'
     group = 'verification'
 
-    // Exempts every file a path glob matches. A glob rather than a single path
-    // because the case this exists for is a family of files - a vendored or
-    // generated tree the repository carries without authoring, where restyling
-    // the text would edit somebody else's copy.
-    //
-    // Named arguments rather than positional ones, matching the sibling gates:
-    // every value is plain text, so a transposition would otherwise be silently
-    // accepted.
+    // Exempts every file a path glob matches. A glob rather than a single path because the case this exists
+    // for is a family of files: a vendored or generated tree, where restyling the text would edit somebody
+    // else's copy.
     ext.exemptPath = { Map exemption ->
 
         if (!exemption.glob) {
 
-            throw new GradleException("exemptPath needs 'glob' (the "
-                + "project-relative path pattern to leave unjudged); "
-                + "got: ${exemption}")
+            throw new GradleException("exemptPath needs 'glob' (the project-relative path pattern to leave " +
+                "unjudged); got: ${exemption}")
         }
+
         exemptGlobs << exemption.glob
     }
 
-    // Declared as the matched files rather than as the directories: an absent
-    // tree is then an empty scan rather than the configuration failure a
-    // declared-but-missing input directory would be.
-    def isInExcludedDirectory = { element ->
-        element.relativePath.segments.any { it in excludedDirectoryNames }
-    }
+    // Code is scanned under src/ only, and only its comments are read. Both trees are rooted at the project,
+    // so an exemption glob is matched against the same relative path it is written in.
+    def scannedMarkdown = declareMarkdownFiles(it, 'scannedMarkdown')
+    def scannedCode = declareScannedFiles(it, createAuthoredFileTree(projectDir),
+        jvmSourceIncludes.collect { "src/${it}".toString() }, 'scannedCode')
 
-    def scannedMarkdown = fileTree(projectDir) {
-        include markdownInclude
-        // Matched against every segment rather than the first, so an excluded
-        // directory nested inside the tree is skipped too.
-        exclude isInExcludedDirectory
-    }
-
-    def scannedCode = fileTree('src') {
-        include codeIncludes
-        exclude isInExcludedDirectory
-    }
-
-    inputs.files(scannedMarkdown).withPropertyName('scannedMarkdown')
-    inputs.files(scannedCode).withPropertyName('scannedCode')
-
-    // The exemptions are inputs too, wrapped in a provider because they are
-    // declared after this registration runs: adding one has to re-run the gate
-    // rather than leave it UP-TO-DATE against the list it last cleared under.
-    inputs.property('exemptGlobs', providers.provider { exemptGlobs.sort() })
+    declareRuleSnapshot(it, 'exemptGlobs') { exemptGlobs }
 
     doLast {
 
         def violations = []
-        def projectPath = projectDir.toPath()
 
-        // Each glob resolved to the files it actually matches, by the same Ant
-        // globbing a fileTree include uses - so an exemption means on disk what
-        // it would mean anywhere else in the build, rather than whatever a
-        // hand-rolled path comparison happened to implement.
-        def filesPerGlob = exemptGlobs.collectEntries { glob ->
-            [(glob): fileTree(projectDir) { include glob }.files]
-        }
+        // Matched by the same Ant globbing a fileTree include uses, so an exemption means what it would mean
+        // anywhere else in the build.
+        def exemptionSpecs = exemptGlobs.collectEntries { [(it): new PatternSet().include(it).asSpec] }
+        def matchedGlobs = [] as Set
 
-        def exemptFiles = filesPerGlob.values().flatten() as Set
+        def judgeFile = { FileVisitDetails details, boolean isCode ->
 
-        def judge = { File sourceFile, boolean isCode ->
-
-            if (sourceFile in exemptFiles) {
+            if (details.directory) {
                 return
             }
-            // Reported as one path spelling: project-relative with forward
-            // slashes, so a report is clickable from the project root and reads
-            // the same on every machine.
-            def reportedPath = projectPath.relativize(sourceFile.toPath())
-                .toString()
-                .replace('\\', '/')
 
-            def proseLines = isCode
-                ? readCodeComments(sourceFile)
-                : readMarkdownProse(sourceFile)
+            def matchingGlobs = exemptionSpecs.findAll { it.value.isSatisfiedBy(details) }*.key
 
-            violations.addAll(findMisspeltIds(proseLines, reportedPath, isCode))
+            if (!matchingGlobs.isEmpty()) {
+
+                matchedGlobs.addAll(matchingGlobs)
+                return
+            }
+
+            def proseLines = isCode ? readCodeComments(details.file) : readMarkdownProse(details.file)
+
+            violations.addAll(findMisspeltIds(proseLines, details.path, isCode))
         }
 
-        scannedMarkdown.each { judge(it, false) }
-        scannedCode.each { judge(it, true) }
+        scannedMarkdown.visit { judgeFile(it, false) }
+        scannedCode.visit { judgeFile(it, true) }
 
-        // An exemption matching nothing is dead config: it excuses no file, and
-        // the prose it was written for is loose again the moment the path it
-        // meant comes back under another name. Reported rather than ignored,
-        // because a silent no-op is the exact failure this family of gates
-        // exists to remove - one level up.
-        def strandedGlobs = filesPerGlob.findAll { it.value.isEmpty() }*.key
-
-        strandedGlobs.each {
+        // An exemption matching nothing is dead config: it excuses no file, and the prose it was written for is
+        // loose again the moment the path it meant comes back under another name.
+        exemptGlobs.findAll { !(it in matchedGlobs) }.each {
             violations << "${it}: exemptPath matches no file, so it exempts nothing"
         }
 
@@ -332,6 +299,4 @@ def enforceIdCasing = tasks.register('enforceIdCasing') {
     }
 }
 
-// Make it a gate: an output so it can be skipped while what it reads is
-// unchanged, and a place in the verification lifecycle; see lint-gate.gradle.
 installLintGate(enforceIdCasing)

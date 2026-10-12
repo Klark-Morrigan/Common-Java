@@ -1,5 +1,4 @@
-import org.gradle.testkit.runner.BuildResult;
-import org.gradle.testkit.runner.TaskOutcome;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -8,387 +7,500 @@ import java.nio.file.Path;
 import static org.assertj.core.api.Assertions.assertThat;
 
 // Drives the shared enforce-package-layering gate.
-//
-// The fixture packages are 'example.framework' and 'example.feature' rather than any real
-// consumer's, because the gate owns only the mechanism and this repo knows no consumer's layers.
 class EnforcePackageLayeringGateIntegrationTests {
 
     private static final GateUnderTest GATE =
-        new GateUnderTest("enforcePackageLayering", "package.layering.gate.script.path");
+        new GateUnderTest("enforcePackageLayering", "lint/structure/enforce-package-layering");
 
-    // What the consuming build declares, and what the fixtures are written
-    // against: the framework root is closed to the feature root.
+    private static final String EXTENSION = "enforcePackageLayering";
+
+    // The framework root is closed to the feature root: what the fixtures are written against.
     private static final String CLOSED_PACKAGE_ROOT = "example.framework";
     private static final String FORBIDDEN_PACKAGE_ROOT = "example.feature";
     private static final String SECOND_FORBIDDEN_PACKAGE_ROOT = "example.otherfeature";
+    private static final String KINDS_PACKAGE_ROOT = CLOSED_PACKAGE_ROOT + ".kinds";
+    private static final String OUTSIDE_PACKAGE = FORBIDDEN_PACKAGE_ROOT + ".render";
 
     private static final String NO_EDGE_DECLARED = "";
-    private static final String CLOSED_TO_THE_FEATURE = buildEdgeDeclaration(
-        "under: '" + CLOSED_PACKAGE_ROOT + "', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
-
-    private static final String CLOSED_TO_BOTH_FEATURES = buildEdgeDeclaration(
-        "under: '" + CLOSED_PACKAGE_ROOT + "', of: '" + FORBIDDEN_PACKAGE_ROOT + "'",
-        "under: '" + CLOSED_PACKAGE_ROOT + "', of: '" + SECOND_FORBIDDEN_PACKAGE_ROOT + "'");
 
-    // The same rule at the narrower width: the closed package alone, with its
-    // own subpackages left free to import what it may not.
-    private static final String CLOSED_EXACTLY_TO_THE_FEATURE = buildEdgeDeclaration(
-        "exactly: '" + CLOSED_PACKAGE_ROOT + "', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
-
-    // The wide rule with a subtree of the closed root left out: the fixtures'
-    // importing package is that subtree in one case and its sibling in the other.
-    private static final String CLOSED_EXCEPT_THE_RENDER_SUBTREE = buildEdgeDeclaration(
-        "under: '" + CLOSED_PACKAGE_ROOT + "', except: '" + CLOSED_PACKAGE_ROOT
-            + ".render', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
-
-    private static final String CLOSED_EXCEPT_A_SIBLING_SUBTREE = buildEdgeDeclaration(
-        "under: '" + CLOSED_PACKAGE_ROOT + "', except: ['" + CLOSED_PACKAGE_ROOT
-            + ".paint'], of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
-
-    // A left-out subtree the closed root does not hold, which exempts nothing
-    // while reading in the build as though it did.
-    private static final String CLOSED_EXCEPT_A_PACKAGE_OUTSIDE_THE_ROOT = buildEdgeDeclaration(
-        "under: '" + CLOSED_PACKAGE_ROOT + "', except: '" + FORBIDDEN_PACKAGE_ROOT
-            + ".render', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
-
-    // An edge naming only the closed root, which says nothing about what it is
-    // closed to - the shape a misspelt or forgotten 'of:' takes.
-    private static final String HALF_DECLARED_EDGE = buildEdgeDeclaration(
-        "under: '" + CLOSED_PACKAGE_ROOT + "'");
-
-    // An edge closing one root at both widths at once, which states two
-    // different rules and cannot mean both.
-    private static final String EDGE_CLOSED_AT_BOTH_WIDTHS = buildEdgeDeclaration(
-        "under: '" + CLOSED_PACKAGE_ROOT + "', exactly: '" + CLOSED_PACKAGE_ROOT
-            + "', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
-
-    @Test
-    void failsWhenProductionCodeImportsTheForbiddenRoot(@TempDir Path projectDir) {
-
-        writeJavaSource(projectDir, "src/main/java", "framework-importing-the-feature");
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURE);
-
-        assertThat(result.getOutput())
-            .contains("example.framework may not import example.feature: "
-                + "example.feature.view.FeatureView");
-    }
-
-    @Test
-    void failsWhenTestCodeImportsTheForbiddenRoot(@TempDir Path projectDir) {
-
-        // The half most likely to slip: a suite reaching for a real type from
-        // the far side is the shortest way to make it compile, and it inverts
-        // the same arrow production code would.
-        writeJavaSource(projectDir, "src/test/java", "framework-importing-the-feature");
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURE);
-
-        assertThat(result.getOutput())
-            .contains("may not import example.feature");
-    }
-
-    @Test
-    void failsWhenASourceSetBeyondMainAndTestImportsTheForbiddenRoot(@TempDir Path projectDir) {
-
-        // A mod's own extra source set - a dev tool, a stub tree - sits in the
-        // same packages as the code it is built from, so exempting it would
-        // leave the rule enforced everywhere except where nobody was looking.
-        writeJavaSource(projectDir, "src/utils/java", "framework-importing-the-feature");
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURE);
-
-        assertThat(result.getOutput())
-            .contains("may not import example.feature");
-    }
-
-    @Test
-    void failsWhenTheForbiddenRootArrivesByWildcardOrStaticImport(@TempDir Path projectDir) {
-
-        // Two import forms the plain 'import x.y.Z;' pattern does not cover: an
-        // on-demand import keeps a trailing star, and a static one carries a
-        // keyword between 'import' and the name.
-        writeJavaSource(projectDir, "src/main/java", "wildcard-and-static-imports");
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURE);
-
-        assertThat(result.getOutput())
-            .contains("example.feature.view.FeatureView.DEFAULT_VIEW")
-            .contains("example.feature.view.*");
-    }
-
-    @Test
-    void failsWhenKotlinCodeImportsTheForbiddenRoot(@TempDir Path projectDir) {
-
-        // Kotlin leaves the semicolon off its package declaration and may alias
-        // an import, so both ends of the line differ from the Java shape.
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingText("src/main/kotlin" + "/" + "Sample.kt", GateProject.loadFixture("kotlin/framework-importing-the-feature"));
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURE);
-
-        assertThat(result.getOutput())
-            .contains("may not import example.feature");
-    }
-
-    @Test
-    void failsOnAnEdgeBeyondTheFirstDeclared(@TempDir Path projectDir) {
-
-        // Two edges, and the violation is of the second: a gate that honoured
-        // only the first declaration would pass every single-edge case above.
-        writeJavaSource(projectDir, "src/main/java", "framework-importing-the-second-feature");
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_TO_BOTH_FEATURES);
-
-        assertThat(result.getOutput())
-            .contains("may not import example.otherfeature");
-    }
-
-    @Test
-    void failsWhenAnEdgeIsDeclaredWithoutTheRootItCloses(@TempDir Path projectDir) {
-
-        // A half-declared edge asserts nothing, so it must be rejected where it
-        // is written rather than accepted as a rule that can never fire.
-        writeJavaSource(projectDir, "src/main/java", "framework-importing-the-feature");
-
-        var result = runGateExpectingFailure(projectDir, HALF_DECLARED_EDGE);
-
-        assertThat(result.getOutput())
-            .contains("forbidImport needs the package root that is closed");
-    }
-
-    @Test
-    void failsWhenTheClosedPackageItselfImportsTheForbiddenRootAtTheNarrowWidth(
-            @TempDir Path projectDir) {
-
-        // The package named is closed at either width; what differs is how far
-        // the rule reaches beneath it.
-        writeJavaSource(projectDir, "src/main/java", "framework-root-importing-the-feature");
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_EXACTLY_TO_THE_FEATURE);
-
-        assertThat(result.getOutput())
-            .contains("example.framework itself may not import example.feature: "
-                + "example.feature.view.FeatureView");
-    }
-
-    @Test
-    void failsWhenTheClosedPackageItselfImportsTheForbiddenRootAtTheWideWidth(
-            @TempDir Path projectDir) {
-
-        // The root of a closed subtree is inside it, so the wide width reaches
-        // the same file the narrow one does - the two differ only below it.
-        writeJavaSource(projectDir, "src/main/java", "framework-root-importing-the-feature");
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURE);
-
-        assertThat(result.getOutput())
-            .contains("example.framework may not import example.feature");
-    }
-
-    @Test
-    void failsWhenAnEdgeClosesItsRootAtBothWidthsAtOnce(@TempDir Path projectDir) {
-
-        // Two different rules over one pair of roots. Reading either and
-        // ignoring the other would enforce something nobody declared.
-        writeJavaSource(projectDir, "src/main/java", "framework-importing-the-feature");
-
-        var result = runGateExpectingFailure(projectDir, EDGE_CLOSED_AT_BOTH_WIDTHS);
-
-        assertThat(result.getOutput())
-            .contains("forbidImport closes a package root one way or the other");
-    }
-
-    @Test
-    void failsWhenASiblingOfTheLeftOutSubtreeImportsTheForbiddenRoot(@TempDir Path projectDir) {
-
-        // Leaving one subtree out must not leave the rest of the root with it:
-        // the importing package sits beside the excepted one, not inside it.
-        writeJavaSource(projectDir, "src/main/java", "framework-importing-the-feature");
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_EXCEPT_A_SIBLING_SUBTREE);
-
-        assertThat(result.getOutput())
-            .contains("example.framework except example.framework.paint may not import "
-                + "example.feature: example.feature.view.FeatureView");
-    }
-
-    @Test
-    void failsWhenTheLeftOutSubtreeSitsOutsideTheClosedRoot(@TempDir Path projectDir) {
-
-        // Refused where it is written rather than accepted as an exemption
-        // that can never apply.
-        writeJavaSource(projectDir, "src/main/java", "framework-importing-nothing-forbidden");
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_EXCEPT_A_PACKAGE_OUTSIDE_THE_ROOT);
-
-        assertThat(result.getOutput())
-            .contains("forbidImport 'except' names a package strictly beneath the closed root "
-                + "example.framework; got: example.feature.render");
-    }
-
-    @Test
-    void failsAgainAfterAPassingRunOnceAnEdgeIsDeclared(@TempDir Path projectDir) {
-
-        // The edges are a task input, not just a closure the action reads. If
-        // they were not, this second run would be UP-TO-DATE against the first
-        // and a newly declared rule would silently never run.
-        writeJavaSource(projectDir, "src/main/java", "framework-importing-the-feature");
-        runGateExpectingSuccess(projectDir, NO_EDGE_DECLARED);
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURE);
-
-        assertThat(result.getOutput())
-            .contains("may not import example.feature");
-    }
-
-    @Test
-    void passesWhenNothingImportsTheForbiddenRoot(@TempDir Path projectDir) {
-
-        writeJavaSource(projectDir, "src/main/java", "framework-importing-nothing-forbidden");
-
-        var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURE);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenOnlyASubpackageOfTheNarrowlyClosedPackageImportsTheForbiddenRoot(
-            @TempDir Path projectDir) {
-
-        // The whole reason the narrow width exists. A package closed to one of
-        // its own subpackages cannot be closed as a subtree, or the rule would
-        // shut that subpackage off from its siblings too - and there would be
-        // no way to state the edge at all.
-        writeJavaSource(projectDir, "src/main/java", "framework-importing-the-feature");
-
-        var result = runGateExpectingSuccess(projectDir, CLOSED_EXACTLY_TO_THE_FEATURE);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenOnlyTheLeftOutSubtreeImportsTheForbiddenRoot(@TempDir Path projectDir) {
-
-        // The whole reason 'except' exists: the fillers of a root's own seams
-        // live inside it and may reach what the rest of the root may not.
-        writeJavaSource(projectDir, "src/main/java", "framework-importing-the-feature");
-
-        var result = runGateExpectingSuccess(projectDir, CLOSED_EXCEPT_THE_RENDER_SUBTREE);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenTheImportingPackageOnlySharesAPrefix(@TempDir Path projectDir) {
-
-        // 'example.frameworkish' is not under 'example.framework', so the rule
-        // does not reach it - only a whole-segment match may close a package.
-        writeJavaSource(projectDir, "src/main/java", "package-sharing-a-prefix");
-
-        var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURE);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenTheImportedNameOnlySharesAPrefix(@TempDir Path projectDir) {
-
-        // The same segment rule on the other side: 'example.featureless' is a
-        // different package from 'example.feature' despite the string prefix.
-        writeJavaSource(projectDir, "src/main/java", "import-sharing-a-prefix");
-
-        var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURE);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenTheImportingFileIsInTheDefaultPackage(@TempDir Path projectDir) {
-
-        // A file with no package declaration sits under no root, so no edge can
-        // name it - and reading its imports against one would be guesswork.
-        writeJavaSource(projectDir, "src/main/java", "default-package-file");
-
-        var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURE);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenTheBuildDeclaresNoEdge(@TempDir Path projectDir) {
-
-        // Every consumer inherits the gate from the shared conventions, so a
-        // build that never says what its layers are must check nothing rather
-        // than guess at them.
-        writeJavaSource(projectDir, "src/main/java", "framework-importing-the-feature");
-
-        var result = runGateExpectingSuccess(projectDir, NO_EDGE_DECLARED);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenThereIsNoSourceTree(@TempDir Path projectDir) {
-
-        var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURE);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    // One place owns the block's syntax, so a case that varies the edges varies
-    // only the edges. Each argument is one 'forbidImport' argument list.
-    private static String buildEdgeDeclaration(String... forbidImportArgumentLists) {
-
-        var declaration = new StringBuilder("enforcePackageLayering {\n");
-
-        for (var argumentList : forbidImportArgumentLists) {
-
-            declaration
-                .append("    forbidImport ")
-                .append(argumentList)
-                .append('\n');
+    private static final String CLOSED_TO_THE_FEATURE = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidImport under: '" + CLOSED_PACKAGE_ROOT + "', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
+
+    private static final String CLOSED_TO_BOTH_FEATURES = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidImport under: '" + CLOSED_PACKAGE_ROOT + "', of: '" + FORBIDDEN_PACKAGE_ROOT + "'",
+        "forbidImport under: '" + CLOSED_PACKAGE_ROOT + "', of: '" + SECOND_FORBIDDEN_PACKAGE_ROOT + "'");
+
+    // The closed package alone, its own subpackages left free to import what it may not.
+    private static final String CLOSED_EXACTLY_TO_THE_FEATURE = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidImport exactly: '" + CLOSED_PACKAGE_ROOT + "', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
+
+    // The importing fixtures sit in the render subtree; one rule leaves it out, the other a sibling.
+    private static final String CLOSED_EXCEPT_THE_RENDER_SUBTREE = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidImport under: '" + CLOSED_PACKAGE_ROOT + "', except: '" + CLOSED_PACKAGE_ROOT +
+            ".render', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
+
+    private static final String CLOSED_EXCEPT_A_SIBLING_SUBTREE = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidImport under: '" + CLOSED_PACKAGE_ROOT + "', except: ['" + CLOSED_PACKAGE_ROOT +
+            ".paint'], of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
+
+    private static final String CLOSED_EXCEPT_A_PACKAGE_OUTSIDE_THE_ROOT = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidImport under: '" + CLOSED_PACKAGE_ROOT + "', except: '" + OUTSIDE_PACKAGE +
+            "', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
+
+    private static final String CLOSED_EXCEPT_THE_ROOT_ITSELF = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidImport under: '" + CLOSED_PACKAGE_ROOT + "', except: '" + CLOSED_PACKAGE_ROOT +
+            "', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
+
+    private static final String CLOSED_EXACTLY_EXCEPT_A_SUBTREE = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidImport exactly: '" + CLOSED_PACKAGE_ROOT + "', except: '" + CLOSED_PACKAGE_ROOT +
+            ".render', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
+
+    private static final String CLOSED_AT_BOTH_WIDTHS = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidImport under: '" + CLOSED_PACKAGE_ROOT + "', exactly: '" + CLOSED_PACKAGE_ROOT +
+            "', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
+
+    // The shape a misspelt or forgotten 'of:' takes.
+    private static final String HALF_DECLARED_EDGE = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidImport under: '" + CLOSED_PACKAGE_ROOT + "'");
+
+    // The imported side as a layer: a subtree closed to the rest of the root it sits in.
+    private static final String REST_OF_THE_FRAMEWORK =
+        "[under: '" + CLOSED_PACKAGE_ROOT + "', except: '" + KINDS_PACKAGE_ROOT + "']";
+
+    private static final String KINDS_CLOSED_TO_THE_REST_OF_THE_FRAMEWORK = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidImport under: '" + KINDS_PACKAGE_ROOT + "', of: " + REST_OF_THE_FRAMEWORK);
+
+    private static final String KINDS_CLOSED_TO_THE_FEATURE_AND_THE_REST_OF_THE_FRAMEWORK =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "forbidImport under: '" + KINDS_PACKAGE_ROOT + "', of: ['" + FORBIDDEN_PACKAGE_ROOT + "', " +
+                REST_OF_THE_FRAMEWORK + "]");
+
+    private static final String IMPORTED_LAYER_EXCEPT_A_PACKAGE_OUTSIDE_ITS_ROOT = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidImport under: '" + KINDS_PACKAGE_ROOT + "', of: [under: '" + CLOSED_PACKAGE_ROOT +
+            "', except: '" + OUTSIDE_PACKAGE + "']");
+
+    private static final String IMPORTED_LAYER_WITHOUT_ITS_ROOT = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidImport under: '" + KINDS_PACKAGE_ROOT + "', of: [except: '" + KINDS_PACKAGE_ROOT + "']");
+
+    private static final String IMPORTED_LAYER_CLOSED_EXACTLY = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidImport under: '" + KINDS_PACKAGE_ROOT + "', of: [under: '" + CLOSED_PACKAGE_ROOT +
+            "', exactly: '" + CLOSED_PACKAGE_ROOT + "']");
+
+    private static final String FEATURE_VIEW_REPORT =
+        "Sample.java:3: example.framework may not import example.feature: example.feature.view.FeatureView";
+
+    @Nested
+    class Declarations {
+
+        @Test
+        void failsWhenAnEdgeIsDeclaredWithoutTheRootItCloses(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(HALF_DECLARED_EDGE)
+                .runExpectingFailure();
+
+            assertThat(result.getOutput())
+                .contains("forbidImport needs the package root that is closed");
         }
-        return declaration
-            .append("}\n")
-            .toString();
+
+        @Test
+        void failsWhenAnEdgeClosesItsRootAtBothWidthsAtOnce(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_AT_BOTH_WIDTHS)
+                .runExpectingFailure();
+
+            assertThat(result.getOutput())
+                .contains("forbidImport closes a package root one way or the other");
+        }
+
+        @Test
+        void failsWhenTheLeftOutSubtreeSitsOutsideTheClosedRoot(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_EXCEPT_A_PACKAGE_OUTSIDE_THE_ROOT)
+                .runExpectingFailure();
+
+            assertThat(result.getOutput())
+                .contains("forbidImport 'except' names a package strictly beneath its root " +
+                    "example.framework; got: example.feature.render");
+        }
+
+        @Test
+        void failsWhenTheLeftOutSubtreeIsTheClosedRootItself(@TempDir Path projectDir) {
+
+            // Leaving the root out of itself exempts everything the rule reaches.
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_EXCEPT_THE_ROOT_ITSELF)
+                .runExpectingFailure();
+
+            assertThat(result.getOutput())
+                .contains("forbidImport 'except' names a package strictly beneath its root " +
+                    "example.framework; got: example.framework");
+        }
+
+        @Test
+        void failsWhenAPackageClosedExactlyLeavesASubtreeOut(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_EXACTLY_EXCEPT_A_SUBTREE)
+                .runExpectingFailure();
+
+            assertThat(result.getOutput())
+                .contains("forbidImport leaves subtrees out of an 'under' root only");
+        }
+
+        @Test
+        void failsWhenTheImportedLayerLeavesOutAPackageOutsideItsRoot(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(IMPORTED_LAYER_EXCEPT_A_PACKAGE_OUTSIDE_ITS_ROOT)
+                .runExpectingFailure();
+
+            assertThat(result.getOutput())
+                .contains("forbidImport 'except' names a package strictly beneath its root " +
+                    "example.framework; got: example.feature.render");
+        }
+
+        @Test
+        void failsWhenTheImportedLayerNamesNoRoot(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(IMPORTED_LAYER_WITHOUT_ITS_ROOT)
+                .runExpectingFailure();
+
+            assertThat(result.getOutput())
+                .contains("forbidImport 'of' names a package root, or a layer as " +
+                    "[under: root, except: subtrees]");
+        }
+
+        @Test
+        void failsWhenTheImportedLayerIsClosedExactly(@TempDir Path projectDir) {
+
+            // The imported side is always a whole layer, so it has no narrow width.
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(IMPORTED_LAYER_CLOSED_EXACTLY)
+                .runExpectingFailure();
+
+            assertThat(result.getOutput())
+                .contains("forbidImport 'of' names a package root, or a layer as " +
+                    "[under: root, except: subtrees]");
+        }
+
+        @Test
+        void passesWhenTheBuildDeclaresNoEdge(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(NO_EDGE_DECLARED)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "framework-importing-the-feature")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void failsAgainAfterAPassingRunOnceAnEdgeIsDeclared(@TempDir Path projectDir) {
+
+            // Were the edges not a task input, the second run would be UP-TO-DATE.
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(NO_EDGE_DECLARED)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "framework-importing-the-feature")
+                .runExpectingGateToPass();
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURE)
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains(FEATURE_VIEW_REPORT);
+        }
     }
 
-    // The expected outcome is in the method name rather than a flag, so a call
-    // site reads as what it asserts. Both forward to one runner: the pair
-    // differs only in which TestKit terminal it drives.
-    private BuildResult runGateExpectingFailure(Path projectDir, String edgeDeclaration) {
+    @Nested
+    class Scope {
 
-        return buildProject(projectDir, edgeDeclaration).runExpectingFailure();
+        @Test
+        void failsWhenTestCodeImportsTheForbiddenRoot(@TempDir Path projectDir) {
+
+            // A suite reaching for a real type from the far side inverts the same arrow.
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURE)
+                .holdingJavaSample(GateProject.TEST_JAVA_ROOT, "framework-importing-the-feature")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains(FEATURE_VIEW_REPORT);
+        }
+
+        @Test
+        void failsWhenASourceSetBeyondMainAndTestImportsTheForbiddenRoot(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURE)
+                .holdingJavaSample("src/utils/java", "framework-importing-the-feature")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains(FEATURE_VIEW_REPORT);
+        }
+
+        @Test
+        void failsWhenKotlinCodeImportsTheForbiddenRoot(@TempDir Path projectDir) {
+
+            // Kotlin leaves the semicolon off its package declaration and may alias an import.
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURE)
+                .holdingKotlinSample(GateProject.MAIN_KOTLIN_ROOT, "framework-importing-the-feature")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.kt:3: example.framework may not import example.feature: " +
+                    "example.feature.view.FeatureView");
+        }
+
+        @Test
+        void failsWhenThePackageDeclarationCarriesATrailingComment(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURE)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "framework-declaring-its-package-beside-a-comment")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains(FEATURE_VIEW_REPORT);
+        }
+
+        @Test
+        void passesWhenTheImportingPackageOnlySharesAPrefix(@TempDir Path projectDir) {
+
+            // 'example.frameworkish' is not under 'example.framework'.
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURE)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "package-sharing-a-prefix")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenTheImportedNameOnlySharesAPrefix(@TempDir Path projectDir) {
+
+            // 'example.featureless' is not under 'example.feature'.
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURE)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "import-sharing-a-prefix")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenTheImportingFileIsInTheDefaultPackage(@TempDir Path projectDir) {
+
+            // The default package sits under no root, so no edge names it.
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURE)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "default-package-file")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenThereIsNoSourceTree(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURE)
+                .runExpectingGateToPass();
+        }
     }
 
-    private BuildResult runGateExpectingSuccess(Path projectDir, String edgeDeclaration) {
+    @Nested
+    class Imports {
 
-        return buildProject(projectDir, edgeDeclaration).runExpectingSuccess();
+        @Test
+        void failsWhenProductionCodeImportsTheForbiddenRoot(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURE)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "framework-importing-the-feature")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains(FEATURE_VIEW_REPORT);
+        }
+
+        @Test
+        void failsWhenTheForbiddenRootArrivesByWildcardOrStaticImport(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURE)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "wildcard-and-static-imports")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:3: example.framework may not import example.feature: " +
+                    "example.feature.view.FeatureView.DEFAULT_VIEW")
+                .contains("Sample.java:5: example.framework may not import example.feature: " +
+                    "example.feature.view.*");
+        }
+
+        @Test
+        void failsOnAnEdgeBeyondTheFirstDeclared(@TempDir Path projectDir) {
+
+            // A gate that honoured only the first declaration would pass every single-edge case.
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_BOTH_FEATURES)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "framework-importing-the-second-feature")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:3: example.framework may not import example.otherfeature: " +
+                    "example.otherfeature.view.OtherView");
+        }
+
+        @Test
+        void passesWhenNothingImportsTheForbiddenRoot(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURE)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "framework-importing-nothing-forbidden")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenAnImportIsOnlyInABlockComment(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURE)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "framework-commenting-out-a-feature-import")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenAnImportIsOnlySpeltInsideARawString(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURE)
+                .holdingKotlinSample(
+                    GateProject.MAIN_KOTLIN_ROOT,
+                    "framework-spelling-a-feature-import-in-a-raw-string")
+                .runExpectingGateToPass();
+        }
     }
 
-    private GateProject buildProject(Path projectDir, String declaration) {
+    @Nested
+    class Widths {
 
-        return GateProject
-            .driving(GATE, projectDir)
-            .configuringTheGate(declaration);
+        @Test
+        void failsWhenTheClosedPackageItselfImportsTheForbiddenRootAtTheNarrowWidth(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_EXACTLY_TO_THE_FEATURE)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "framework-root-importing-the-feature")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:3: example.framework itself may not import example.feature: " +
+                    "example.feature.view.FeatureView");
+        }
+
+        @Test
+        void failsWhenTheClosedPackageItselfImportsTheForbiddenRootAtTheWideWidth(@TempDir Path projectDir) {
+
+            // The root of a closed subtree is inside it; the widths differ only below it.
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURE)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "framework-root-importing-the-feature")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains(FEATURE_VIEW_REPORT);
+        }
+
+        @Test
+        void passesWhenOnlyASubpackageOfTheNarrowlyClosedPackageImportsTheForbiddenRoot(
+                @TempDir Path projectDir) {
+
+            // The reason the narrow width exists: a package closed to one of its own subpackages
+            // cannot be closed as a subtree without shutting that subpackage off from its siblings.
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_EXACTLY_TO_THE_FEATURE)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "framework-importing-the-feature")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void failsWhenASiblingOfTheLeftOutSubtreeImportsTheForbiddenRoot(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_EXCEPT_A_SIBLING_SUBTREE)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "framework-importing-the-feature")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:3: example.framework except example.framework.paint may not import " +
+                    "example.feature: example.feature.view.FeatureView");
+        }
+
+        @Test
+        void passesWhenOnlyTheLeftOutSubtreeImportsTheForbiddenRoot(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_EXCEPT_THE_RENDER_SUBTREE)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "framework-importing-the-feature")
+                .runExpectingGateToPass();
+        }
     }
 
-    // The source root is a parameter rather than fixed, because every source
-    // set is a case of the same rule and the gate must read all of them.
-    private void writeJavaSource(Path projectDir, String sourceRoot, String fixture) {
+    @Nested
+    class ImportedLayers {
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingText(sourceRoot + "/" + "Sample.java", GateProject.loadFixture("java/" + fixture));
+        @Test
+        void failsWhenASubtreeImportsTheRestOfTheLayerItIsClosedTo(@TempDir Path projectDir) {
+
+            // The parent's own top-level classes are what a list of sibling subtrees cannot name.
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(KINDS_CLOSED_TO_THE_REST_OF_THE_FRAMEWORK)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "kinds-importing-the-feature-and-the-framework")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:4: example.framework.kinds may not import example.framework except " +
+                    "example.framework.kinds: example.framework.FrameworkRoot")
+                .doesNotContain("Sample.java:3:");
+        }
+
+        @Test
+        void failsOnEachEntryOfAListMixingARootAndALayer(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(KINDS_CLOSED_TO_THE_FEATURE_AND_THE_REST_OF_THE_FRAMEWORK)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "kinds-importing-the-feature-and-the-framework")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:3: example.framework.kinds may not import example.feature: " +
+                    "example.feature.view.FeatureView")
+                .contains("Sample.java:4: example.framework.kinds may not import example.framework except " +
+                    "example.framework.kinds: example.framework.FrameworkRoot");
+        }
+
+        @Test
+        void passesWhenASubtreeImportsOnlyItselfFromTheLayerItIsClosedTo(@TempDir Path projectDir) {
+
+            // Closed to its whole parent, the subtree would be closed to its own static imports.
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(KINDS_CLOSED_TO_THE_REST_OF_THE_FRAMEWORK)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "kinds-importing-its-own-kind")
+                .runExpectingGateToPass();
+        }
     }
 }

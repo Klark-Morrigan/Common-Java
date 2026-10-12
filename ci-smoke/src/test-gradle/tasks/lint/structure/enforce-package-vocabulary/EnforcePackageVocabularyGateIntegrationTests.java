@@ -1,5 +1,4 @@
-import org.gradle.testkit.runner.BuildResult;
-import org.gradle.testkit.runner.TaskOutcome;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -9,433 +8,439 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 // Drives the shared enforce-package-vocabulary gate.
 //
-// The fixture packages are 'example.framework' and 'example.feature' rather than any real
-// consumer's, because the gate owns only the mechanism and this repo knows no consumer's vocabulary.
+// The gate judges a file by the directory it sits in, so a case files its sample under a package
+// path rather than at a source root.
 class EnforcePackageVocabularyGateIntegrationTests {
 
     private static final GateUnderTest GATE =
-        new GateUnderTest("enforcePackageVocabulary", "package.vocabulary.gate.script.path");
+        new GateUnderTest("enforcePackageVocabulary", "lint/structure/enforce-package-vocabulary");
 
-    // What the consuming build declares, and what the fixtures are written
-    // against: the framework root may not speak the feature's words.
+    private static final String EXTENSION = "enforcePackageVocabulary";
+
+    // The framework root may not speak the feature's words: what the fixtures are written against.
     private static final String CLOSED_PACKAGE_ROOT = "example.framework";
-    private static final String FRAMEWORK_PACKAGE_PATH = "example/framework";
+    private static final String FRAMEWORK_PATH = GateProject.MAIN_JAVA_ROOT + "/example/framework";
+    private static final String KINDS_PATH = FRAMEWORK_PATH + "/kinds";
+    private static final String CORE_PATH = FRAMEWORK_PATH + "/core";
 
-    // One two-word entry among the three, since a phrase and a single word are
-    // found by the same run-of-words match and only the phrase can wrap.
-    private static final String FORBIDDEN_WORDS =
-        "'territory', 'national border', 'bloc'";
+    private static final String JAVA_SAMPLE = "/Sample.java";
+    private static final String KOTLIN_SAMPLE = "/Sample.kt";
+    private static final String README = "/README.md";
 
-    private static final String ALLOWED_README_PATH =
-        "src/main/java/" + FRAMEWORK_PACKAGE_PATH + "/README.md";
+    // One two-word entry among the three, since only a phrase can wrap.
+    private static final String FORBIDDEN_WORDS = "'ledger', 'sales order', 'cart'";
 
-    private static final String NO_WORDS_DECLARED = "";
-    private static final String CLOSED_TO_THE_FEATURES_WORDS = buildDeclaration(
+    private static final String ALLOWED_README_PATH = FRAMEWORK_PATH + README;
+
+    private static final String CLOSED_TO_THE_FEATURES_WORDS = GateProject.buildConfigurationBlock(
+        EXTENSION,
         "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "', words: [" + FORBIDDEN_WORDS + "]");
 
-    private static final String CLOSED_BUT_ALLOWING_THE_README = buildDeclaration(
+    private static final String CLOSED_BUT_ALLOWING_THE_README = GateProject.buildConfigurationBlock(
+        EXTENSION,
         "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "', words: [" + FORBIDDEN_WORDS + "]",
-        "allowWord word: 'bloc', inFile: '" + ALLOWED_README_PATH + "'");
+        "allowWord word: 'cart', inFile: '" + ALLOWED_README_PATH + "'");
 
-    // An allowance for a file no source tree holds - the shape a path left
-    // behind by a rename or a move takes.
-    private static final String CLOSED_BUT_ALLOWING_A_MISSING_FILE = buildDeclaration(
+    private static final String CLOSED_BUT_ALLOWING_SEVERAL_WORDS_IN_THE_README =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "', words: [" + FORBIDDEN_WORDS + "]",
+            "allowWords words: ['ledger', 'cart'], inFile: '" + ALLOWED_README_PATH + "'");
+
+    // The shape a word left behind by a rule that no longer forbids it takes.
+    private static final String CLOSED_BUT_ALLOWING_A_WORD_NO_RULE_FORBIDS = GateProject.buildConfigurationBlock(
+        EXTENSION,
         "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "', words: [" + FORBIDDEN_WORDS + "]",
-        "allowWord word: 'bloc', inFile: 'src/main/java/"
-            + FRAMEWORK_PACKAGE_PATH + "/GONE.md'");
+        "allowWord word: 'invoice', inFile: '" + ALLOWED_README_PATH + "'");
 
-    // The closed root with one subtree of its own left out, where the words are
-    // that subtree's subject. The fixtures sit in it in one case and beside it in
-    // the other.
-    private static final String KINDS_PACKAGE_PATH = FRAMEWORK_PACKAGE_PATH + "/kinds";
-    private static final String CORE_PACKAGE_PATH = FRAMEWORK_PACKAGE_PATH + "/core";
+    // The shape a path left behind by a rename or a move takes.
+    private static final String CLOSED_BUT_ALLOWING_A_MISSING_FILE = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "', words: [" + FORBIDDEN_WORDS + "]",
+        "allowWord word: 'cart', inFile: '" + FRAMEWORK_PATH + "/GONE.md'");
 
-    private static final String CLOSED_EXCEPT_THE_KINDS = buildDeclaration(
-        "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "', except: '" + CLOSED_PACKAGE_ROOT
-            + ".kinds', words: [" + FORBIDDEN_WORDS + "]");
+    private static final String CLOSED_EXCEPT_THE_KINDS = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "', except: '" + CLOSED_PACKAGE_ROOT +
+            ".kinds', words: [" + FORBIDDEN_WORDS + "]");
 
-    // A left-out subtree the closed root does not hold, which exempts nothing
-    // while reading in the build as though it did.
-    private static final String CLOSED_EXCEPT_A_PACKAGE_OUTSIDE_THE_ROOT = buildDeclaration(
-        "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "', except: ['example.feature.kinds'], "
-            + "words: [" + FORBIDDEN_WORDS + "]");
+    private static final String CLOSED_EXCEPT_A_PACKAGE_OUTSIDE_THE_ROOT = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "', except: ['example.feature.kinds'], " +
+            "words: [" + FORBIDDEN_WORDS + "]");
 
-    // A declaration naming only the closed root, which says nothing about what
-    // it may not say - the shape a misspelt or forgotten 'words:' takes.
-    private static final String HALF_DECLARED_RULE = buildDeclaration(
+    // A phrase declared in camel case, and one declared with a hyphen.
+    private static final String CLOSED_TO_A_CAMEL_CASE_PHRASE = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "', words: ['SalesOrder']");
+
+    private static final String CLOSED_TO_A_HYPHENATED_PHRASE = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "', words: ['sales-order']");
+
+    private static final String CLOSED_TO_A_WORDLESS_ENTRY = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "', words: ['42']");
+
+    // The shapes a misspelt or forgotten key takes.
+    private static final String HALF_DECLARED_RULE = GateProject.buildConfigurationBlock(
+        EXTENSION,
         "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "'");
 
-    @Test
-    void failsWhenACommentSaysAForbiddenWord(@TempDir Path projectDir) {
+    private static final String HALF_DECLARED_ALLOWANCE = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "', words: [" + FORBIDDEN_WORDS + "]",
+        "allowWord word: 'cart'");
 
-        writeJavaSource(projectDir, "src/main/java", FRAMEWORK_PACKAGE_PATH,
-            "framework-saying-a-forbidden-word");
+    private static final String HALF_DECLARED_ALLOWANCE_OF_SEVERAL_WORDS = GateProject.buildConfigurationBlock(
+        EXTENSION,
+        "forbidWords under: '" + CLOSED_PACKAGE_ROOT + "', words: [" + FORBIDDEN_WORDS + "]",
+        "allowWords words: ['ledger', 'cart']");
 
-        var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURES_WORDS);
+    private static final String NO_WORDS_DECLARED = "";
 
-        assertThat(result.getOutput())
-            .contains("example.framework may not say \"territory\"");
-    }
+    // A file beside the allowed README saying the word the README is allowed.
+    private static final String NEIGHBOUR_SAYING_THE_ALLOWED_WORD =
+        "package example.framework;\n\n// The totals here are read off the cart.\n";
 
-    @Test
-    void failsWhenAMethodNameSaysAForbiddenPhrase(@TempDir Path projectDir) {
+    @Nested
+    class Declarations {
 
-        // The case a hand sweep misses, and the reason this gate exists rather
-        // than a checklist: the words are spelt in camel case, so searching for
-        // the phrase as prose finds nothing and the name reads as one token.
-        writeJavaSource(projectDir, "src/main/java", FRAMEWORK_PACKAGE_PATH,
-            "framework-saying-a-forbidden-phrase-in-a-name");
+        @Test
+        void failsWhenWordsAreDeclaredWithoutTheRootTheyAreClosedTo(@TempDir Path projectDir) {
 
-        var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURES_WORDS);
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(HALF_DECLARED_RULE)
+                .runExpectingFailure();
 
-        assertThat(result.getOutput())
-            .contains("may not say \"national border\"");
-    }
-
-    @Test
-    void failsWhenAMarkdownFileBesideTheCodeSaysAForbiddenWord(@TempDir Path projectDir) {
-
-        // The README filed in the package is the surface a reader of a
-        // framework reads first, and it carries no imports for any other gate
-        // to judge it by.
-        writeMarkdown(projectDir, "src/main/java", FRAMEWORK_PACKAGE_PATH,
-            "framework-readme-saying-a-forbidden-word");
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURES_WORDS);
-
-        assertThat(result.getOutput())
-            .contains("may not say \"territory\"");
-    }
-
-    @Test
-    void failsWhenProseWrapsAForbiddenPhraseAcrossTwoLines(@TempDir Path projectDir) {
-
-        // Prose wraps where the column runs out rather than where the phrase
-        // ends, so a per-line scan would miss half the prose uses of any
-        // multi-word entry.
-        writeMarkdown(projectDir, "src/main/java", FRAMEWORK_PACKAGE_PATH,
-            "framework-readme-wrapping-a-forbidden-phrase");
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURES_WORDS);
-
-        assertThat(result.getOutput())
-            .contains("may not say \"national border\"");
-    }
-
-    @Test
-    void failsWhenASourceSetBeyondMainAndTestSaysAForbiddenWord(@TempDir Path projectDir) {
-
-        // A dev-tooling or fixture source set is written in prose like any
-        // other - it is simply prose nobody sweeps, which is exactly where the
-        // words a hand sweep missed collect.
-        writeJavaSource(projectDir, "src/utils/java", FRAMEWORK_PACKAGE_PATH,
-            "framework-saying-a-forbidden-word");
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURES_WORDS);
-
-        assertThat(result.getOutput())
-            .contains("may not say \"territory\"");
-    }
-
-    @Test
-    void failsWhenKotlinCodeSaysAForbiddenWord(@TempDir Path projectDir) {
-
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingText("src/main/kotlin/" + FRAMEWORK_PACKAGE_PATH + "/" + "Sample.kt", GateProject.loadFixture("kotlin/framework-saying-a-forbidden-word"));
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURES_WORDS);
-
-        assertThat(result.getOutput())
-            .contains("may not say \"territory\"");
-    }
-
-    @Test
-    void failsWhenAnAllowedWordIsSaidInAnotherFile(@TempDir Path projectDir) {
-
-        // An allowance is per file: letting one README make its argument must
-        // not unlock the word for the code sitting next to it.
-        writeMarkdown(projectDir, "src/main/java", FRAMEWORK_PACKAGE_PATH,
-            "framework-readme-saying-an-allowed-word");
-        writeJavaSource(projectDir, "src/main/java", FRAMEWORK_PACKAGE_PATH,
-            "framework-saying-nothing-forbidden",
-            "Neighbour.java",
-            "// The palettes here resolve a bloc's recede.\n");
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_BUT_ALLOWING_THE_README);
-
-        assertThat(result.getOutput())
-            .contains("Neighbour.java")
-            .contains("may not say \"bloc\"")
-            .doesNotContain("README.md:");
-    }
-
-    @Test
-    void failsWhenAnAllowanceNamesAFileTheGateDoesNotScan(@TempDir Path projectDir) {
-
-        // A stale path exempts nothing while reading in the build as though it
-        // does, which is the silent no-op this whole family exists to remove.
-        writeJavaSource(projectDir, "src/main/java", FRAMEWORK_PACKAGE_PATH,
-            "framework-saying-nothing-forbidden");
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_BUT_ALLOWING_A_MISSING_FILE);
-
-        assertThat(result.getOutput())
-            .contains("allowWord names a file this gate does not scan");
-    }
-
-    @Test
-    void failsWhenWordsAreDeclaredWithoutTheRootTheyAreClosedTo(@TempDir Path projectDir) {
-
-        // A half-declared rule asserts nothing, so it must be rejected where it
-        // is written rather than accepted as a rule that can never fire.
-        writeJavaSource(projectDir, "src/main/java", FRAMEWORK_PACKAGE_PATH,
-            "framework-saying-a-forbidden-word");
-
-        var result = runGateExpectingFailure(projectDir, HALF_DECLARED_RULE);
-
-        assertThat(result.getOutput())
-            .contains("forbidWords needs both 'under'");
-    }
-
-    @Test
-    void failsWhenASiblingOfTheLeftOutSubtreeSaysAForbiddenWord(@TempDir Path projectDir) {
-
-        // Leaving one subtree out must not leave the rest of the root with it.
-        writeJavaSource(projectDir, "src/main/java", CORE_PACKAGE_PATH,
-            "framework-saying-a-forbidden-word");
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_EXCEPT_THE_KINDS);
-
-        assertThat(result.getOutput())
-            .contains("example.framework except example.framework.kinds may not say \"territory\"");
-    }
-
-    @Test
-    void failsWhenTheLeftOutSubtreeSitsOutsideTheClosedRoot(@TempDir Path projectDir) {
-
-        // Refused where it is written rather than accepted as an exemption
-        // that can never apply.
-        writeJavaSource(projectDir, "src/main/java", FRAMEWORK_PACKAGE_PATH,
-            "framework-saying-nothing-forbidden");
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_EXCEPT_A_PACKAGE_OUTSIDE_THE_ROOT);
-
-        assertThat(result.getOutput())
-            .contains("forbidWords 'except' names a package strictly beneath the closed root "
-                + "example.framework; got: example.feature.kinds");
-    }
-
-    @Test
-    void failsAgainAfterAPassingRunOnceAWordIsDeclared(@TempDir Path projectDir) {
-
-        // The declarations are a task input, not just a closure the action
-        // reads. If they were not, this second run would be UP-TO-DATE against
-        // the first and a newly forbidden word would silently never be looked
-        // for.
-        writeJavaSource(
-            projectDir,
-            "src/main/java",
-            FRAMEWORK_PACKAGE_PATH,
-            "framework-saying-a-forbidden-word");
-
-        runGateExpectingSuccess(projectDir, NO_WORDS_DECLARED);
-
-        var result = runGateExpectingFailure(projectDir, CLOSED_TO_THE_FEATURES_WORDS);
-
-        assertThat(result.getOutput())
-            .contains("may not say \"territory\"");
-    }
-
-    @Test
-    void passesWhenAWordMerelyCarriesAForbiddenOneAsAPrefix(@TempDir Path projectDir) {
-
-        // The rule that keeps the list usable: words are matched whole, parted
-        // at camel humps, so 'blocks' and 'blockade' are their own words. A
-        // gate firing on these would train its next reader to allowlist rather
-        // than to read.
-        writeJavaSource(
-            projectDir,
-            "src/main/java",
-            FRAMEWORK_PACKAGE_PATH,
-            "framework-saying-a-word-containing-a-forbidden-one");
-
-        var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURES_WORDS);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenTheWordIsAllowedInTheFileThatSaysIt(@TempDir Path projectDir) {
-
-        writeMarkdown(
-            projectDir,
-            "src/main/java",
-            FRAMEWORK_PACKAGE_PATH,
-            "framework-readme-saying-an-allowed-word");
-
-        var result = runGateExpectingSuccess(projectDir, CLOSED_BUT_ALLOWING_THE_README);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenTheLeftOutSubtreeSaysAForbiddenWord(@TempDir Path projectDir) {
-
-        // The whole reason 'except' exists: a subtree whose subject the words
-        // are, kept inside a root that may not say them anywhere else. Markdown
-        // too, since a subtree's README is written in its own words.
-        writeJavaSource(projectDir, "src/main/java", KINDS_PACKAGE_PATH,
-            "framework-saying-a-forbidden-word");
-        writeMarkdown(projectDir, "src/main/java", KINDS_PACKAGE_PATH,
-            "framework-readme-saying-a-forbidden-word");
-
-        var result = runGateExpectingSuccess(projectDir, CLOSED_EXCEPT_THE_KINDS);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenTheFileSitsOutsideTheClosedRoot(@TempDir Path projectDir) {
-
-        // The feature's own tree is where these words are the subject. A rule
-        // that reached it would forbid a package from saying what it is about.
-        writeJavaSource(
-            projectDir,
-            "src/main/java",
-            "example/feature",
-            "feature-saying-its-own-word");
-
-        var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURES_WORDS);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenThePackageOnlySharesAPrefixWithTheClosedRoot(@TempDir Path projectDir) {
-
-        // 'example.frameworkish' is not under 'example.framework': only a
-        // whole-segment match may close a package.
-        writeJavaSource(
-            projectDir,
-            "src/main/java",
-            "example/frameworkish",
-            "prefixed-package-saying-a-forbidden-word");
-
-        var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURES_WORDS);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenTheBuildDeclaresNoWord(@TempDir Path projectDir) {
-
-        // Every consumer inherits the gate from the shared conventions, so a
-        // build that never says what its vocabulary is must check nothing
-        // rather than guess at it.
-        writeJavaSource(
-            projectDir,
-            "src/main/java",
-            FRAMEWORK_PACKAGE_PATH,
-            "framework-saying-a-forbidden-word");
-
-        var result = runGateExpectingSuccess(projectDir, NO_WORDS_DECLARED);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenThereIsNoSourceTree(@TempDir Path projectDir) {
-
-        var result = runGateExpectingSuccess(projectDir, CLOSED_TO_THE_FEATURES_WORDS);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    // One place owns the block's syntax, so a case that varies the declarations
-    // varies only the declarations. Each argument is one whole call.
-    private static String buildDeclaration(String... calls) {
-
-        var declaration = new StringBuilder("enforcePackageVocabulary {\n");
-
-        for (var call : calls) {
-
-            declaration
-                .append("    ")
-                .append(call)
-                .append('\n');
+            assertThat(result.getOutput())
+                .contains("forbidWords needs both 'under'");
         }
-        return declaration
-            .append("}\n")
-            .toString();
+
+        @Test
+        void failsWhenADeclaredWordHasNoLetters(@TempDir Path projectDir) {
+
+            // An entry with no words could never match, so it would read as a rule and check nothing.
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_A_WORDLESS_ENTRY)
+                .runExpectingFailure();
+
+            assertThat(result.getOutput())
+                .contains("forbidWords names a word with no letters in it, which can never match; got: '42'");
+        }
+
+        @Test
+        void failsWhenTheLeftOutSubtreeSitsOutsideTheClosedRoot(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_EXCEPT_A_PACKAGE_OUTSIDE_THE_ROOT)
+                .runExpectingFailure();
+
+            assertThat(result.getOutput())
+                .contains("forbidWords 'except' names a package strictly beneath its root " +
+                    "example.framework; got: example.feature.kinds");
+        }
+
+        @Test
+        void failsWhenAnAllowanceNamesNoFile(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(HALF_DECLARED_ALLOWANCE)
+                .runExpectingFailure();
+
+            assertThat(result.getOutput())
+                .contains("allowWord needs both 'word'");
+        }
+
+        @Test
+        void failsWhenAnAllowanceOfSeveralWordsNamesNoFile(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(HALF_DECLARED_ALLOWANCE_OF_SEVERAL_WORDS)
+                .runExpectingFailure();
+
+            assertThat(result.getOutput())
+                .contains("allowWords needs both 'words'");
+        }
+
+        @Test
+        void passesWhenTheBuildDeclaresNoWord(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(NO_WORDS_DECLARED)
+                .holdingFixture(FRAMEWORK_PATH + JAVA_SAMPLE, "java/framework-saying-a-forbidden-word")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void failsAgainAfterAPassingRunOnceAWordIsDeclared(@TempDir Path projectDir) {
+
+            // Were the declarations not a task input, the second run would be UP-TO-DATE.
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(NO_WORDS_DECLARED)
+                .holdingFixture(FRAMEWORK_PATH + JAVA_SAMPLE, "java/framework-saying-a-forbidden-word")
+                .runExpectingGateToPass();
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURES_WORDS)
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:8: example.framework may not say \"ledger\"");
+        }
     }
 
-    // The expected outcome is in the method name rather than a flag, so a call
-    // site reads as what it asserts. Both forward to one runner: the pair
-    // differs only in which TestKit terminal it drives.
-    private BuildResult runGateExpectingFailure(Path projectDir, String declaration) {
+    @Nested
+    class Phrases {
 
-        return buildProject(projectDir, declaration).runExpectingFailure();
+        @Test
+        void failsWhenACommentSaysAForbiddenWord(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURES_WORDS)
+                .holdingFixture(FRAMEWORK_PATH + JAVA_SAMPLE, "java/framework-saying-a-forbidden-word")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:8: example.framework may not say \"ledger\"");
+        }
+
+        @Test
+        void failsWhenAMethodNameSaysAForbiddenPhrase(@TempDir Path projectDir) {
+
+            // The case a hand sweep misses: the phrase spelt in camel case reads as one token.
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURES_WORDS)
+                .holdingFixture(FRAMEWORK_PATH + JAVA_SAMPLE, "java/framework-saying-a-forbidden-phrase-in-a-name")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:8: example.framework may not say \"sales order\"");
+        }
+
+        @Test
+        void failsWhenProseWrapsAForbiddenPhraseAcrossTwoLines(@TempDir Path projectDir) {
+
+            // Prose wraps where the column runs out, not where the phrase ends.
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURES_WORDS)
+                .holdingFixture(FRAMEWORK_PATH + README, "markdown/framework-readme-wrapping-a-forbidden-phrase")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("README.md:5: example.framework may not say \"sales order\"");
+        }
+
+        @Test
+        void failsWhenProseSaysAPhraseDeclaredInCamelCase(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_A_CAMEL_CASE_PHRASE)
+                .holdingFixture(FRAMEWORK_PATH + README, "markdown/framework-readme-wrapping-a-forbidden-phrase")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("README.md:5: example.framework may not say \"SalesOrder\"");
+        }
+
+        @Test
+        void failsWhenAnIdentifierSaysAPhraseDeclaredWithAHyphen(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_A_HYPHENATED_PHRASE)
+                .holdingFixture(FRAMEWORK_PATH + JAVA_SAMPLE, "java/framework-saying-a-forbidden-phrase-in-a-name")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:8: example.framework may not say \"sales-order\"");
+        }
+
+        @Test
+        void passesWhenAWordMerelyCarriesAForbiddenOneAsAPrefix(@TempDir Path projectDir) {
+
+            // Words are matched whole, so 'carton' is its own word. A gate firing on it would train
+            // its reader to allow rather than to read.
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURES_WORDS)
+                .holdingFixture(
+                    FRAMEWORK_PATH + JAVA_SAMPLE,
+                    "java/framework-saying-a-word-containing-a-forbidden-one")
+                .runExpectingGateToPass();
+        }
     }
 
-    private BuildResult runGateExpectingSuccess(Path projectDir, String declaration) {
+    @Nested
+    class Allowances {
 
-        return buildProject(projectDir, declaration).runExpectingSuccess();
+        @Test
+        void passesWhenTheWordIsAllowedInTheFileThatSaysIt(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_BUT_ALLOWING_THE_README)
+                .holdingFixture(ALLOWED_README_PATH, "markdown/framework-readme-saying-an-allowed-word")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenSeveralWordsAreAllowedInTheFileThatSaysThem(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_BUT_ALLOWING_SEVERAL_WORDS_IN_THE_README)
+                .holdingFixture(ALLOWED_README_PATH, "markdown/framework-readme-saying-an-allowed-word")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void failsWhenAnAllowedWordIsSaidInAnotherFile(@TempDir Path projectDir) {
+
+            // An allowance is per file: one README making its argument unlocks nothing beside it.
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_BUT_ALLOWING_THE_README)
+                .holdingFixture(ALLOWED_README_PATH, "markdown/framework-readme-saying-an-allowed-word")
+                .holdingText(FRAMEWORK_PATH + "/Neighbour.java", NEIGHBOUR_SAYING_THE_ALLOWED_WORD)
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Neighbour.java:3: example.framework may not say \"cart\"")
+                .doesNotContain("README.md:");
+        }
+
+        @Test
+        void failsWhenAnAllowanceNamesAFileTheGateDoesNotScan(@TempDir Path projectDir) {
+
+            // A stale path exempts nothing while reading in the build as though it does.
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_BUT_ALLOWING_A_MISSING_FILE)
+                .holdingFixture(FRAMEWORK_PATH + JAVA_SAMPLE, "java/framework-saying-nothing-forbidden")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("src/main/java/example/framework/GONE.md: allowWord names a file this gate does not scan");
+        }
+
+        @Test
+        void failsWhenAnAllowanceNamesAWordNoRuleForbidsInThatFile(@TempDir Path projectDir) {
+
+            // The file is scanned, so the path looks live, but no rule over it bans the word.
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_BUT_ALLOWING_A_WORD_NO_RULE_FORBIDS)
+                .holdingFixture(ALLOWED_README_PATH, "markdown/framework-readme-saying-an-allowed-word")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("README.md: allowWord names a word no rule forbids in that file, so it allows nothing: " +
+                    "\"invoice\"");
+        }
     }
 
-    private GateProject buildProject(Path projectDir, String declaration) {
+    @Nested
+    class Scope {
 
-        return GateProject
-            .driving(GATE, projectDir)
-            .configuringTheGate(declaration);
-    }
+        @Test
+        void failsWhenAMarkdownFileBesideTheCodeSaysAForbiddenWord(@TempDir Path projectDir) {
 
-    // The source root and the package path are both parameters: this gate reads
-    // every source set, and which package a file sits in is the whole of what
-    // decides whether a rule reaches it.
-    private void writeJavaSource(
-            Path projectDir,
-            String sourceRoot,
-            String packagePath,
-            String fixture) {
+            // The README is what a reader of a framework reads first, and it carries no imports.
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURES_WORDS)
+                .holdingFixture(FRAMEWORK_PATH + README, "markdown/framework-readme-saying-a-forbidden-word")
+                .runExpectingGateToFail();
 
-        writeJavaSource(projectDir, sourceRoot, packagePath, fixture, "Sample.java", "");
-    }
+            assertThat(result.getOutput())
+                .contains("README.md:6: example.framework may not say \"ledger\"");
+        }
 
-    // The appended text is how a case puts one extra line into an otherwise
-    // clean fixture, rather than growing a near-duplicate .txt beside it.
-    private void writeJavaSource(
-            Path projectDir,
-            String sourceRoot,
-            String packagePath,
-            String fixture,
-            String fileName,
-            String appendedText) {
+        @Test
+        void failsWhenASourceSetBeyondMainAndTestSaysAForbiddenWord(@TempDir Path projectDir) {
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingText(
-                sourceRoot + "/" + packagePath + "/" + fileName,
-                GateProject.loadFixture("java/" + fixture) + appendedText);
-    }
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURES_WORDS)
+                .holdingFixture(
+                    "src/utils/java/example/framework" + JAVA_SAMPLE,
+                    "java/framework-saying-a-forbidden-word")
+                .runExpectingGateToFail();
 
-    private void writeMarkdown(
-            Path projectDir,
-            String sourceRoot,
-            String packagePath,
-            String fixture) {
+            assertThat(result.getOutput())
+                .contains("src/utils/java/example/framework/Sample.java:8: example.framework may not say \"ledger\"");
+        }
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingText(
-                sourceRoot + "/" + packagePath + "/" + "README.md",
-                GateProject.loadFixture("markdown/" + fixture));
+        @Test
+        void failsWhenKotlinCodeSaysAForbiddenWord(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURES_WORDS)
+                .holdingFixture(
+                    GateProject.MAIN_KOTLIN_ROOT + "/example/framework" + KOTLIN_SAMPLE,
+                    "kotlin/framework-saying-a-forbidden-word")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.kt:7: example.framework may not say \"ledger\"");
+        }
+
+        @Test
+        void failsWhenASiblingOfTheLeftOutSubtreeSaysAForbiddenWord(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_EXCEPT_THE_KINDS)
+                .holdingFixture(CORE_PATH + JAVA_SAMPLE, "java/framework-saying-a-forbidden-word")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:8: example.framework except example.framework.kinds may not say \"ledger\"");
+        }
+
+        @Test
+        void passesWhenTheLeftOutSubtreeSaysAForbiddenWord(@TempDir Path projectDir) {
+
+            // A subtree whose subject the words are, markdown included.
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_EXCEPT_THE_KINDS)
+                .holdingFixture(KINDS_PATH + JAVA_SAMPLE, "java/framework-saying-a-forbidden-word")
+                .holdingFixture(KINDS_PATH + README, "markdown/framework-readme-saying-a-forbidden-word")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenTheFileSitsOutsideTheClosedRoot(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURES_WORDS)
+                .holdingFixture(
+                    GateProject.MAIN_JAVA_ROOT + "/example/feature" + JAVA_SAMPLE,
+                    "java/feature-saying-its-own-word")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenThePackageOnlySharesAPrefixWithTheClosedRoot(@TempDir Path projectDir) {
+
+            // 'example.frameworkish' is not under 'example.framework'.
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURES_WORDS)
+                .holdingFixture(
+                    GateProject.MAIN_JAVA_ROOT + "/example/frameworkish" + JAVA_SAMPLE,
+                    "java/prefixed-package-saying-a-forbidden-word")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenThePathHoldsTheRootBelowAnotherPackage(@TempDir Path projectDir) {
+
+            // 'com.acme.example.framework' only ends in the root's segments; it is not under it.
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURES_WORDS)
+                .holdingFixture(
+                    GateProject.MAIN_JAVA_ROOT + "/com/acme/example/framework" + JAVA_SAMPLE,
+                    "java/framework-saying-a-forbidden-word")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenThereIsNoSourceTree(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .configuringTheGate(CLOSED_TO_THE_FEATURES_WORDS)
+                .runExpectingGateToPass();
+        }
     }
 }

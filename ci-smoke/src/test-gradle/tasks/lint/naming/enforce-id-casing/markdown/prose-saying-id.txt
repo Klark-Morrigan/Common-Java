@@ -1,6 +1,6 @@
 # Sample
 
-A caller that must account for every place in a modded sector needs more than
+A caller that must account for every place in a large catalogue needs more than
 the id the engine answers with,
 because two places may be listed under one id.
 

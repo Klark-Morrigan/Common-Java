@@ -1,238 +1,252 @@
-import org.gradle.testkit.runner.BuildResult;
-import org.gradle.testkit.runner.TaskOutcome;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 // Drives the shared enforce-id-casing gate.
 //
-// The cases are weighted towards passing rather than failing, because the gate's difficulty is
-// entirely in not firing: a rule about one two-letter word is worthless if it also reports every
-// field, column and file name that spells it.
-//
-// The fixture package is 'example.production' rather than any real consumer's, because the gate
-// owns the rule and this repo knows no consumer's tree.
+// The cases lean towards passing, because the gate's difficulty is in not firing: a rule about one two-letter
+// word is worthless if it also reports every field, column and file name that spells it.
 class EnforceIdCasingGateIntegrationTests {
 
     private static final GateUnderTest GATE =
-        new GateUnderTest("enforceIdCasing", "id.casing.gate.script.path");
+        new GateUnderTest("enforceIdCasing", "lint/naming/enforce-id-casing");
 
-    private static final String PRODUCTION_PACKAGE_PATH = "example/production";
+    private static final String PRODUCTION_JAVA_ROOT = GateProject.MAIN_JAVA_ROOT + "/example/production";
+    private static final String PRODUCTION_KOTLIN_ROOT = GateProject.MAIN_KOTLIN_ROOT + "/example/production";
 
-    private static final String SOURCE_ROOT = "src/main/java";
-
-    // Markdown is scanned across the whole project rather than under src/,
-    // because a repository's longest prose is its root README.
+    // Markdown is scanned across the whole project rather than under src/, because a repository's longest
+    // prose is its root README.
     private static final String ROOT_README_PATH = "README.md";
 
     private static final String VENDORED_DOCUMENT_PATH = "docs/vendor/upstream/guide.md";
 
-    private static final String NOTHING_EXEMPT = "";
+    private static final String MARKDOWN_SAYING_ID = "markdown/prose-saying-id";
 
-    // The case the exemption exists for: a tree the repository carries without
-    // authoring, where restyling the text would edit somebody else's copy.
-    private static final String EXEMPTING_THE_VENDORED_DOCUMENTS =
-        buildDeclaration("exemptPath glob: 'docs/vendor/**/*.md'");
+    @Nested
+    class Rule {
 
-    // An exemption for a path no tree holds - the shape one left behind by a
-    // rename or a move takes.
-    private static final String EXEMPTING_A_MISSING_PATH =
-        buildDeclaration("exemptPath glob: 'docs/gone/**/*.md'");
+        @Test
+        void failsWhenAJavaCommentSaysIdInProse(@TempDir Path projectDir) {
 
-    // A declaration naming nothing it exempts - the shape a misspelt or
-    // forgotten key takes.
-    private static final String HALF_DECLARED_EXEMPTION =
-        buildDeclaration("exemptPath path: 'docs/**/*.md'");
+            // Line 18 is a @param description: only the parameter's name is code, the words after it are prose.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(PRODUCTION_JAVA_ROOT, "comment-saying-id-in-prose")
+                .runExpectingGateToFail();
 
-    @Test
-    void failsWhenAJavaCommentSaysIdInProse(@TempDir Path projectDir)
-            throws IOException {
-
-        writeJavaSource(projectDir, "comment-saying-id-in-prose");
-
-        var result = runGateExpectingFailure(projectDir, NOTHING_EXEMPT);
-
-        assertThat(result.getOutput())
-            .contains("prose says \"id\"; the abbreviation is \"ID\"");
-    }
-
-    @Test
-    void failsWhenMarkdownProseSaysId(@TempDir Path projectDir)
-            throws IOException {
-
-        writeMarkdown(projectDir, ROOT_README_PATH, "prose-saying-id");
-
-        var result = runGateExpectingFailure(projectDir, NOTHING_EXEMPT);
-
-        assertThat(result.getOutput())
-            .contains("README.md:4: prose says \"id\"");
-    }
-
-    @Test
-    void failsWhenProseSpellsTheAbbreviationWithOneCapital(@TempDir Path projectDir)
-            throws IOException {
-
-        // `Ids` and `Id` are the same error wearing a capital: the abbreviation
-        // is two capitals, or it is code.
-        writeMarkdown(projectDir, ROOT_README_PATH, "prose-saying-ids-with-one-capital");
-
-        var result = runGateExpectingFailure(projectDir, NOTHING_EXEMPT);
-
-        assertThat(result.getOutput())
-            .contains("prose says \"Ids\"");
-    }
-
-    @Test
-    void failsWhenAnExemptPathMatchesNoFile(@TempDir Path projectDir)
-            throws IOException {
-
-        // A stale path exempts nothing while reading in the build as though it
-        // does, which is the silent no-op this whole family exists to remove.
-        writeMarkdown(projectDir, ROOT_README_PATH, "prose-quoting-id-as-code");
-
-        var result = runGateExpectingFailure(projectDir, EXEMPTING_A_MISSING_PATH);
-
-        assertThat(result.getOutput())
-            .contains("exemptPath matches no file, so it exempts nothing");
-    }
-
-    @Test
-    void failsWhenAnExemptPathIsDeclaredWithoutAGlob(@TempDir Path projectDir)
-            throws IOException {
-
-        // A half-declared exemption exempts nothing, so it must be rejected
-        // where it is written rather than accepted as a rule that never fires.
-        writeMarkdown(projectDir, ROOT_README_PATH, "prose-quoting-id-as-code");
-
-        var result = runGateExpectingFailure(projectDir, HALF_DECLARED_EXEMPTION);
-
-        assertThat(result.getOutput())
-            .contains("exemptPath needs 'glob'");
-    }
-
-    @Test
-    void passesWhenAJavaCommentQuotesIdAsCode(@TempDir Path projectDir)
-            throws IOException {
-
-        // Every way a comment can name the field rather than speak the word: a
-        // <pre> sample, a {@code} span, backticks, quotes, an escaped
-        // placeholder, a hyphenated file name, a dotted path, and the token
-        // after @param.
-        writeJavaSource(projectDir, "comment-quoting-id-as-code");
-
-        var result = runGateExpectingSuccess(projectDir, NOTHING_EXEMPT);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenIdIsSpeltOutsideAnyComment(@TempDir Path projectDir)
-            throws IOException {
-
-        // Only comment text is judged at all, which is what makes the rule safe
-        // to enforce: no identifier, literal or column can ever be reported, so
-        // the gate can never ask for a rename.
-        writeJavaSource(projectDir, "code-saying-id-outside-comments");
-
-        var result = runGateExpectingSuccess(projectDir, NOTHING_EXEMPT);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenMarkdownQuotesIdAsCode(@TempDir Path projectDir)
-            throws IOException {
-
-        // The markdown half of the same rule: backticks, a fenced block, an
-        // indented block, a link target whose anchor is lower case because the
-        // host lower-cases slugs, and a URL.
-        writeMarkdown(projectDir, ROOT_README_PATH, "prose-quoting-id-as-code");
-
-        var result = runGateExpectingSuccess(projectDir, NOTHING_EXEMPT);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenTheFileIsUnderAnExemptPath(@TempDir Path projectDir)
-            throws IOException {
-
-        writeMarkdown(projectDir, VENDORED_DOCUMENT_PATH, "prose-saying-id");
-
-        var result = runGateExpectingSuccess(projectDir, EXEMPTING_THE_VENDORED_DOCUMENTS);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenThereIsNoSourceTree(@TempDir Path projectDir)
-            throws IOException {
-
-        var result = runGateExpectingSuccess(projectDir, NOTHING_EXEMPT);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    // One place owns the block's syntax, so a case that varies the declarations
-    // varies only the declarations. Each argument is one whole call.
-    private static String buildDeclaration(String... calls) {
-        var declaration = new StringBuilder("enforceIdCasing {\n");
-
-        for (var call : calls) {
-            declaration.append("    ").append(call).append('\n');
+            assertThat(result.getOutput())
+                .contains("Sample.java:4: prose says \"id\"; the abbreviation is \"ID\"")
+                .contains("Sample.java:5: prose says \"id\"")
+                .contains("Sample.java:11: prose says \"id\"")
+                .contains("Sample.java:12: prose says \"id\"")
+                .contains("Sample.java:18: prose says \"id\"");
         }
-        return declaration.append("}\n").toString();
+
+        @Test
+        void failsWhenAKotlinCommentSaysIdInProse(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingKotlinSample(PRODUCTION_KOTLIN_ROOT, "comment-saying-id-in-prose")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.kt:3: prose says \"id\"")
+                .contains("Sample.kt:6: prose says \"id\"");
+        }
+
+        @Test
+        void failsWhenABlockCommentOpensAfterCode(@TempDir Path projectDir) {
+
+            // The comment opens mid-line and runs on, so both its lines are prose.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(PRODUCTION_JAVA_ROOT, "block-comment-opening-after-code")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:5: prose says \"id\"")
+                .contains("Sample.java:6: prose says \"id\"");
+        }
+
+        @Test
+        void failsWhenALineCommentFollowsAStringHoldingSlashes(@TempDir Path projectDir) {
+
+            // The '//' inside the URL opens no comment, and must not hide the one that follows the string.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(PRODUCTION_JAVA_ROOT, "comment-following-a-string-holding-slashes")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:5: prose says \"id\"");
+        }
+
+        @Test
+        void failsWhenMarkdownProseSaysId(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingFixture(ROOT_README_PATH, MARKDOWN_SAYING_ID)
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("README.md:4: prose says \"id\"")
+                .contains("README.md:7: prose says \"id\"");
+        }
+
+        @Test
+        void failsWhenProseSpellsTheAbbreviationWithOneCapital(@TempDir Path projectDir) {
+
+            // `Ids` and `Id` are the same error wearing a capital: the abbreviation is two capitals, or code.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingFixture(ROOT_README_PATH, "markdown/prose-saying-ids-with-one-capital")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("README.md:3: prose says \"Ids\"")
+                .contains("README.md:5: prose says \"Id\"");
+        }
+
+        @Test
+        void passesWhenAJavaCommentQuotesIdAsCode(@TempDir Path projectDir) {
+
+            // Every way a comment can name the field rather than speak the word: a <pre> sample, a {@code}
+            // span, backticks, quotes, an escaped placeholder, a hyphenated file name, a dotted path, and the
+            // token after @param.
+            GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(PRODUCTION_JAVA_ROOT, "comment-quoting-id-as-code")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenJavaSpellsIdOutsideAnyComment(@TempDir Path projectDir) {
+
+            // Only comment text is judged, so no identifier, literal or column can ever be reported - including
+            // a string that holds '//'.
+            GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(PRODUCTION_JAVA_ROOT, "code-saying-id-outside-comments")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenKotlinSpellsIdOutsideAnyComment(@TempDir Path projectDir) {
+
+            // A raw string and a backtick-quoted name hold '//' and the word without either being a comment.
+            GateProject.driving(GATE, projectDir)
+                .holdingKotlinSample(PRODUCTION_KOTLIN_ROOT, "code-saying-id-outside-comments")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenMarkdownQuotesIdAsCode(@TempDir Path projectDir) {
+
+            // Backticks, a fenced block, an indented block, a link whose anchor the host lower-cases, and a URL.
+            GateProject.driving(GATE, projectDir)
+                .holdingFixture(ROOT_README_PATH, "markdown/prose-quoting-id-as-code")
+                .runExpectingGateToPass();
+        }
     }
 
-    // The expected outcome is in the method name rather than a flag, so a call
-    // site reads as what it asserts. Both forward to one runner: the pair
-    // differs only in which TestKit terminal it drives.
-    private BuildResult runGateExpectingFailure(Path projectDir, String declaration)
-            throws IOException {
+    @Nested
+    class Scope {
 
-        return buildProject(projectDir, declaration).runExpectingFailure();
+        @Test
+        void passesWhenMarkdownSitsUnderADefaultExcludedDirectory(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .holdingFixture("node_modules/package/README.md", MARKDOWN_SAYING_ID)
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenMarkdownSitsUnderANestedExcludedDirectory(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .holdingFixture("docs/build/README.md", MARKDOWN_SAYING_ID)
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenProseSitsUnderADirectoryTheBuildAddsToTheSharedExclusions(@TempDir Path projectDir) {
+
+            // One list serves every Markdown gate, and it reaches the code tree too.
+            GateProject.driving(GATE, projectDir)
+                .holdingFixture("generated/README.md", MARKDOWN_SAYING_ID)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT + "/generated", "comment-saying-id-in-prose")
+                .configuringTheGate("authoredScanExcludedDirectoryNames << 'generated'\n")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenMarkdownIsUnderAnExemptPath(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .holdingFixture(VENDORED_DOCUMENT_PATH, MARKDOWN_SAYING_ID)
+                .configuringTheGate(GateProject.buildConfigurationBlock(
+                    "enforceIdCasing", "exemptPath glob: 'docs/vendor/**/*.md'"))
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenCodeIsUnderAnExemptPath(@TempDir Path projectDir) {
+
+            // A glob is written project-relative for code too, though code is scanned under src/ only.
+            GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT + "/example/vendor", "comment-saying-id-in-prose")
+                .configuringTheGate(GateProject.buildConfigurationBlock(
+                    "enforceIdCasing", "exemptPath glob: 'src/main/java/example/vendor/**'"))
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenThereIsNoSourceTree(@TempDir Path projectDir) {
+            GateProject.driving(GATE, projectDir).runExpectingGateToPass();
+        }
     }
 
-    private BuildResult runGateExpectingSuccess(Path projectDir, String declaration)
-            throws IOException {
+    @Nested
+    class DeclarationsAndRefusals {
 
-        return buildProject(projectDir, declaration).runExpectingSuccess();
-    }
+        @Test
+        void failsWhenAnExemptPathMatchesNoFile(@TempDir Path projectDir) {
 
-    private GateProject buildProject(Path projectDir, String declaration) {
+            // A stale path exempts nothing while reading in the build as though it does.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingFixture(ROOT_README_PATH, "markdown/prose-quoting-id-as-code")
+                .configuringTheGate(GateProject.buildConfigurationBlock(
+                    "enforceIdCasing", "exemptPath glob: 'docs/gone/**/*.md'"))
+                .runExpectingGateToFail();
 
-        return GateProject
-            .driving(GATE, projectDir)
-            .configuringTheGate(declaration);
-    }
+            assertThat(result.getOutput())
+                .contains("docs/gone/**/*.md: exemptPath matches no file, so it exempts nothing");
+        }
 
-    private void writeJavaSource(Path projectDir, String fixture)
-            throws IOException {
+        @Test
+        void failsWhenAnExemptPathMatchesOnlyAnExcludedDirectory(@TempDir Path projectDir) {
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingText(
-                SOURCE_ROOT + "/" + PRODUCTION_PACKAGE_PATH + "/" + "Sample.java",
-                GateProject.loadFixture("java/" + fixture));
-    }
+            // The gate never reads an excluded directory, so a glob reaching only into one exempts nothing.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingFixture("build/docs/README.md", MARKDOWN_SAYING_ID)
+                .configuringTheGate(GateProject.buildConfigurationBlock(
+                    "enforceIdCasing", "exemptPath glob: 'build/**/*.md'"))
+                .runExpectingGateToFail();
 
-    // The path is a parameter rather than fixed, because where a markdown file
-    // sits is what decides whether an exemption reaches it - and the root README
-    // is the case that proves the scan is not limited to src/.
-    private void writeMarkdown(Path projectDir, String filePath, String fixture)
-            throws IOException {
+            assertThat(result.getOutput())
+                .contains("build/**/*.md: exemptPath matches no file, so it exempts nothing");
+        }
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingText(filePath, GateProject.loadFixture("markdown/" + fixture));
+        @Test
+        void failsWhenAnExemptPathIsDeclaredWithoutAGlob(@TempDir Path projectDir) {
+
+            // A half-declared exemption is refused where it is written rather than accepted as a rule that
+            // never fires.
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(GateProject.buildConfigurationBlock(
+                    "enforceIdCasing", "exemptPath path: 'docs/**/*.md'"))
+                .runExpectingFailure();
+
+            assertThat(result.getOutput())
+                .contains("exemptPath needs 'glob'");
+        }
     }
 }

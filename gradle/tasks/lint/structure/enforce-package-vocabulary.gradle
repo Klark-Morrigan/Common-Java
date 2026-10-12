@@ -1,171 +1,68 @@
-// Package-vocabulary gate, applied by java-conventions.gradle into every
-// consuming project. Kept in its own script so the conventions file stays about
-// classpath, version, and test stack, while this owns one concern: the
-// verification rule.
+// Package-vocabulary gate: a package root declared closed to a word does not say it anywhere in its
+// tree - in code, in comments, or in the markdown filed beside them.
 //
-// The convention: a package root declared closed to a word does not say it,
-// anywhere in its tree - in code, in comments, or in the markdown filed beside
-// them. It is the sibling of enforcePackageLayering one level in: that gate
-// keeps a framework from *importing* a feature, this one keeps it from being
-// *written in the feature's words*, which is what a reader of the framework
-// actually reads. A leaked import stops compiling the day the package moves; a
-// leaked noun in a Javadoc survives every move in silence.
-//
-// The two are separate gates rather than one with two checks, because they have
-// different failure characteristics. An import edge is a compile-visible fact
-// with no false positives and no escape hatch. A word list has both, so this
-// one carries an allowlist and the other must not have to.
-//
-// A vocabulary is a per-project fact rather than a shared one, so this script
-// owns only the mechanism and the consuming build declares the words. The names
-// below are the ones this gate's own integration test is written against, this
-// repo knowing no consumer's vocabulary:
+// enforcePackageLayering keeps a framework from importing a feature; this keeps it from being
+// written in the feature's words. A leaked import stops compiling when the package moves; a leaked
+// noun in a comment survives every move. The two stay separate gates because a word list has false
+// positives and needs an allowance, where an import edge has neither.
 //
 //     enforcePackageVocabulary {
 //         forbidWords under: 'example.framework',
-//                     words: ['feature', 'features']
-//         allowWord word: 'feature',
-//                 inFile: 'src/main/java/example/framework/README.md'
+//             except: 'example.framework.kinds',
+//             words: ['ledger', 'sales order']
+//         allowWord word: 'ledger',
+//             inFile: 'src/main/java/example/framework/README.md'
 //     }
 //
-// Both halves of each declaration arrive in one call rather than through a
-// fluent chain, for the reason the layering gate gives: a half-declared rule is
-// then never a state anything can hold or a caller can forget to finish.
-//
-// A closed root may leave subtrees of its own out, with the layering gate's
-// 'except' and on its terms - one package or a list, each strictly beneath the
-// root:
-//
-//     enforcePackageVocabulary {
-//         forbidWords under: 'example.framework',
-//                    except: 'example.framework.kinds',
-//                     words: ['feature', 'features']
-//     }
-//
-// which is the shape a framework takes when the fillers of its own seams live
-// inside it and are written in the words the rest of it may not say. The
-// allowance below is the narrower hatch - one word in one file - and stays the
-// one for a file that names a word to state a rule; 'except' is for a subtree
-// whose subject the word is.
-//
-// A build that declares no word inherits the task and checks nothing, which is
-// what lets the conventions file apply it everywhere rather than leaving each
-// consumer to opt in.
+// An entry is parted into words the way the text is, so 'SalesOrder', 'sales order' and
+// 'sales-order' declare one phrase, and it is found in an identifier and in prose alike.
+// 'except' is for a subtree whose subject the words are; an allowance is the narrower hatch, one
+// word in one file, for a file that has to name a word to state a rule.
 
-// Applied by this script, not assumed from the conventions file: the gate is
-// applied on its own by its integration test, so it has to carry what it uses.
 apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
-
-// How the subtrees a closed root leaves out are read and checked, shared with the
-// layering gate so the two cannot come to accept different 'except' spellings;
-// see package-roots.gradle.
 apply from: new File(buildscript.sourceFile.parentFile, '../package-roots.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../word-scan.gradle')
 
-// One word of a name, as a reader reads it: a run of letters, parted at each
-// camel hump. This is what lets the gate judge an identifier and a sentence by
-// the same rule - `TheNationalBorder` says the same three words the prose
-// does - while leaving `blocks` alone, since `bloc` is not one of its words.
-//
-// Digits and every non-letter part words rather than joining them, so
-// `bloc2` and `filter_bloc` both say `bloc`. The consequence worth knowing: a
-// plural is a different word, so a list forbidding `bloc` does not catch
-// `blocs` and a consumer declares both.
-def nameWordPattern = ~/\p{Lu}?\p{Ll}+|\p{Lu}+(?!\p{Ll})/
+// The file types a package's vocabulary is written in: its code, and the markdown filed beside it.
+// Resources are data rather than prose, so they stay out of reach.
+def scannedFileIncludes = jvmSourceIncludes + ['**/*.md']
 
-// The file types a package's vocabulary is written in: its code, and the
-// markdown filed beside it. Resources are data rather than prose - a fixture
-// column named for a domain concept is the layer's own, not the framework's
-// claim about itself - so they stay out of reach.
-def scannedFileIncludes = ['**/*.java', '**/*.kt', '**/*.md']
-
-// Answers whether a file sits at or under a package root, matched a whole
-// segment at a time so `example.frameworks` is not read as living under
-// `example.framework`.
-//
-// Judged by directory rather than by the package a source file declares, which
-// is the one place this gate parts from its layering sibling: markdown carries
-// no package declaration and is half of what the rule is about, so the tree is
-// the subject here rather than the compilation unit.
-def isUnderPackageRoot = { List pathSegments, String packageRoot ->
-
-    def rootSegments = packageRoot.tokenize('.')
-    def lastStart = pathSegments.size() - rootSegments.size()
-
-    for (int start = 0; start <= lastStart; start++) {
-
-        if (pathSegments.subList(start, start + rootSegments.size()) == rootSegments) {
-            return true
-        }
-    }
-    return false
-}
-
-// Every word the file says, in reading order, each paired with the line it sits
-// on. Collected across the whole file rather than per line so a phrase that
-// wraps in prose is still one phrase; the report names the line its first word
-// is on, which is where a reader starts looking.
-def readNameWords = { File sourceFile ->
-
-    def words = []
-
-    sourceFile.eachLine { line, lineNumber ->
-
-        def matcher = nameWordPattern.matcher(line)
-
-        while (matcher.find()) {
-            words << [text: matcher.group().toLowerCase(), line: lineNumber]
-        }
-    }
-    return words
-}
-
-// Reports one message per forbidden phrase this file says. A phrase matches a
-// run of consecutive words, so a two-word entry ('national border') is found
-// whether it was written as prose or as part of a name.
+// Reports one message per forbidden phrase this file says, at the line its first word is on.
 def findForbiddenWords = { File sourceFile, String reportedPath, List applicableRules ->
 
-    def forbidden = []
     def words = readNameWords(sourceFile)
 
-    applicableRules.each { rule ->
-        rule.phrases.each { phrase ->
+    return applicableRules.collectMany { rule ->
 
-            if (phrase.words.size() > words.size()) {
-                return
-            }
-
-            for (int start = 0; start <= words.size() - phrase.words.size(); start++) {
-
-                def spoken = words
-                    .subList(start, start + phrase.words.size())
-                    .collect { it.text }
-
-                if (spoken == phrase.words) {
-
-                    forbidden << "${reportedPath}:${words[start].line}: " +
-                        "${rule.closedSideLabel} may not say \"${phrase.declared}\""
-                }
-            }
+        findSpokenPhrases(words, rule.phrases).collect { spoken ->
+            "${reportedPath}:${spoken.line}: ${rule.closedSideLabel} may not say \"${spoken.phrase.declared}\""
         }
     }
-    return forbidden
 }
 
-// Filled by the consuming build through the task's own `forbidWords` and
-// `allowWord`, so both are captured here rather than inside the task: the
-// execution-time action reads the same lists the declarations appended to.
 def vocabularyRules = []
 def allowances = []
 
-def enforcePackageVocabulary = tasks.register('enforcePackageVocabulary') {
+// Why an allowance answers no rule, or null when it answers one.
+def findStrandedReason = { Map allowance, Map forbiddenPhrasesByPath ->
+
+    if (!forbiddenPhrasesByPath.containsKey(allowance.inFile)) {
+        return 'names a file this gate does not scan, so it allows nothing'
+    }
+
+    if (!(allowance.words in forbiddenPhrasesByPath[allowance.inFile])) {
+        return 'names a word no rule forbids in that file, so it allows nothing'
+    }
+
+    return null
+}
+
+def enforcePackageVocabulary = tasks.register('enforcePackageVocabulary') { gate ->
 
     group = 'verification'
     description = 'Fails the build when a package root uses a word the ' +
         'consuming build declared it closed to.'
 
-    // Declares one package root's forbidden words. Named arguments rather than
-    // positional ones because the root and the words are both plain text, so a
-    // transposition would otherwise forbid a package name inside a word list.
     ext.forbidWords = { Map declaration ->
 
         if (!declaration.under || !declaration.words) {
@@ -180,25 +77,20 @@ def enforcePackageVocabulary = tasks.register('enforcePackageVocabulary') {
         vocabularyRules << [
             under: declaration.under,
             exceptedRoots: exceptedRoots,
-            // Carried into every message and the input snapshot, so a run
-            // cleared with a subtree left out does not read as UP-TO-DATE
-            // against the same words closed over all of it.
-            closedSideLabel: exceptedRoots.isEmpty()
-                ? declaration.under
-                : "${declaration.under} except ${exceptedRoots.join(', ')}",
-            phrases: declaration.words.collect { String word ->
-                [declared: word, words: word.toLowerCase().tokenize(' ')]
-            },
+            closedSideLabel: describeLayer(declaration.under, exceptedRoots),
+            phrases: readOneOrMany(declaration.words).collect { readDeclaredPhrase('forbidWords', it.toString()) },
         ]
     }
 
-    // Exempts one file from one word. Declared here rather than as a marker
-    // comment in the file itself, and that is the point: an entry is a line
-    // someone adds to the build and a reviewer reads in the diff, where an
-    // inline opt-out is invisible until somebody greps for it.
-    //
-    // The path is project-relative, spelt as it is on disk, so a reader of the
-    // build knows exactly which file was let through.
+    // Lets one file say one phrase. Declared in the build rather than as a marker in the file, so
+    // an exemption is a line a reviewer reads in the diff. The path is project-relative, as on disk.
+    def addAllowance = { String declaringCall, Object word, Object inFile ->
+
+        def phrase = readDeclaredPhrase(declaringCall, word.toString())
+
+        allowances << [word: phrase.declared, words: phrase.words, inFile: inFile.toString()]
+    }
+
     ext.allowWord = { Map exemption ->
 
         if (!exemption.word || !exemption.inFile) {
@@ -207,15 +99,12 @@ def enforcePackageVocabulary = tasks.register('enforcePackageVocabulary') {
                 "being let through) and 'inFile' (the project-relative " +
                 "path it is allowed in); got: ${exemption}")
         }
-        allowances << [
-            word: exemption.word.toLowerCase(),
-            inFile: exemption.inFile]
+
+        addAllowance('allowWord', exemption.word, exemption.inFile)
     }
 
-    // The same allowance for several words in one file, which is the shape a
-    // README explaining a rule takes: it has to name every word the rule bans.
-    // One declaration rather than a run of near-identical lines, so the file
-    // path is stated once and a reader sees one exemption instead of five.
+    // Several words in one file: the shape a README explaining a rule takes, which has to name
+    // every word the rule bans.
     ext.allowWords = { Map exemption ->
 
         if (!exemption.words || !exemption.inFile) {
@@ -225,44 +114,20 @@ def enforcePackageVocabulary = tasks.register('enforcePackageVocabulary') {
                 "project-relative path they are allowed in); got: ${exemption}")
         }
 
-        exemption.words.each { word ->
-            allowWord word: word, inFile: exemption.inFile
-        }
+        readOneOrMany(exemption.words).each { addAllowance('allowWords', it, exemption.inFile) }
     }
 
-    // Every source set under src/, rather than main and test alone: a
-    // vocabulary rule that exempts a tree is a vocabulary rule with a hole in
-    // it, and a dev-tooling or fixture source set is written in prose like any
-    // other - it is simply prose nobody sweeps, which is where the words the
-    // sweeps missed collect.
-    //
-    // Declared as the matched files rather than as the directories: an absent
-    // tree is then an empty scan rather than the configuration failure a
-    // declared-but-missing input directory would be.
-    def scannedSources = fileTree('src') {
-        include scannedFileIncludes
+    // Every source set under src/: a dev-tooling or fixture tree is prose nobody sweeps, which is
+    // where the words a sweep missed collect.
+    def scannedSources = declareScannedFiles(gate, 'src', scannedFileIncludes)
+
+    declareRuleSnapshot(gate, 'vocabularyRules') {
+        vocabularyRules.collect { "${it.closedSideLabel} !- ${it.phrases*.declared.sort()}" }
     }
 
-    inputs.files(scannedSources).withPropertyName('scannedSources')
-
-    // The declarations are an input as much as the sources are - adding a word
-    // has to re-run the gate rather than leave it UP-TO-DATE against the list
-    // it was last cleared under. Wrapped in a provider because they are
-    // declared after this registration runs, and snapshotted as plain strings
-    // rather than as the maps themselves, since an input property's value has
-    // to be serialisable.
-    inputs.property('vocabularyRules', providers.provider {
-
-        vocabularyRules
-            .collect {
-                "${it.closedSideLabel} !- ${it.phrases.collect { phrase -> phrase.declared }.sort()}"
-                    .toString()
-            }.sort()
-    })
-
-    inputs.property('allowances', providers.provider {
-        allowances.collect { "${it.word} in ${it.inFile}".toString() }.sort()
-    })
+    declareRuleSnapshot(gate, 'allowances') {
+        allowances.collect { "${it.word} in ${it.inFile}" }
+    }
 
     doLast {
 
@@ -271,7 +136,10 @@ def enforcePackageVocabulary = tasks.register('enforcePackageVocabulary') {
         }
 
         def violations = []
-        def scannedPaths = [] as Set
+
+        // The phrases each scanned file is forbidden, before its allowances: an allowance answers a rule
+        // only where one of these is its phrase.
+        def forbiddenPhrasesByPath = [:]
 
         scannedSources.visit { details ->
 
@@ -279,61 +147,42 @@ def enforcePackageVocabulary = tasks.register('enforcePackageVocabulary') {
                 return
             }
 
-            // Reported and matched as one path spelling: project-relative with
-            // forward slashes, so an allowance reads the same on every machine
-            // and a report is clickable from the project root.
+            // Project-relative with forward slashes, so an allowance reads the same on every machine.
             def reportedPath = 'src/' + details.path
 
-            scannedPaths << reportedPath
+            def allowedPhrases = allowances.findAll { it.inFile == reportedPath }*.words
+            def pathPackage = readPathPackage(details.relativePath.segments as List)
+            def rulesOverFile = vocabularyRules.findAll { isInsideLayer(pathPackage, it.under, it.exceptedRoots) }
 
-            // An allowance is per file and per word, so a word let through one
-            // README is still forbidden in the file next to it - which is the
-            // whole of what makes the escape hatch narrow enough to keep.
-            def allowedWords = allowances
-                .findAll { it.inFile == reportedPath }
-                .collect { it.word }
+            forbiddenPhrasesByPath[reportedPath] = rulesOverFile.collectMany { it.phrases*.words }
 
-            def pathSegments = details.relativePath.segments as List
-            def applicableRules = vocabularyRules.findAll { rule ->
-
-                    isUnderPackageRoot(pathSegments, rule.under) &&
-                        !rule.exceptedRoots.any { isUnderPackageRoot(pathSegments, it) }
-
-                }.collect { rule ->
-
-                    return [
+            def applicableRules = rulesOverFile
+                .collect { rule ->
+                    [
                         closedSideLabel: rule.closedSideLabel,
-                        phrases: rule.phrases.findAll {
-                            !(it.declared.toLowerCase() in allowedWords)
-                        },
+                        phrases: rule.phrases.findAll { !(it.words in allowedPhrases) },
                     ]
+                }
+                .findAll { !it.phrases.isEmpty() }
 
-                }.findAll { !it.phrases.isEmpty() }
-
-            if (applicableRules.isEmpty()) {
-                return
+            if (!applicableRules.isEmpty()) {
+                violations.addAll(findForbiddenWords(details.file, reportedPath, applicableRules))
             }
-
-            violations.addAll(
-                findForbiddenWords(details.file, reportedPath, applicableRules))
         }
-        // An allowance naming a file the scan never sees is dead config: it
-        // exempts nothing, and the word it was written for is loose again the
-        // moment the file it meant comes back under another name. Reported as a
-        // violation rather than ignored, because a silent no-op is the exact
-        // failure this gate exists to remove - one level up.
-        def strandedAllowances = allowances.findAll { !(it.inFile in scannedPaths) }
 
-        strandedAllowances.each {
+        // An allowance that answers no rule exempts nothing, and its word is loose again the moment
+        // the file or rule it meant comes back under another name.
+        allowances.each { allowance ->
 
-            violations << "${it.inFile}: allowWord names a file this gate does " +
-                "not scan, so it allows nothing: \"${it.word}\""
+            def reason = findStrandedReason(allowance, forbiddenPhrasesByPath)
+
+            if (reason != null) {
+                violations << "${allowance.inFile}: allowWord ${reason}: \"${allowance.word}\""
+            }
         }
 
         failOnViolations('Package vocabulary violated', violations)
     }
 }
 
-// Make it a gate: an output so it can be skipped while what it reads is
-// unchanged, and a place in the verification lifecycle; see lint-gate.gradle.
 installLintGate(enforcePackageVocabulary)

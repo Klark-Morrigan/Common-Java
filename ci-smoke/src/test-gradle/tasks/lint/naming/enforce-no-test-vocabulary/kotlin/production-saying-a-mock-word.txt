@@ -1,6 +1,6 @@
 package example.production
 
-// Kotlin is half the production surface in the consuming mods, and the leak
+// Kotlin leaks the same way as Java: the word
 // arrives through KDoc exactly as it does through Javadoc.
 class Sample {
 

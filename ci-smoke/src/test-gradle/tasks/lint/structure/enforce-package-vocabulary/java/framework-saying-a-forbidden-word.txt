@@ -5,7 +5,7 @@ package example.framework;
 // that the framework is about the feature's subject matter.
 final class Sample {
 
-    // Fills the region under one owner's territory.
-    void fillRegion() {
+    // Posts one entry to the ledger.
+    void postEntry() {
     }
 }

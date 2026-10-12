@@ -1,26 +1,35 @@
 // Shared plumbing for the lint gates: what every gate needs to be a gate, past
 // the rule it actually asserts.
 //
-// Being a gate takes two things, and they were written out at the foot of each
-// gate until the family reached fifteen copies of them. Both are about how a
-// gate meets Gradle rather than about any gate's subject, so neither is a
-// decision a gate author should be making again - and an author reaching for a
-// sibling to copy the shape from is how a gate ends up with one of the two and
-// not the other, which fails silently in both directions: a gate nothing depends
-// on never runs, and a gate with no output runs on every build forever.
+// Being a gate takes two things, and both are about how a gate meets Gradle
+// rather than about any gate's subject. An author copying the shape from a
+// sibling is how a gate ends up with one of the two and not the other, which
+// fails silently in both directions: a gate nothing depends on never runs, and a
+// gate with no output runs on every build forever.
 //
-// The same goes for the two ends of most gates' own work, held below the pair:
-// declaring and walking the source roots it reads, and failing with what it
-// found.
+// The two ends of most gates' own work are held here too: declaring what a gate
+// reads, and failing with what it found.
 //
-// It lives in its own script, applied by each gate rather than by the
-// conventions file, because a gate has to stand on its own: its integration
-// test applies that one script into a throwaway project and runs the task, with
-// no conventions script in sight. Defining the helpers anywhere else would make
-// every gate silently depend on being applied in company.
+// Conventions every gate follows, stated once here rather than in each gate:
+//
+// - A gate applies this script, and any other helper it uses, itself. Its
+//   integration test applies that one gate into a throwaway project with no
+//   conventions script in sight, so a helper defined anywhere else would make
+//   the gate silently depend on being applied in company.
+// - A declaration takes named arguments. Its values are mostly plain text of one
+//   type, so a transposition would otherwise state the rule backwards and still
+//   pass.
+// - What a consuming build declares is captured in a list beside the task rather
+//   than inside it, so the execution-time action reads the list the declarations
+//   appended to.
+// - A build that declares no rule inherits the gate and checks nothing, which is
+//   what lets the conventions file apply every gate everywhere.
 //
 // Applying this more than once per project is harmless - each gate applies it,
 // and the assignments below simply overwrite identical closures.
+
+// The file types and encoding every gate reads source in.
+apply from: new File(buildscript.sourceFile.parentFile, '../source-text.gradle')
 
 // Gives a gate an output so Gradle can skip it while the sources it reads are
 // unchanged.
@@ -83,35 +92,50 @@ ext.installLintGate = { taskProvider ->
     runLintGateWithVerification(taskProvider)
 }
 
-// Declares the source roots a gate reads as its inputs, and answers them as
-// files for the gate's scan to walk.
-//
-// Only a root that exists is declared: Gradle validates that a declared input
-// directory is present, so a project without one - no tests, no Kotlin - would
-// otherwise fail configuration rather than skip. eachSourceFile guards the same
-// absence at execution time. Called from the gate's configuration block, which
-// hands over its own task, since the inputs belong to it.
-ext.declareSourceRoots = { Task gate, List<String> paths ->
+// Reads a declaration value that may be one item or a list of them as a list,
+// empty when the value is absent. A rule naming one item is the common case, so
+// the declaration spares it the brackets.
+ext.readOneOrMany = { value ->
 
-    def roots = paths.collect { gate.project.file(it) }
-
-    roots.eachWithIndex { root, index ->
-        if (root.exists()) {
-            gate.inputs.dir(root).withPropertyName("sourceRoot${index}")
-        }
+    if (value == null) {
+        return []
     }
-    roots
+
+    return value instanceof Collection ? value as List : [value]
 }
 
-// Hands each Java and Kotlin file under the given roots to visitFile, skipping
-// a root that does not exist.
-ext.eachSourceFile = { List<File> roots, Closure visitFile ->
+// Declares the files a gate reads as its inputs, and answers them as one tree
+// for the gate's scan to walk.
+//
+// Declared as matched files rather than as directories: an absent root is then
+// an empty scan rather than the configuration failure a declared-but-missing
+// input directory would be, and a resource edit does not re-run a gate that only
+// reads code. Paths are compared relative to the project, so a cached pass
+// carries over to the same sources checked out anywhere else. A gate reading two
+// trees names each, since one input property name holds one tree.
+ext.declareScannedFiles = { Task gate, Object roots, List includes, String propertyName = 'scannedFiles' ->
 
-    roots
-        .findAll { it.exists() }
-        .each { root ->
-            fileTree(root).matching { include '**/*.java', '**/*.kt' }.each(visitFile)
-        }
+    def scannedFiles = gate.project.files(roots).asFileTree.matching { include includes }
+
+    gate.inputs.files(scannedFiles)
+        .withPropertyName(propertyName)
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+
+    return scannedFiles
+}
+
+// Declares the rules a consuming build stated as an input of the gate.
+//
+// The rules are an input as much as the sources are - adding one has to re-run
+// the gate rather than leave it UP-TO-DATE against the rule it was last cleared
+// under. Read through a provider because the rules are declared after the gate
+// is registered, and snapshotted as sorted plain strings, since an input
+// property's value has to be serialisable and must not turn on declaration order.
+ext.declareRuleSnapshot = { Task gate, String propertyName, Closure readRuleDescriptions ->
+
+    gate.inputs.property(propertyName, gate.project.providers.provider {
+        readRuleDescriptions().collect { it.toString() }.sort()
+    })
 }
 
 // Fails the gate when it found anything, one finding per line under its heading.

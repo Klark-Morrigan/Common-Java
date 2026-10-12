@@ -1,17 +1,17 @@
-# Single source of truth for the KM family's "named constants good, loose
-# literals bad" rule on Kotlin sources (magic numbers). Run via the detekt CLI
-# by the enforce-no-magic-literals-kotlin gate (gradle/tasks/lint/literals), not
-# the detekt Gradle plugin: the plugin's stable line tops out at Gradle 8, and
-# the KM build runs Gradle 9, so the version-independent CLI is used instead.
+# Single source of truth for the "named constants good, loose literals bad"
+# rule on Kotlin sources (magic numbers). Read by the
+# enforce-no-magic-literals-kotlin gate (gradle/tasks/lint/literals), which
+# states why it runs the detekt CLI.
 #
 # Passed to the CLI WITHOUT --build-upon-default-config, so only the rule named
 # here runs; every other detekt rule stays inactive. Deliberately scoped to
-# MagicNumber, the same narrow stance as the Java family's checkstyle.
+# MagicNumber, the Kotlin counterpart of checkstyle.xml's MagicNumber module.
 
 config:
-  # This file is intentionally a curated subset rather than the full default
-  # schema, so do not fail on rulesets it omits.
-  validation: false
+  # Fails the run on a key detekt does not know, so a misspelled option is
+  # reported rather than silently ignored. Rulesets this file leaves out are
+  # not flagged.
+  validation: true
 
 style:
   MagicNumber:

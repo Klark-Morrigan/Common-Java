@@ -1,0 +1,8 @@
+package example.framework.kinds;
+
+import static example.framework.kinds.Kind.DEFAULT_KIND;
+
+class Sample {
+
+    Object kind = DEFAULT_KIND;
+}

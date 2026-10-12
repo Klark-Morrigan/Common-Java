@@ -9,9 +9,11 @@ rem _find-bash.bat from Common-Automation resolves Git Bash robustly and
 rem sets %BASH%; reused rather than duplicated.
 rem
 rem Common-Automation is expected as a sibling checkout under the same
-rem parent directory.
+rem parent directory,
+rem or wherever COMMON_AUTOMATION_ROOT names.
 
-call "%~dp0..\..\Common-Automation\scripts\_find-bash.bat" || exit /b 1
+if defined COMMON_AUTOMATION_ROOT (set "automation_root=%COMMON_AUTOMATION_ROOT%") else (set "automation_root=%~dp0..\..\Common-Automation")
+call "%automation_root%\scripts\_find-bash.bat" || exit /b 1
 
 set COMMON_AUTOMATION_NO_PAUSE=1
 "%BASH%" "%~dp0setup-hooks.sh" %*

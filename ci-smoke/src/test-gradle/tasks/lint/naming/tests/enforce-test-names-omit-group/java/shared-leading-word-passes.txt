@@ -8,7 +8,7 @@ class Sample {
 
         // Opens with the group's word, then goes on in lower case: a different word, not a repeat.
         @Test
-        void resolvesTheOwnerOffTheMarket() {
+        void resolvesTheOwnerOffTheRecord() {
         }
     }
 }

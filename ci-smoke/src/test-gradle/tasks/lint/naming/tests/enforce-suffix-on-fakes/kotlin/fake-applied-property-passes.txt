@@ -1,0 +1,7 @@
+class Sample {
+    fun make() {
+        buildSchedule().apply {
+            clock = ClockFake()
+        }
+    }
+}

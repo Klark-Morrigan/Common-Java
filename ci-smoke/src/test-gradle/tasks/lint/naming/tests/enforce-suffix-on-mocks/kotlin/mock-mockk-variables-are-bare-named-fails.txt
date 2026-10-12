@@ -1,0 +1,6 @@
+class Sample {
+    fun make() {
+        val clock = mockk<Clock>()
+        val registry = io.mockk.spyk(Registry())
+    }
+}

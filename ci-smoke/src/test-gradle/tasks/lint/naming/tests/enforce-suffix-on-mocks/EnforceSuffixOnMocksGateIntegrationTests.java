@@ -1,3 +1,4 @@
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -6,155 +7,302 @@ import java.nio.file.Path;
 import static org.assertj.core.api.Assertions.assertThat;
 
 // Drives the shared enforce-suffix-on-mocks gate. The variable-suffix rule applies to both
-// languages, so the suffixed-pass, bare-local, and bare-static cases run in each; the lateinit,
-// named-argument, and apply-block cases are Kotlin-only syntax with no Java analogue.
+// languages; lateinit, named arguments, apply blocks and MockK are Kotlin-only.
 class EnforceSuffixOnMocksGateIntegrationTests {
 
     private static final GateUnderTest GATE =
-        new GateUnderTest("enforceSuffixOnMocks", "mock.gate.script.path");
+        new GateUnderTest("enforceSuffixOnMocks", "lint/naming/tests/enforce-suffix-on-mocks");
 
-    @Test
-    void passesWhenMockVariablesAreSuffixedInJava(@TempDir Path projectDir) {
+    // The second root the gate reads: test code shared across suites.
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("mock-variables-are-suffixed")
-            .runExpectingGateToPass();
+    @Nested
+    class Factories {
+
+        @Test
+        void passesWhenEveryKindOfDoubleIsSuffixedInJava(@TempDir Path projectDir) {
+
+            GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("mock-variables-are-suffixed-passes")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenEveryKindOfDoubleIsSuffixedInKotlin(@TempDir Path projectDir) {
+
+            GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("mock-variables-are-suffixed-passes")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void failsWhenVariableIsBareNamedInJava(@TempDir Path projectDir) {
+
+            var result = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("mock-variable-is-bare-named-fails")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:3: variable 'clock' holds a mock and must be suffixed 'Mock'");
+        }
+
+        @Test
+        void failsWhenVariableIsBareNamedInKotlin(@TempDir Path projectDir) {
+
+            var result = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("mock-variable-is-bare-named-fails")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.kt:3: variable 'clock' holds a mock and must be suffixed 'Mock'");
+        }
+
+        @Test
+        void failsWhenStaticMockIsBareNamedInJava(@TempDir Path projectDir) {
+
+            var result = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("mock-static-variable-is-bare-named-fails")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:3: variable 'system' holds a mock");
+        }
+
+        @Test
+        void failsWhenStaticMockIsBareNamedInKotlin(@TempDir Path projectDir) {
+
+            var result = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("mock-static-variable-is-bare-named-fails")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.kt:3: variable 'system' holds a mock");
+        }
+
+        @Test
+        void failsWhenConstructionMockIsBareNamedInJava(@TempDir Path projectDir) {
+
+            var result = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("mock-construction-variable-is-bare-named-fails")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:3: variable 'builders' holds a mock");
+        }
+
+        @Test
+        void failsWhenFullyQualifiedMockIsBareNamedInJava(@TempDir Path projectDir) {
+
+            var result = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("mock-qualified-factory-variable-is-bare-named-fails")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:3: variable 'clock' holds a mock");
+        }
+
+        @Test
+        void failsWhenSpyIsBareNamedInJava(@TempDir Path projectDir) {
+
+            var result = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("mock-spy-variable-is-bare-named-fails")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:3: variable 'registry' holds a mock");
+        }
+
+        // The reified 'mock<T>()' form ends the call with '<', not '('.
+        @Test
+        void failsWhenReifiedMockIsBareNamedInKotlin(@TempDir Path projectDir) {
+
+            var result = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("mock-reified-variable-is-bare-named-fails")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.kt:3: variable 'clock' holds a mock");
+        }
+
+        @Test
+        void failsWhenMockkDoublesAreBareNamedInKotlin(@TempDir Path projectDir) {
+
+            var result = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("mock-mockk-variables-are-bare-named-fails")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.kt:3: variable 'clock' holds a mock")
+                .contains("Sample.kt:4: variable 'registry' holds a mock");
+        }
+
+        // The bracket anchors on the factory itself, so a helper sharing its prefix is no double.
+        @Test
+        void passesWhenAMethodMerelySharesAFactoryPrefixInJava(@TempDir Path projectDir) {
+
+            GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("mock-same-prefixed-method-passes")
+                .runExpectingGateToPass();
+        }
     }
 
-    @Test
-    void failsWhenMockVariableIsBareNamedInJava(@TempDir Path projectDir) {
+    // A double the extension fills is born from no call at all, only from its field's annotation.
+    @Nested
+    class Annotations {
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("mock-variable-is-bare-named")
-            .runExpectingFailure();
+        @Test
+        void failsWhenAnnotatedFieldsAreBareNamedInJava(@TempDir Path projectDir) {
 
-        assertThat(result.getOutput())
-            .contains("'sector'")
-            .contains("holds a mock");
+            var result = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("mock-annotated-fields-are-bare-named-fails")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:4: variable 'clock' holds a mock")
+                .contains("Sample.java:6: variable 'registry' holds a mock")
+                .contains("Sample.java:10: variable 'lookup' holds a mock");
+        }
+
+        @Test
+        void failsWhenAnnotatedPropertyIsBareNamedInKotlin(@TempDir Path projectDir) {
+
+            var result = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("mock-annotated-property-is-bare-named-fails")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.kt:4: variable 'clock' holds a mock");
+        }
     }
 
-    @Test
-    void failsWhenStaticMockIsBareNamedInJava(@TempDir Path projectDir) {
+    // Which bindings count as a holder the test can rename.
+    @Nested
+    class Holders {
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("static-mock-is-bare-named")
-            .runExpectingFailure();
+        @Test
+        void failsWhenConstantIsBareNamedInJava(@TempDir Path projectDir) {
 
-        assertThat(result.getOutput())
-            .contains("'global'")
-            .contains("holds a mock");
+            var result = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("mock-constant-is-bare-named-fails")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:3: variable 'EMPTY' holds a mock");
+        }
+
+        // A Java type's generic arguments can nest, which ends the type at a later '>'.
+        @Test
+        void failsWhenVariableOfANestedGenericTypeIsBareNamedInJava(@TempDir Path projectDir) {
+
+            var result = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("mock-nested-generic-variable-is-bare-named-fails")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:4: variable 'lookup' holds a mock");
+        }
+
+        @Test
+        void failsWhenLateinitVariableIsBareNamedInKotlin(@TempDir Path projectDir) {
+
+            var result = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("mock-lateinit-variable-is-bare-named-fails")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.kt:5: variable 'clock' holds a mock");
+        }
+
+        // A type annotation puts the type, not the holder, before '='.
+        @Test
+        void failsWhenTypedVariableIsBareNamedInKotlin(@TempDir Path projectDir) {
+
+            var result = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("mock-typed-variable-is-bare-named-fails")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.kt:2: variable 'clock' holds a mock");
+        }
+
+        @Test
+        void passesWhenBareHoldersSitInCommentsInJava(@TempDir Path projectDir) {
+
+            GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("mock-commented-out-double-passes")
+                .runExpectingGateToPass();
+        }
+
+        // A named argument across lines whose parameter collides with a binding declared in the
+        // file: only its trailing ',' tells it from a holder.
+        @Test
+        void passesWhenMockIsANamedArgumentAcrossLinesInKotlin(@TempDir Path projectDir) {
+
+            GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("mock-named-argument-across-lines-passes")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenMockIsANamedArgumentOnOneLineInKotlin(@TempDir Path projectDir) {
+
+            GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("mock-named-argument-on-one-line-passes")
+                .runExpectingGateToPass();
+        }
+
+        // Inside an apply block the name is a production property, not the test's to rename.
+        @Test
+        void passesWhenMockIsSetOnAnAppliedPropertyInKotlin(@TempDir Path projectDir) {
+
+            GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("mock-applied-property-passes")
+                .runExpectingGateToPass();
+        }
     }
 
-    @Test
-    void passesWhenMockVariablesAreSuffixedInKotlin(@TempDir Path projectDir) {
+    @Nested
+    class ScannedTrees {
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("mock-variables-are-suffixed")
-            .runExpectingGateToPass();
-    }
+        @Test
+        void failsWhenVariableIsBareNamedInTestFixtures(@TempDir Path projectDir) {
 
-    @Test
-    void failsWhenMockVariableIsBareNamedInKotlin(@TempDir Path projectDir) {
+            var result = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaSample(GateProject.TEST_FIXTURES_JAVA_ROOT, "mock-variable-is-bare-named-fails")
+                .runExpectingGateToFail();
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("mock-variable-is-bare-named")
-            .runExpectingFailure();
+            assertThat(result.getOutput())
+                .contains("Sample.java:3: variable 'clock' holds a mock");
+        }
 
-        assertThat(result.getOutput())
-            .contains("'sector'")
-            .contains("holds a mock");
-    }
+        @Test
+        void passesWhenThereIsNoTestTree(@TempDir Path projectDir) {
 
-    @Test
-    void failsWhenStaticMockIsBareNamedInKotlin(@TempDir Path projectDir) {
-
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("static-mock-is-bare-named")
-            .runExpectingFailure();
-
-        assertThat(result.getOutput())
-            .contains("'global'")
-            .contains("holds a mock");
-    }
-
-    @Test
-    void failsWhenKotlinLateinitFieldIsBareNamed(@TempDir Path projectDir) {
-
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("lateinit-field-is-bare-named")
-            .runExpectingFailure();
-
-        assertThat(result.getOutput())
-            .contains("'sector'")
-            .contains("holds a mock");
-    }
-
-    // A type annotation puts the type, not the holder, before '=' - the gate
-    // must still read the declared name and flag it.
-    @Test
-    void failsWhenKotlinTypedDeclarationIsBareNamed(@TempDir Path projectDir) {
-
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("typed-declaration-is-bare-named")
-            .runExpectingFailure();
-
-        assertThat(result.getOutput())
-            .contains("'sector'")
-            .contains("holds a mock");
-    }
-
-    // The mockito-kotlin reified 'mock<T>()' form ends the call with '<', not
-    // '(' - the gate's factory anchor admits both.
-    @Test
-    void failsWhenKotlinReifiedMockIsBareNamed(@TempDir Path projectDir) {
-
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("reified-mock-is-bare-named")
-            .runExpectingFailure();
-
-        assertThat(result.getOutput())
-            .contains("'faction'")
-            .contains("holds a mock");
-    }
-
-    // A Kotlin named argument reuses the 'name = mock(...)' shape but names a
-    // constructor parameter, not a holder the test can rename - the gate must
-    // leave it alone.
-    @Test
-    void passesWhenMockIsANamedArgument(@TempDir Path projectDir) {
-
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("mock-as-named-argument-is-ignored")
-            .runExpectingGateToPass();
-    }
-
-    // 'intel = mock(...)' inside an apply block sets a production property on a
-    // domain object; the name is not the test's to rename, so the gate ignores
-    // it even though the value is a mock.
-    @Test
-    void passesWhenMockIsSetOnAnAppliedProperty(@TempDir Path projectDir) {
-
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("mock-on-applied-property-is-ignored")
-            .runExpectingGateToPass();
-    }
-
-    @Test
-    void passesWhenThereIsNoTestTree(@TempDir Path projectDir) {
-
-        GateProject
-            .driving(GATE, projectDir)
-            .runExpectingGateToPass();
+            GateProject
+                .driving(GATE, projectDir)
+                .runExpectingGateToPass();
+        }
     }
 }

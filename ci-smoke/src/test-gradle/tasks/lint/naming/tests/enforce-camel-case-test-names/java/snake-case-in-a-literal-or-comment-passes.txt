@@ -1,0 +1,8 @@
+class Sample {
+    // A comment naming a_method(x) the gate must not read.
+    @Test
+    void readsTheOwnerOffTheRecord() {
+        var recordKey = "first_record(";
+        readOverrideOf(recordKey);
+    }
+}

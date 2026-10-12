@@ -13,4 +13,10 @@ final class Sample {
     int readFirst() {
         return FIRST;
     }
+
+    /**
+     * @param key the place's own id
+     */
+    void forget(String key) {
+    }
 }

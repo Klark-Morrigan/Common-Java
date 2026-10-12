@@ -1,0 +1,6 @@
+class Sample {
+    void make() {
+        Map<String, List<Integer>> lookup;
+        lookup = mock(Map.class);
+    }
+}

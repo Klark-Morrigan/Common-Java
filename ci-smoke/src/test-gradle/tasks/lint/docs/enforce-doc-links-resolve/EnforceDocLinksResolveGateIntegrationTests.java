@@ -1,5 +1,6 @@
-import org.gradle.testkit.runner.BuildResult;
 import org.gradle.testkit.runner.TaskOutcome;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -13,196 +14,258 @@ import static org.assertj.core.api.Assertions.assertThat;
 class EnforceDocLinksResolveGateIntegrationTests {
 
     private static final GateUnderTest GATE =
-        new GateUnderTest("enforceDocLinksResolve", "doc.links.gate.script.path");
+        new GateUnderTest("enforceDocLinksResolve", "lint/docs/enforce-doc-links-resolve");
 
-    @Test
-    void passesWhenRelativeLinksResolve(@TempDir Path projectDir) throws IOException {
+    // The doc under test sits one directory down, so a fixture can link a sibling and a parent alike.
+    private static final String GUIDE_PATH = "docs/guide.md";
 
-        writeLinkTargets(projectDir);
-        writeDoc(projectDir, "resolving-relative-links");
+    private static final String SIBLING_TARGET_PATH = "docs/other.md";
 
-        var result = runGate(projectDir, false);
+    // "cafe" with an acute e (U+0063 U+0061 U+0066 U+00E9): a file name a single-byte default decodes
+    // differently from UTF-8.
+    private static final String ACCENTED_NAME = "café";
 
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
+    // Enough ASCII to fill the window a reader without an encoding guesses one from, about eight kilobytes.
+    private static final String ASCII_FILLER_LINE = "A line of plain prose that links nowhere at all.\n";
+    private static final int FILLER_LINE_COUNT = 200;
+
+    // A broken link beyond doubt, so a case expecting a pass proves the file was skipped rather than sound.
+    private static final String BROKEN_DOC_FIXTURE = "markdown/missing-relative-link";
+
+    // The three targets the resolving fixture links to: a sibling, a parent, and a directory reached
+    // root-relatively.
+    private static GateProject drivingWithLinkTargets(Path projectDir) {
+
+        return GateProject.driving(GATE, projectDir)
+            .holdingText(SIBLING_TARGET_PATH, "# Other\n")
+            .holdingText("README.md", "# Root\n")
+            .holdingDirectory(GateProject.MAIN_JAVA_ROOT);
     }
 
-    @Test
-    void failsWhenARelativeLinkTargetIsMissing(@TempDir Path projectDir) throws IOException {
+    @Nested
+    class Resolution {
 
-        writeDoc(projectDir, "missing-relative-link");
+        @Test
+        void passesWhenRelativeLinksResolve(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, true);
+            drivingWithLinkTargets(projectDir)
+                .holdingFixture(GUIDE_PATH, "markdown/resolving-relative-links")
+                .runExpectingGateToPass();
+        }
 
-        assertThat(result.getOutput())
-            .contains("link target does not exist: renamed/README.md");
+        @Test
+        void failsWhenARelativeLinkTargetIsMissing(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingFixture(GUIDE_PATH, BROKEN_DOC_FIXTURE)
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("guide.md:3: link target does not exist: renamed/README.md");
+        }
+
+        @Test
+        void failsWhenALinkTargetIsSpeltInTheWrongCase(@TempDir Path projectDir) {
+
+            var result = drivingWithLinkTargets(projectDir)
+                .holdingFixture(GUIDE_PATH, "markdown/wrong-case-link")
+                .runExpectingGateToFail();
+
+            // Asserted on the target rather than on either verdict's wording: a case-insensitive filesystem
+            // finds the file and reports the misspelling, while a case-sensitive one reports it missing.
+            assertThat(result.getOutput())
+                .contains("guide.md:3: link target")
+                .contains("Other.md");
+        }
+
+        @Test
+        void failsWhenOnlyTheFileHalfOfALinkCarryingAFragmentIsMissing(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingFixture(GUIDE_PATH, "markdown/fragment-on-missing-file")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("guide.md:3: link target does not exist: missing.md#index");
+        }
+
+        @Test
+        void failsWhenALinkCarryingATitleIsMissing(@TempDir Path projectDir) {
+
+            // A title must not hide its link: each quoting CommonMark allows still yields the target.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingFixture(GUIDE_PATH, "markdown/links-carrying-titles")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("guide.md:3: link target does not exist: missing-one.md")
+                .contains("guide.md:4: link target does not exist: missing-two.md")
+                .contains("guide.md:5: link target does not exist: missing-three.md");
+        }
+
+        @Test
+        void passesWhenAPercentEncodedSpaceNamesAFileWithASpace(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .holdingText("docs/release notes.md", "# Notes\n")
+                .holdingFixture(GUIDE_PATH, "markdown/percent-encoded-space")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenALinkNamesANonAsciiFile(@TempDir Path projectDir) {
+
+            // A file read without an encoding is guessed from its first few kilobytes, and an ASCII opening
+            // falls back to the build's default. The filler pushes the accented link past that window, so the
+            // case fails wherever that default is not UTF-8 and the gate reads without its own encoding.
+            var guide = "# Guide\n\n" + ASCII_FILLER_LINE.repeat(FILLER_LINE_COUNT) +
+                "[accented](" + ACCENTED_NAME + ".md)\n";
+
+            GateProject.driving(GATE, projectDir)
+                .holdingText("docs/" + ACCENTED_NAME + ".md", "# Accented\n")
+                .holdingText(GUIDE_PATH, guide)
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenALinkNamesASymlinkInsideTheProject(@TempDir Path projectDir) {
+
+            var project = drivingWithLinkTargets(projectDir)
+                .holdingFixture(GUIDE_PATH, "markdown/link-through-a-symlink");
+
+            // Creating a symlink needs a privilege Windows grants only in developer mode or to an
+            // administrator, so the case is skipped where the filesystem refuses one.
+            try {
+                Files.createSymbolicLink(projectDir.resolve("docs/alias.md"), Path.of("other.md"));
+
+            } catch (IOException | UnsupportedOperationException cannotLink) {
+                Assumptions.abort("this filesystem refuses symlinks: " + cannotLink);
+            }
+
+            project.runExpectingGateToPass();
+        }
     }
 
-    @Test
-    void failsWhenALinkTargetIsSpeltInTheWrongCase(@TempDir Path projectDir) throws IOException {
+    @Nested
+    class Scope {
 
-        writeLinkTargets(projectDir);
-        writeDoc(projectDir, "wrong-case-link");
+        @Test
+        void passesWhenLinksAreExternalOrPureFragments(@TempDir Path projectDir) {
 
-        var result = runGate(projectDir, true);
+            GateProject.driving(GATE, projectDir)
+                .holdingFixture(GUIDE_PATH, "markdown/external-and-fragment-links")
+                .runExpectingGateToPass();
+        }
 
-        // Asserted on the target rather than on either verdict's wording,
-        // because which verdict is correct depends on the filesystem under the
-        // build: a case-insensitive one (Windows, macOS) finds the file and
-        // reports the misspelling, while a case-sensitive one never finds it
-        // and reports it missing. The link is wrong either way, and pinning one
-        // wording would make this test pass only on the machine that wrote it -
-        // the very asymmetry the gate exists to close.
-        assertThat(result.getOutput())
-            .contains("Other.md");
+        @Test
+        void passesWhenTargetsClimbOutOfTheProject(@TempDir Path projectDir) {
+
+            // Where such a target lands depends on the machine rather than on this checkout.
+            GateProject.driving(GATE, projectDir)
+                .holdingFixture(GUIDE_PATH, "markdown/link-above-the-project-root")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void failsOnlyBelowABacktickFenceShowingABrokenLink(@TempDir Path projectDir) {
+
+            // The fence has to close again: one that latched open would swallow the broken link below it.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingFixture(GUIDE_PATH, "markdown/link-inside-fenced-block")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("guide.md:10: link target does not exist: after-the-fence.md")
+                .doesNotContain("nowhere.md");
+        }
+
+        @Test
+        void failsOnlyBelowATildeFenceHoldingABacktickLine(@TempDir Path projectDir) {
+
+            // A fence closes only on the character it opened with, so the backtick line inside is content.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingFixture(GUIDE_PATH, "markdown/link-inside-tilde-fence")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("guide.md:11: link target does not exist: after-the-fence.md")
+                .doesNotContain("nowhere.md");
+        }
+
+        @Test
+        void failsOnlyOnALinkOutsideAnInlineCodeSpan(@TempDir Path projectDir) {
+
+            // A sample link quoted in backticks shows syntax rather than navigating, as a fenced one does.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingText(GUIDE_PATH,
+                    "Write `[text](nowhere.md)` or ``[text](`nowhere.md`)`` to link.\n" +
+                    "\n" +
+                    "See [the missing page](after-the-span.md).\n")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("guide.md:3: link target does not exist: after-the-span.md")
+                .doesNotContain("nowhere.md");
+        }
+
+        @Test
+        void passesWhenBrokenMarkdownSitsUnderADefaultExcludedDirectory(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .holdingFixture("build/docs/guide.md", BROKEN_DOC_FIXTURE)
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenBrokenMarkdownSitsUnderANestedExcludedDirectory(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .holdingFixture("tools/node_modules/package/guide.md", BROKEN_DOC_FIXTURE)
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenBrokenMarkdownSitsUnderADirectoryAddedAfterTheGateIsApplied(@TempDir Path projectDir) {
+
+            // A consumer adds its own generated directory from a script that runs after the gate is applied.
+            GateProject.driving(GATE, projectDir)
+                .holdingFixture("generated/guide.md", BROKEN_DOC_FIXTURE)
+                .configuringTheGate("authoredScanExcludedDirectoryNames << 'generated'\n")
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenThereAreNoMarkdownFiles(@TempDir Path projectDir) {
+            GateProject.driving(GATE, projectDir).runExpectingGateToPass();
+        }
     }
 
-    @Test
-    void ignoresExternalAndFragmentTargets(@TempDir Path projectDir) throws IOException {
-        // The two shapes the gate declines to resolve: a scheme leaves the
-        // repository, and a bare #fragment names a heading rather than a path.
-        writeDoc(projectDir, "external-and-fragment-links");
+    @Nested
+    class UpToDateBehaviour {
 
-        var result = runGate(projectDir, false);
+        @Test
+        void passesUpToDateWhenNothingChanged(@TempDir Path projectDir) {
 
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
+            var project = drivingWithLinkTargets(projectDir)
+                .holdingFixture(GUIDE_PATH, "markdown/resolving-relative-links");
 
-    @Test
-    void resolvesTheFileHalfOfALinkCarryingAFragment(@TempDir Path projectDir) throws IOException {
-        // `missing.md#index` is still a broken link: the fragment is dropped and
-        // the file half checked, rather than the whole target being waved past
-        // because it carries a #.
-        writeDoc(projectDir, "fragment-on-missing-file");
+            project.runExpectingGateToPass();
 
-        var result = runGate(projectDir, true);
+            assertThat(project.runExpectingSuccess().task(GATE.taskPath()).getOutcome())
+                .isEqualTo(TaskOutcome.UP_TO_DATE);
+        }
 
-        assertThat(result.getOutput())
-            .contains("link target does not exist: missing.md#index");
-    }
+        @Test
+        void failsWhenATargetIsDeletedWithoutTheMarkdownChanging(@TempDir Path projectDir) throws IOException {
 
-    @Test
-    void ignoresTargetsThatClimbOutOfTheProject(@TempDir Path projectDir) throws IOException {
-        // A doc may point at the game install or a sibling checkout. Where that
-        // lands depends on the machine rather than on this checkout, so it is
-        // no more this gate's to resolve than an http target is.
-        writeDoc(projectDir, "link-above-the-project-root");
+            var project = drivingWithLinkTargets(projectDir)
+                .holdingFixture(GUIDE_PATH, "markdown/resolving-relative-links");
 
-        var result = runGate(projectDir, false);
+            project.runExpectingGateToPass();
+            Files.delete(projectDir.resolve(SIBLING_TARGET_PATH));
 
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void ignoresLinksInsideAFenceAndResumesBelowIt(@TempDir Path projectDir) throws IOException {
-        // One fixture, two proofs. A markdown example demonstrating link syntax
-        // is sample text rather than navigation, so the path it names need not
-        // exist - and the fence has to close again, since a fence that latched
-        // open would swallow the genuinely broken link below it and let the
-        // gate pass in silence.
-        writeDoc(projectDir, "link-inside-fenced-block");
-
-        var result = runGate(projectDir, true);
-
-        assertThat(result.getOutput())
-            .contains("link target does not exist: after-the-fence.md")
-            .doesNotContain("nowhere.md");
-    }
-
-    @Test
-    void ignoresMarkdownUnderADefaultExcludedDirectory(@TempDir Path projectDir) throws IOException {
-        // A build directory holds copies of authored docs, so judging them
-        // would report every violation once per copy.
-        writeBrokenDocUnder(projectDir, "build/docs");
-
-        var result = runGate(projectDir, false);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void honoursAnExcludedDirectoryAddedAfterTheGateIsApplied(@TempDir Path projectDir)
-            throws IOException {
-        // The consumer seam: a project whose own tooling generates markdown
-        // names that directory from its own build script, which runs after this
-        // gate is applied. The exclusion has to be read at scan time for a late
-        // addition to count.
-        writeBrokenDocUnder(projectDir, "generated");
-
-        var result = runGateWithExtraConfiguration(
-            projectDir,
-            false,
-            "docLinkScanExcludedDirectoryNames << 'generated'\n");
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenThereAreNoMarkdownFiles(@TempDir Path projectDir) throws IOException {
-
-        var result = runGate(projectDir, false);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    private BuildResult runGate(Path projectDir, boolean expectFailure) throws IOException {
-        return runGateWithExtraConfiguration(projectDir, expectFailure, "");
-    }
-
-    // Only the exclusion seam needs to configure the gate after applying it, so the extra
-    // script stays out of every other case's call.
-    private BuildResult runGateWithExtraConfiguration(
-            Path projectDir,
-            boolean expectFailure,
-            String extraBuildScript) {
-
-        var project = GateProject
-            .driving(GATE, projectDir)
-            .configuringTheGate(extraBuildScript);
-
-        return expectFailure
-            ? project.runExpectingFailure()
-            : project.runExpectingSuccess();
-    }
-
-    // A doc whose link is broken beyond doubt, so a case that expects success
-    // is proving the directory was skipped rather than that the link was sound.
-    private void writeBrokenDocUnder(Path projectDir, String directory) throws IOException {
-
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingText(
-                directory + "/" + "guide.md",
-                GateProject.loadFixture("markdown/missing-relative-link"));
-    }
-
-    // The doc under test sits one directory down, so a fixture can exercise a
-    // parent-relative target as well as a sibling one.
-    private void writeDoc(Path projectDir, String fixture) throws IOException {
-
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingText(
-                "docs" + "/" + "guide.md",
-                GateProject.loadFixture("markdown/" + fixture));
-    }
-
-    // The three targets the resolving fixture links to: a sibling, a parent,
-    // and a directory reached root-relatively.
-    private void writeLinkTargets(Path projectDir) throws IOException {
-
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingText(
-                "docs" + "/" + "other.md",
-                "# Other\n");
-
-        Files.writeString(projectDir.resolve("README.md"), "# Root\n");
-        Files.createDirectories(projectDir.resolve("src/main/java"));
+            assertThat(project.runExpectingGateToFail().getOutput())
+                .contains("guide.md:3: link target does not exist: other.md");
+        }
     }
 }

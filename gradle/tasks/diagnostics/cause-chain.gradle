@@ -1,0 +1,21 @@
+// A failure's cause chain, for every report that has to name the real fault. The throwable a
+// reader sees first often says nothing, and the cause at the end of the chain is the one that names
+// what went wrong.
+
+// The throwable and each of its causes, outermost first.
+//
+// Followed by identity, so a throwable naming itself, or any earlier link, as its cause cannot
+// loop the walk.
+ext.readCauseChain = { Throwable failure ->
+
+    def chain = []
+    def walked = Collections.newSetFromMap(new IdentityHashMap())
+    def link = failure
+
+    while (link != null && walked.add(link)) {
+        chain << link
+        link = link.cause
+    }
+
+    return chain
+}
