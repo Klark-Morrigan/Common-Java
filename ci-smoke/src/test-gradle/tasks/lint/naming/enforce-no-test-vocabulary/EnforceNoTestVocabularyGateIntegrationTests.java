@@ -1,396 +1,394 @@
-import org.gradle.testkit.runner.BuildResult;
 import org.gradle.testkit.runner.TaskOutcome;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 // Drives the shared enforce-no-test-vocabulary gate.
-//
-// The fixture package is 'example.production' rather than any real consumer's, because the gate
-// owns the word list and this repo knows no consumer's tree.
 class EnforceNoTestVocabularyGateIntegrationTests {
 
     private static final GateUnderTest GATE =
-        new GateUnderTest("enforceNoTestVocabulary", "test.vocabulary.gate.script.path");
+        new GateUnderTest("enforceNoTestVocabulary", "lint/naming/enforce-no-test-vocabulary");
 
-    private static final String PRODUCTION_PACKAGE_PATH = "example/production";
+    private static final String EXTENSION = "enforceNoTestVocabulary";
 
-    // A fixture tree that ships in the production jar, which is the case
-    // exemptPackage exists for: main by source set, fixture by purpose.
+    private static final String PRODUCTION_PACKAGE_PATH = "/example/production";
+    private static final String PRODUCTION_JAVA_ROOT = GateProject.MAIN_JAVA_ROOT + PRODUCTION_PACKAGE_PATH;
+    private static final String PRODUCTION_README_PATH = PRODUCTION_JAVA_ROOT + "/README.md";
+
+    // A fixture tree that ships in the production jar: main by source set, a fixture by purpose.
     private static final String FIXTURE_PACKAGE_ROOT = "example.production.testfixtures";
-    private static final String FIXTURE_PACKAGE_PATH = "example/production/testfixtures";
 
-    // Shares every segment but the last with the exempt root, so only a
-    // whole-segment match can tell the two apart.
-    private static final String PREFIXED_PACKAGE_PATH = "example/production/testfixturesold";
+    private static final String MOCK_WORD_FIXTURE = "production-saying-a-mock-word";
+    private static final String CLEAN_FIXTURE = "production-saying-nothing-of-tests";
+    private static final String ALLOWED_PHRASE_FIXTURE = "markdown/production-readme-saying-an-allowed-phrase";
 
-    private static final String ALLOWED_README_PATH =
-        "src/main/java/" + PRODUCTION_PACKAGE_PATH + "/README.md";
+    private static final String EXEMPTING_THE_FIXTURE_PACKAGE = GateProject.buildConfigurationBlock(
+        EXTENSION, "exemptPackage root: '" + FIXTURE_PACKAGE_ROOT + "'");
 
-    private static final String NOTHING_EXEMPT = "";
+    @Nested
+    class Rule {
 
-    private static final String EXEMPTING_THE_FIXTURE_SOURCE_SET =
-        buildDeclaration("exemptSourceSet name: 'fixtures'");
+        @Test
+        void failsWhenProductionCodeSaysABannedWord(@TempDir Path projectDir) {
 
-    private static final String EXEMPTING_THE_FIXTURE_PACKAGE =
-        buildDeclaration("exemptPackage root: '" + FIXTURE_PACKAGE_ROOT + "'");
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(PRODUCTION_JAVA_ROOT, MOCK_WORD_FIXTURE)
+                .runExpectingGateToFail();
 
-    // Both entries the fixture README says, since an allowance is per entry and
-    // the README leaks a single word and a phrase.
-    private static final String ALLOWING_THE_README = buildDeclaration(
-        "allowWord word: 'mocking', inFile: '" + ALLOWED_README_PATH + "'",
-        "allowWord word: 'tests can', inFile: '" + ALLOWED_README_PATH + "'");
-
-    // An allowance for a file no source tree holds - the shape a path left
-    // behind by a rename or a move takes.
-    private static final String ALLOWING_A_MISSING_FILE = buildDeclaration(
-        "allowWord word: 'mock', inFile: 'src/main/java/"
-            + PRODUCTION_PACKAGE_PATH + "/GONE.md'");
-
-    // An allowance pointing into a tree that is already exempt whole, so it
-    // answers no rule.
-    private static final String ALLOWING_A_FILE_IN_AN_EXEMPT_TREE = buildDeclaration(
-        "allowWord word: 'mock', inFile: 'src/test/java/"
-            + PRODUCTION_PACKAGE_PATH + "/Sample.java'");
-
-    // Declarations naming neither the source set nor the package they exempt -
-    // the shape a misspelt or forgotten key takes.
-    private static final String HALF_DECLARED_SOURCE_SET =
-        buildDeclaration("exemptSourceSet directory: 'fixtures'");
-
-    private static final String HALF_DECLARED_PACKAGE =
-        buildDeclaration("exemptPackage packageRoot: '" + FIXTURE_PACKAGE_ROOT + "'");
-
-    @Test
-    void failsWhenProductionCodeSaysABannedWord(@TempDir Path projectDir)
-            throws IOException {
-
-        writeJavaSource(projectDir, "src/main/java", PRODUCTION_PACKAGE_PATH,
-            "production-saying-a-mock-word");
-
-        var result = runGateExpectingFailure(projectDir, NOTHING_EXEMPT);
-
-        assertThat(result.getOutput())
-            .contains("production sources may not say \"mock\"");
-    }
-
-    @Test
-    void failsWhenAMethodNameSaysABannedPhrase(@TempDir Path projectDir)
-            throws IOException {
-
-        // The case a hand sweep misses, and the reason the phrase tier is
-        // matched by words rather than by text: the words are spelt in camel
-        // case, so searching for the phrase as prose finds nothing.
-        writeJavaSource(projectDir, "src/main/java", PRODUCTION_PACKAGE_PATH,
-            "production-saying-a-suite-phrase-in-a-name");
-
-        var result = runGateExpectingFailure(projectDir, NOTHING_EXEMPT);
-
-        assertThat(result.getOutput())
-            .contains("may not say \"unit test\"");
-    }
-
-    @Test
-    void failsWhenMarkdownBesideTheCodeSaysABannedWord(@TempDir Path projectDir)
-            throws IOException {
-
-        // The README filed in the package is the surface a reader of a shipped
-        // API reads first, and it carries no imports for any other gate to
-        // judge it by.
-        writeMarkdown(projectDir, "src/main/java", PRODUCTION_PACKAGE_PATH,
-            "production-readme-saying-a-mock-word");
-
-        var result = runGateExpectingFailure(projectDir, NOTHING_EXEMPT);
-
-        assertThat(result.getOutput())
-            .contains("may not say \"mock\"");
-    }
-
-    @Test
-    void failsWhenProseWrapsABannedPhraseAcrossTwoLines(@TempDir Path projectDir)
-            throws IOException {
-
-        // Prose wraps where the column runs out rather than where the phrase
-        // ends, so a per-line scan would miss half the prose uses of any
-        // multi-word entry.
-        writeMarkdown(projectDir, "src/main/java", PRODUCTION_PACKAGE_PATH,
-            "production-readme-wrapping-a-suite-phrase");
-
-        var result = runGateExpectingFailure(projectDir, NOTHING_EXEMPT);
-
-        assertThat(result.getOutput())
-            .contains("may not say \"unit test\"");
-    }
-
-    @Test
-    void failsWhenKotlinCodeSaysABannedWord(@TempDir Path projectDir)
-            throws IOException {
-
-        // Kotlin is half the production surface across the consuming mods, and
-        // the leak arrives through KDoc exactly as it does through Javadoc.
-        GateProject.driving(GATE, projectDir)
-            .holdingFixture(
-                "src/main/kotlin/" + PRODUCTION_PACKAGE_PATH + "/Sample.kt",
-                "kotlin/production-saying-a-mock-word");
-
-        var result = runGateExpectingFailure(projectDir, NOTHING_EXEMPT);
-
-        assertThat(result.getOutput())
-            .contains("may not say \"mock\"");
-    }
-
-    @Test
-    void failsWhenASourceSetBeyondMainSaysABannedWord(@TempDir Path projectDir)
-            throws IOException {
-
-        // Only src/test and src/testFixtures are exempt without being named. A
-        // dev-tooling or utility source set ships like any other, so it answers
-        // to the rule until the build says otherwise.
-        writeJavaSource(projectDir, "src/utils/java", PRODUCTION_PACKAGE_PATH,
-            "production-saying-a-mock-word");
-
-        var result = runGateExpectingFailure(projectDir, NOTHING_EXEMPT);
-
-        assertThat(result.getOutput())
-            .contains("may not say \"mock\"");
-    }
-
-    @Test
-    void failsWhenThePackageOnlySharesAPrefixWithAnExemptRoot(@TempDir Path projectDir)
-            throws IOException {
-
-        // 'example.production.testfixturesold' is not under
-        // 'example.production.testfixtures': only a whole-segment match may
-        // exempt a tree, or a rename would quietly widen the hole.
-        writeJavaSource(projectDir, "src/main/java", PREFIXED_PACKAGE_PATH,
-            "production-saying-a-mock-word");
-
-        var result = runGateExpectingFailure(projectDir, EXEMPTING_THE_FIXTURE_PACKAGE);
-
-        assertThat(result.getOutput())
-            .contains("may not say \"mock\"");
-    }
-
-    @Test
-    void failsWhenAnAllowanceNamesAFileTheGateDoesNotScan(@TempDir Path projectDir)
-            throws IOException {
-
-        // A stale path exempts nothing while reading in the build as though it
-        // does, which is the silent no-op this whole family exists to remove.
-        writeJavaSource(projectDir, "src/main/java", PRODUCTION_PACKAGE_PATH,
-            "production-saying-nothing-of-tests");
-
-        var result = runGateExpectingFailure(projectDir, ALLOWING_A_MISSING_FILE);
-
-        assertThat(result.getOutput())
-            .contains("allowWord names a file this gate does not scan");
-    }
-
-    @Test
-    void failsWhenAnAllowanceNamesAFileInAnAlreadyExemptTree(@TempDir Path projectDir)
-            throws IOException {
-
-        // The other half of the dead-config check, and the one a reader is
-        // likeliest to write: the file exists, so the path looks live, but the
-        // tree around it is exempt whole and the allowance decides nothing.
-        writeJavaSource(projectDir, "src/test/java", PRODUCTION_PACKAGE_PATH,
-            "production-saying-a-mock-word");
-
-        var result = runGateExpectingFailure(projectDir, ALLOWING_A_FILE_IN_AN_EXEMPT_TREE);
-
-        assertThat(result.getOutput())
-            .contains("names a file in an exempt tree, which is already allowed");
-    }
-
-    @Test
-    void failsWhenAnExemptSourceSetIsDeclaredWithoutAName(@TempDir Path projectDir)
-            throws IOException {
-
-        // A half-declared exemption exempts nothing, so it must be rejected
-        // where it is written rather than accepted as a rule that never fires.
-        writeJavaSource(projectDir, "src/main/java", PRODUCTION_PACKAGE_PATH,
-            "production-saying-nothing-of-tests");
-
-        var result = runGateExpectingFailure(projectDir, HALF_DECLARED_SOURCE_SET);
-
-        assertThat(result.getOutput())
-            .contains("exemptSourceSet needs 'name'");
-    }
-
-    @Test
-    void failsWhenAnExemptPackageIsDeclaredWithoutARoot(@TempDir Path projectDir)
-            throws IOException {
-
-        writeJavaSource(projectDir, "src/main/java", PRODUCTION_PACKAGE_PATH,
-            "production-saying-nothing-of-tests");
-
-        var result = runGateExpectingFailure(projectDir, HALF_DECLARED_PACKAGE);
-
-        assertThat(result.getOutput())
-            .contains("exemptPackage needs 'root'");
-    }
-
-    @Test
-    void passesWhenProductionProseUsesTheWordsInTheirOwnSense(@TempDir Path projectDir)
-            throws IOException {
-
-        // The rule that keeps the list usable, and the reason it is tiered
-        // rather than flat: 'hit-test', 'Predicate::test', a placeholder stub
-        // and 'the name asserts' are all correct production writing. A gate
-        // firing on these would train its next reader to allowlist rather than
-        // to read.
-        writeJavaSource(projectDir, "src/main/java", PRODUCTION_PACKAGE_PATH,
-            "production-saying-nothing-of-tests");
-
-        var result = runGateExpectingSuccess(projectDir, NOTHING_EXEMPT);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenAWordMerelyCarriesABannedOneAsAPrefix(@TempDir Path projectDir)
-            throws IOException {
-
-        // Words are matched whole, parted at camel humps, so 'mockup' and
-        // 'mockingbird' are their own words.
-        writeJavaSource(projectDir, "src/main/java", PRODUCTION_PACKAGE_PATH,
-            "production-saying-a-word-containing-a-banned-one");
-
-        var result = runGateExpectingSuccess(projectDir, NOTHING_EXEMPT);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenTheWordIsSaidInTheTestSourceSet(@TempDir Path projectDir)
-            throws IOException {
-
-        // The tree the vocabulary belongs to, exempt without a consumer saying
-        // so - otherwise every project would open with the same declaration.
-        writeJavaSource(projectDir, "src/test/java", PRODUCTION_PACKAGE_PATH,
-            "production-saying-a-mock-word");
-
-        var result = runGateExpectingSuccess(projectDir, NOTHING_EXEMPT);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenTheWordIsSaidInADeclaredExemptSourceSet(@TempDir Path projectDir)
-            throws IOException {
-
-        writeJavaSource(projectDir, "src/fixtures/java", PRODUCTION_PACKAGE_PATH,
-            "production-saying-a-mock-word");
-
-        var result = runGateExpectingSuccess(projectDir, EXEMPTING_THE_FIXTURE_SOURCE_SET);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenTheFileSitsUnderADeclaredExemptPackage(@TempDir Path projectDir)
-            throws IOException {
-
-        // The case a source-set rule cannot express: fixtures that ship in the
-        // production jar are main by source set and only the package says what
-        // they are for.
-        writeJavaSource(projectDir, "src/main/java", FIXTURE_PACKAGE_PATH,
-            "production-saying-a-mock-word");
-
-        var result = runGateExpectingSuccess(projectDir, EXEMPTING_THE_FIXTURE_PACKAGE);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenTheEntryIsAllowedInTheFileThatSaysIt(@TempDir Path projectDir)
-            throws IOException {
-
-        // A README documenting a shipped fixture has to say what the fixture is
-        // for, and what it is for is stated in the words of a suite.
-        writeMarkdown(projectDir, "src/main/java", PRODUCTION_PACKAGE_PATH,
-            "production-readme-saying-an-allowed-phrase");
-
-        var result = runGateExpectingSuccess(projectDir, ALLOWING_THE_README);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    @Test
-    void passesWhenThereIsNoSourceTree(@TempDir Path projectDir)
-            throws IOException {
-
-        var result = runGateExpectingSuccess(projectDir, NOTHING_EXEMPT);
-
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-    }
-
-    // One place owns the block's syntax, so a case that varies the declarations
-    // varies only the declarations. Each argument is one whole call.
-    private static String buildDeclaration(String... calls) {
-        var declaration = new StringBuilder("enforceNoTestVocabulary {\n");
-
-        for (var call : calls) {
-            declaration.append("    ").append(call).append('\n');
+            assertThat(result.getOutput())
+                .contains("Sample.java:8: production sources may not say \"mock\"");
         }
-        return declaration.append("}\n").toString();
+
+        @Test
+        void failsWhenAMethodNameSaysABannedPhrase(@TempDir Path projectDir) {
+
+            // The case a hand sweep misses: the phrase is spelt in camel case, so a text search finds nothing.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(PRODUCTION_JAVA_ROOT, "production-saying-a-suite-phrase-in-a-name")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:8: production sources may not say \"unit test\"")
+                .contains("Sample.java:8: production sources may not say \"test harness\"");
+        }
+
+        @Test
+        void failsWhenKotlinCodeSaysABannedWord(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingKotlinSample(GateProject.MAIN_KOTLIN_ROOT + PRODUCTION_PACKAGE_PATH, MOCK_WORD_FIXTURE)
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.kt:7: production sources may not say \"mock\"");
+        }
+
+        @Test
+        void failsWhenMarkdownBesideTheCodeSaysABannedWord(@TempDir Path projectDir) {
+
+            // The README filed in a package carries no imports for any other gate to judge it by.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingFixture(PRODUCTION_README_PATH, "markdown/production-readme-saying-a-mock-word")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("README.md:6: production sources may not say \"mock\"");
+        }
+
+        @Test
+        void failsWhenProseWrapsABannedPhraseAcrossTwoLines(@TempDir Path projectDir) {
+
+            // Prose wraps where the column runs out, so a per-line scan would miss half of every phrase.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingFixture(PRODUCTION_README_PATH, "markdown/production-readme-wrapping-a-suite-phrase")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("README.md:5: production sources may not say \"unit test\"");
+        }
+
+        @Test
+        void failsWhenProseNamesTheTestFrameworkInItsOwnSpelling(@TempDir Path projectDir) {
+
+            // `JUnit` parts at its camel hump, so only the declared two-word phrase can find it.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingText(PRODUCTION_README_PATH, "# Sample\n\nThe seam runs on JUnit.\n")
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("README.md:3: production sources may not say \"j unit\"");
+        }
+
+        @Test
+        void passesWhenProductionProseUsesTheWordsInTheirOwnSense(@TempDir Path projectDir) {
+
+            // 'hit-test', 'Predicate::test', a placeholder stub and 'the name asserts' are correct production
+            // writing, which is why the list is tiered rather than flat.
+            GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(PRODUCTION_JAVA_ROOT, CLEAN_FIXTURE)
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenAWordMerelyCarriesABannedOneAsAPrefix(@TempDir Path projectDir) {
+
+            // Words are matched whole, parted at camel humps, so 'mockup' and 'mockingbird' are their own words.
+            GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(PRODUCTION_JAVA_ROOT, "production-saying-a-word-containing-a-banned-one")
+                .runExpectingGateToPass();
+        }
     }
 
-    // The expected outcome is in the method name rather than a flag, so a call
-    // site reads as what it asserts. Both forward to one runner: the pair
-    // differs only in which TestKit terminal it drives.
-    private BuildResult runGateExpectingFailure(Path projectDir, String declaration)
-            throws IOException {
+    @Nested
+    class Scope {
 
-        return buildProject(projectDir, declaration).runExpectingFailure();
+        @Test
+        void failsWhenASourceSetBeyondMainSaysABannedWord(@TempDir Path projectDir) {
+
+            // Only the test trees are exempt unnamed: any other source set ships like main does.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingJavaSample("src/utils/java" + PRODUCTION_PACKAGE_PATH, MOCK_WORD_FIXTURE)
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("src/utils/java/example/production/Sample.java:8: production sources may not say");
+        }
+
+        @Test
+        void failsWhenThePackageOnlySharesAPrefixWithAnExemptRoot(@TempDir Path projectDir) {
+
+            // Only a whole-segment match may exempt a tree, or a rename would quietly widen the hole.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(PRODUCTION_JAVA_ROOT + "/testfixturesold", MOCK_WORD_FIXTURE)
+                .configuringTheGate(EXEMPTING_THE_FIXTURE_PACKAGE)
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("testfixturesold/Sample.java:8: production sources may not say \"mock\"");
+        }
+
+        @Test
+        void failsWhenAnExemptRootMatchesOnlyADirectoryInsideThePackage(@TempDir Path projectDir) {
+
+            // A root is read from the package's start, so 'production' is not 'example.production'.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(PRODUCTION_JAVA_ROOT, MOCK_WORD_FIXTURE)
+                .configuringTheGate(GateProject.buildConfigurationBlock(
+                    EXTENSION, "exemptPackage root: 'production'"))
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java:8: production sources may not say \"mock\"");
+        }
+
+        @Test
+        void passesWhenTheWordIsSaidInTheTestSourceSet(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(GateProject.TEST_JAVA_ROOT + PRODUCTION_PACKAGE_PATH, MOCK_WORD_FIXTURE)
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenTheWordIsSaidInTheTestFixturesSourceSet(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(GateProject.TEST_FIXTURES_JAVA_ROOT + PRODUCTION_PACKAGE_PATH, MOCK_WORD_FIXTURE)
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenTheWordIsSaidInADeclaredExemptSourceSet(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .holdingJavaSample("src/fixtures/java" + PRODUCTION_PACKAGE_PATH, MOCK_WORD_FIXTURE)
+                .configuringTheGate(GateProject.buildConfigurationBlock(EXTENSION, "exemptSourceSet name: 'fixtures'"))
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenTheFileSitsUnderADeclaredExemptPackage(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(PRODUCTION_JAVA_ROOT + "/testfixtures", MOCK_WORD_FIXTURE)
+                .configuringTheGate(EXEMPTING_THE_FIXTURE_PACKAGE)
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenThereIsNoSourceTree(@TempDir Path projectDir) {
+            GateProject.driving(GATE, projectDir).runExpectingGateToPass();
+        }
     }
 
-    private BuildResult runGateExpectingSuccess(Path projectDir, String declaration)
-            throws IOException {
+    @Nested
+    class DeclarationsAndRefusals {
 
-        return buildProject(projectDir, declaration).runExpectingSuccess();
+        @Test
+        void passesWhenAllowWordLetsEachEntryThroughTheFileThatSaysIt(@TempDir Path projectDir) {
+
+            // A README documenting a shipped fixture has to say what the fixture is for.
+            GateProject.driving(GATE, projectDir)
+                .holdingFixture(PRODUCTION_README_PATH, ALLOWED_PHRASE_FIXTURE)
+                .configuringTheGate(GateProject.buildConfigurationBlock(EXTENSION,
+                    "allowWord word: 'mocking', inFile: '" + PRODUCTION_README_PATH + "'",
+                    "allowWord word: 'tests can', inFile: '" + PRODUCTION_README_PATH + "'"))
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenAllowWordsLetsSeveralEntriesThroughOneFile(@TempDir Path projectDir) {
+
+            GateProject.driving(GATE, projectDir)
+                .holdingFixture(PRODUCTION_README_PATH, ALLOWED_PHRASE_FIXTURE)
+                .configuringTheGate(GateProject.buildConfigurationBlock(EXTENSION,
+                    "allowWords words: ['mocking', 'tests can'], inFile: '" + PRODUCTION_README_PATH + "'"))
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void failsWhenAnAllowanceCoversOnlyOneOfTheEntriesAFileSays(@TempDir Path projectDir) {
+
+            // An allowance is per entry, so the phrase it does not name is still banned in the same file.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingFixture(PRODUCTION_README_PATH, ALLOWED_PHRASE_FIXTURE)
+                .configuringTheGate(GateProject.buildConfigurationBlock(EXTENSION,
+                    "allowWord word: 'mocking', inFile: '" + PRODUCTION_README_PATH + "'"))
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("README.md:7: production sources may not say \"tests can\"")
+                .doesNotContain("may not say \"mocking\"");
+        }
+
+        @Test
+        void failsWhenAnAllowanceNamesAFileTheGateDoesNotScan(@TempDir Path projectDir) {
+
+            // A stale path exempts nothing while reading in the build as though it does.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(PRODUCTION_JAVA_ROOT, CLEAN_FIXTURE)
+                .configuringTheGate(GateProject.buildConfigurationBlock(EXTENSION,
+                    "allowWord word: 'mock', inFile: '" + PRODUCTION_JAVA_ROOT + "/GONE.md'"))
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("GONE.md: allowWord names a file this gate does not scan, so it allows nothing: \"mock\"");
+        }
+
+        @Test
+        void failsWhenAnAllowanceNamesAFileInAnAlreadyExemptTree(@TempDir Path projectDir) {
+
+            // The file exists, so the path looks live, but the tree around it is exempt whole.
+            var testSamplePath = GateProject.TEST_JAVA_ROOT + PRODUCTION_PACKAGE_PATH + "/Sample.java";
+
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(GateProject.TEST_JAVA_ROOT + PRODUCTION_PACKAGE_PATH, MOCK_WORD_FIXTURE)
+                .configuringTheGate(GateProject.buildConfigurationBlock(EXTENSION,
+                    "allowWord word: 'mock', inFile: '" + testSamplePath + "'"))
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("Sample.java: allowWord names a file in an exempt tree, which is already allowed");
+        }
+
+        @Test
+        void failsWhenAnAllowanceNamesNoBannedEntry(@TempDir Path projectDir) {
+
+            // A misspelt entry allows nothing, while the real entry it meant stays banned.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingFixture(PRODUCTION_README_PATH, ALLOWED_PHRASE_FIXTURE)
+                .configuringTheGate(GateProject.buildConfigurationBlock(EXTENSION,
+                    "allowWords words: ['moking', 'tests can'], inFile: '" + PRODUCTION_README_PATH + "'"))
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("README.md: allowWord names no banned entry, so it allows nothing: \"moking\"");
+        }
+
+        @Test
+        void passesWhenAllowWordsNamesASingleEntryWithoutAList(@TempDir Path projectDir) {
+
+            // One entry is the common case, so it is not spelt out letter by letter as a list of one.
+            GateProject.driving(GATE, projectDir)
+                .holdingFixture(PRODUCTION_README_PATH, ALLOWED_PHRASE_FIXTURE)
+                .configuringTheGate(GateProject.buildConfigurationBlock(EXTENSION,
+                    "allowWords words: 'mocking', inFile: '" + PRODUCTION_README_PATH + "'",
+                    "allowWord word: 'tests can', inFile: '" + PRODUCTION_README_PATH + "'"))
+                .runExpectingGateToPass();
+        }
+
+        @Test
+        void failsWhenAnExemptSourceSetNamesNoDirectory(@TempDir Path projectDir) {
+
+            // A renamed tree leaves its exemption behind, exempting nothing while reading as though it does.
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(PRODUCTION_JAVA_ROOT, CLEAN_FIXTURE)
+                .configuringTheGate(GateProject.buildConfigurationBlock(EXTENSION, "exemptSourceSet name: 'gone'"))
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("src/gone: exemptSourceSet names no source set directory, so it exempts nothing");
+        }
+
+        @Test
+        void failsWhenAnExemptPackageHoldsNoScannedFile(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(PRODUCTION_JAVA_ROOT, CLEAN_FIXTURE)
+                .configuringTheGate(EXEMPTING_THE_FIXTURE_PACKAGE)
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains(FIXTURE_PACKAGE_ROOT + ": exemptPackage names no package holding a scanned file");
+        }
+
+        @Test
+        void failsWhenAnExemptSourceSetIsDeclaredWithoutAName(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(GateProject.buildConfigurationBlock(
+                    EXTENSION, "exemptSourceSet directory: 'fixtures'"))
+                .runExpectingFailure();
+
+            assertThat(result.getOutput())
+                .contains("exemptSourceSet needs 'name'");
+        }
+
+        @Test
+        void failsWhenAnExemptPackageIsDeclaredWithoutARoot(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(GateProject.buildConfigurationBlock(
+                    EXTENSION, "exemptPackage packageRoot: '" + FIXTURE_PACKAGE_ROOT + "'"))
+                .runExpectingFailure();
+
+            assertThat(result.getOutput())
+                .contains("exemptPackage needs 'root'");
+        }
+
+        @Test
+        void failsWhenAnAllowanceIsDeclaredWithoutAFile(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(GateProject.buildConfigurationBlock(EXTENSION, "allowWord word: 'mock'"))
+                .runExpectingFailure();
+
+            assertThat(result.getOutput())
+                .contains("allowWord needs both 'word'");
+        }
+
+        @Test
+        void failsWhenAllowWordsIsDeclaredWithoutAFile(@TempDir Path projectDir) {
+
+            var result = GateProject.driving(GATE, projectDir)
+                .configuringTheGate(GateProject.buildConfigurationBlock(EXTENSION, "allowWords words: ['mock']"))
+                .runExpectingFailure();
+
+            assertThat(result.getOutput())
+                .contains("allowWords needs both 'words'");
+        }
     }
 
-    private GateProject buildProject(Path projectDir, String declaration) {
+    @Nested
+    class UpToDateBehaviour {
 
-        return GateProject
-            .driving(GATE, projectDir)
-            .configuringTheGate(declaration);
-    }
+        @Test
+        void passesUpToDateWhenOnlyAnExemptTreeChanged(@TempDir Path projectDir) {
 
-    // The source root and the package path are both parameters: which source
-    // set a file sits in and which package it declares are the two things that
-    // decide whether the rule reaches it.
-    private void writeJavaSource(
-            Path projectDir, String sourceRoot, String packagePath, String fixture)
-            throws IOException {
+            // An exempt tree is not read, so editing a test must not re-run the gate.
+            var project = GateProject.driving(GATE, projectDir)
+                .holdingJavaSample(PRODUCTION_JAVA_ROOT, CLEAN_FIXTURE)
+                .holdingJavaSample(GateProject.TEST_JAVA_ROOT + PRODUCTION_PACKAGE_PATH, MOCK_WORD_FIXTURE);
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingText(
-                sourceRoot + "/" + packagePath + "/" + "Sample.java",
-                GateProject.loadFixture("java/" + fixture));
-    }
+            project.runExpectingGateToPass();
+            project.holdingJavaSample(GateProject.TEST_JAVA_ROOT + PRODUCTION_PACKAGE_PATH, CLEAN_FIXTURE);
 
-    private void writeMarkdown(
-            Path projectDir, String sourceRoot, String packagePath, String fixture)
-            throws IOException {
-
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingText(
-                sourceRoot + "/" + packagePath + "/" + "README.md",
-                GateProject.loadFixture("markdown/" + fixture));
+            assertThat(project.runExpectingSuccess().task(GATE.taskPath()).getOutcome())
+                .isEqualTo(TaskOutcome.UP_TO_DATE);
+        }
     }
 }

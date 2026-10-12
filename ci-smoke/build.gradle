@@ -17,18 +17,18 @@ group = 'commonjava.smoke'
 // can shadow a real log4j a consumer's unit tests assert against.
 sourceSets {
     testGradle {
-        // Each script's test + its .txt fixtures sit in one folder named for the
-        // script under test, fixtures split into a subfolder per language
-        // (java/, kotlin/, markdown/). Each folder is a source root, so the
-        // test sits in the default package (a Java package cannot carry the
-        // folder's hyphens) and the fixtures resolve under the shared classpath
-        // root - the language prefix plus distinct names keep them from
-        // colliding there.
+        // Each script's suite and its .txt fixtures sit in one folder at the
+        // script's own path under gradle/tasks, fixtures split into a subfolder
+        // per language (java/, kotlin/, markdown/). Each folder is a source root,
+        // so the suite sits in the default package (a Java package cannot carry
+        // the folder's hyphens) and the fixtures resolve under the shared
+        // classpath root - the language prefix plus distinct names keep them
+        // from colliding there.
+        //
         // Read off the tree rather than listed, because a list is a second place
         // to remember: a suite added without its entry here is never compiled
         // and never run, and a suite that never runs is indistinguishable from
-        // one that passes. Every folder holding a suite is a source root, which
-        // is the same rule the paragraph above states, now stated once.
+        // one that passes.
         def scriptTestDirs = fileTree('src/test-gradle/tasks') { include '**/*.java' }
             .files
             *.parentFile
@@ -64,8 +64,8 @@ dependencies {
 
 def testGradle = tasks.register('testGradle', Test) {
 
-    description = ('Runs TestKit integration tests for the shared Gradle gates '
-        + 'and the on-demand formatter.')
+    description = 'Runs TestKit integration tests for the shared Gradle gates ' +
+        'and the on-demand formatter.'
 
     group = 'verification'
     testClassesDirs = sourceSets.testGradle.output.classesDirs
@@ -79,193 +79,141 @@ def testGradle = tasks.register('testGradle', Test) {
     // the log rather than only where it ran.
     reportTestOutcomesOf(it)
 
-    // Each script under test is a runtime input the matching test reads by
-    // path, so declare it as a task input: editing one must re-run these
-    // tests rather than leave them UP-TO-DATE against a stale version. The path
-    // is also handed to the test so it does not assume a working directory. The
-    // scripts live one directory up, under Common-Java/gradle/tasks.
-    // Shared helpers are runtime inputs of these tests: both structure gates that judge a file by
-    // its declared package apply the package-root reader, both formatter passes plus the blank-line
-    // gate apply the source-set selector, both test-double gates apply the naming scan, and the
-    // gates reading source past its comments and literals, or naming a suite, apply the source scan.
-    // Editing one must re-run them. The stamp helper is bound below instead, being the one with a test of its own.
+    // Every script under gradle/ is a runtime input of these tests: a suite
+    // applies its script by path, and a script applies the helpers beside it.
+    // Editing any of them must re-run the suites rather than leave them
+    // UP-TO-DATE against a stale version. The whole tree rather than a list, so
+    // a new script or helper is covered without anyone remembering to add it -
+    // and it takes in detekt.yml, which the Kotlin literal gate reads by path.
+    inputs.files(fileTree('../gradle') { include '**/*.gradle', '**/*.yml', '**/*.xml' })
+        .withPropertyName('scriptsUnderTest')
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 
-    inputs.file(file('../gradle/tasks/lint/package-roots.gradle'))
-        .withPropertyName('packageRootsScript')
-
-    inputs.file(file('../gradle/tasks/lint/source-scan.gradle'))
-        .withPropertyName('sourceScanScript')
-
-    inputs.file(file('../gradle/tasks/format/formatted-source-sets.gradle'))
-        .withPropertyName('formattedSourceSetsScript')
-
-    inputs.file(file('../gradle/tasks/lint/naming/tests/double-naming-scan.gradle'))
-        .withPropertyName('doubleNamingScanScript')
-
-    // One script binds three ways - as a task input, under an
-    // up-to-dateness property name, and as the system property its test reads
-    // the path from - and all three name the same file. Binding them together
-    // keeps a new script to one call rather than a block to copy, and stops the
-    // three drifting apart. Named for scripts rather than gates: the formatter's
-    // aligner pass binds the same three ways and is not a gate.
-    def declareScriptUnderTest = { String propertyName, String systemPropertyKey, String path ->
-
-        def scriptUnderTest = file(path)
-        inputs.file(scriptUnderTest).withPropertyName(propertyName)
-        systemProperty systemPropertyKey, scriptUnderTest.absolutePath
-    }
-
-    declareScriptUnderTest(
-        'alignJavadocParamsScript',
-        'align.javadoc.params.script.path',
-        '../gradle/tasks/format/align-javadoc-params.gradle')
-
-    declareScriptUnderTest(
-        'awtEnvironmentScript',
-        'awt.environment.script.path',
-        '../gradle/tasks/diagnostics/report-awt-environment.gradle')
-
-    declareScriptUnderTest(
-        'lintGateScript',
-        'lint.gate.script.path',
-        '../gradle/tasks/lint/lint-gate.gradle')
-
-    declareScriptUnderTest(
-        'docLinksGateScript',
-        'doc.links.gate.script.path',
-        '../gradle/tasks/lint/docs/enforce-doc-links-resolve.gradle')
-
-    declareScriptUnderTest(
-        'camelCaseTestNamesGateScript',
-        'camel.case.test.names.gate.script.path',
-        '../gradle/tasks/lint/naming/tests/enforce-camel-case-test-names.gradle')
-
-    declareScriptUnderTest(
-        'fakeGateScript',
-        'gate.script.path',
-        '../gradle/tasks/lint/naming/tests/enforce-suffix-on-fakes.gradle')
-
-    declareScriptUnderTest(
-        'mockGateScript',
-        'mock.gate.script.path',
-        '../gradle/tasks/lint/naming/tests/enforce-suffix-on-mocks.gradle')
-
-    declareScriptUnderTest(
-        'suffixOnSuitesGateScript',
-        'suffix.on.suites.gate.script.path',
-        '../gradle/tasks/lint/naming/tests/enforce-suffix-on-suites.gradle')
-
-    declareScriptUnderTest(
-        'testNamesOmitGroupGateScript',
-        'test.names.omit.group.gate.script.path',
-        '../gradle/tasks/lint/naming/tests/enforce-test-names-omit-group.gradle')
-
-    declareScriptUnderTest(
-        'idCasingGateScript',
-        'id.casing.gate.script.path',
-        '../gradle/tasks/lint/naming/enforce-id-casing.gradle')
-
-    declareScriptUnderTest(
-        'testVocabularyGateScript',
-        'test.vocabulary.gate.script.path',
-        '../gradle/tasks/lint/naming/enforce-no-test-vocabulary.gradle')
-
-    declareScriptUnderTest(
-        'methodsOrderGateScript',
-        'methods.order.gate.script.path',
-        '../gradle/tasks/lint/structure/enforce-methods-ordered-by-visibility.gradle')
-
-    declareScriptUnderTest(
-        'packageLayeringGateScript',
-        'package.layering.gate.script.path',
-        '../gradle/tasks/lint/structure/enforce-package-layering.gradle')
-
-    declareScriptUnderTest(
-        'packageVocabularyGateScript',
-        'package.vocabulary.gate.script.path',
-        '../gradle/tasks/lint/structure/enforce-package-vocabulary.gradle')
-
-    declareScriptUnderTest(
-        'restrictedCallsGateScript',
-        'restricted.calls.gate.script.path',
-        '../gradle/tasks/lint/structure/enforce-restricted-calls.gradle')
-
-    declareScriptUnderTest(
-        'referencedTypesGateScript',
-        'referenced.types.gate.script.path',
-        '../gradle/tasks/lint/structure/enforce-referenced-types.gradle')
-
-    declareScriptUnderTest(
-        'nestedGateScript',
-        'nested.gate.script.path',
-        '../gradle/tasks/lint/structure/tests/enforce-tests-nested.gradle')
-
-    declareScriptUnderTest(
-        'singleBlankGateScript',
-        'single.blank.gate.script.path',
-        '../gradle/tasks/lint/formatting/enforce-single-blank-lines.gradle')
-
-    declareScriptUnderTest(
-        'trailingWhitespaceGateScript',
-        'trailing.whitespace.gate.script.path',
-        '../gradle/tasks/lint/formatting/enforce-no-trailing-whitespace.gradle')
-
-    declareScriptUnderTest(
-        'kotlinLiteralsGateScript',
-        'kotlin.literals.gate.script.path',
-        '../gradle/tasks/lint/literals/enforce-no-magic-literals-kotlin.gradle')
-
-    // The Kotlin literal gate is the one that reads a second file by path, its
-    // detekt.yml, so that is an input too: editing the rule must re-run the
-    // test, not leave it UP-TO-DATE.
-    inputs.file(file('../gradle/detekt.yml')).withPropertyName('detektConfig')
+    // Where the scripts live, so a suite names its script by the path it shares
+    // with its folder and does not assume a working directory.
+    systemProperty 'gate.scripts.root', file('../gradle/tasks').absolutePath
 }
 
 // Every script that registers a task has a suite driving it.
 //
 // The one failure the suites cannot catch themselves. A gate whose suite was
-// never written, or whose suite folder was renamed out from under the tree that
-// collects them, is a gate nothing runs - and nothing runs is what a passing
-// build looks like. So the scripts are counted against the folders, and a script
-// with no folder of its own name fails this build.
+// never written, or whose suite folder was moved out from under the path it
+// names its script by, is a gate nothing runs - and nothing runs is what a
+// passing build looks like. So the scripts are matched against the suite
+// folders by path, and a script with no folder at its own path fails this build.
 //
 // Registering a task is what makes a script a gate rather than a helper: the
-// helpers next to them define closures for the gates to use, are exercised
-// through whichever gate applies them, and are bound above as inputs so editing
-// one re-runs those. A helper that grows a task of its own becomes a gate by the
-// same rule, and this asks it for a suite from that day.
+// helpers next to them define closures for the gates to use, and are exercised
+// through whichever gate applies them. A helper that grows a task of its own
+// becomes a gate by the same rule, and this asks it for a suite from that day.
 def verifyEveryGateHasASuite = tasks.register('verifyEveryGateHasASuite') {
 
     group = 'verification'
-    description = 'Fails the build when a script that registers a task has no TestKit suite.'
+    description = 'Fails the build when a script that registers a task has no TestKit suite at its path.'
 
     def gateScripts = fileTree('../gradle/tasks') { include '**/*.gradle' }
-    def suiteFolders = fileTree('src/test-gradle/tasks') { include '**/*.java' }
+    def suites = fileTree('src/test-gradle/tasks') { include '**/*.java' }
 
-    inputs.files(gateScripts).withPropertyName('gateScripts')
-    inputs.files(suiteFolders).withPropertyName('suiteFolders')
+    inputs.files(gateScripts)
+        .withPropertyName('gateScripts')
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+
+    inputs.files(suites)
+        .withPropertyName('suites')
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 
     doLast {
 
-        def coveredScriptNames = suiteFolders.files*.parentFile*.name.unique()
+        def coveredScriptPaths = [] as Set
 
-        def uncovered = gateScripts
-            .findAll { it.text.contains('tasks.register(') }
-            .collect { it.name.replaceFirst(/\.gradle$/, '') }
-            .findAll { !(it in coveredScriptNames) }
-            .sort()
+        suites.visit { details ->
+
+            if (!details.directory) {
+                coveredScriptPaths << details.relativePath.parent.pathString
+            }
+        }
+
+        def uncovered = []
+
+        gateScripts.visit { details ->
+
+            if (!details.directory && details.file.getText('UTF-8').contains('tasks.register(')) {
+
+                def scriptPath = details.relativePath.pathString.replaceFirst(/\.gradle$/, '')
+
+                if (!(scriptPath in coveredScriptPaths)) {
+                    uncovered << scriptPath
+                }
+            }
+        }
 
         if (!uncovered.isEmpty()) {
 
-            throw new GradleException("Scripts registering a task with no suite driving them:\n  "
-                + uncovered.join('\n  ')
-                + "\nEach needs a folder of its own name under src/test-gradle/tasks.")
+            throw new GradleException("Scripts registering a task with no suite driving them:\n  " +
+                uncovered.sort().join('\n  ') +
+                "\nEach needs a suite folder at its own path under src/test-gradle/tasks.")
         }
     }
 }
 
-// Run with the rest of verification: 'check' covers a local 'build', and
-// 'coverage' is the task CI invokes.
+// Every gate is wired in by java-conventions.gradle, which this project applies as a consumer
+// would: each gate's task exists here, and both 'test' and 'check' depend on it.
+//
+// The suites apply one gate at a time, so a gate the conventions file forgot to apply passes every
+// suite while no consumer runs it. Read off the scripts rather than listed, for the reason the
+// suite check above is.
+def verifyConventionsWireEveryGate = tasks.register('verifyConventionsWireEveryGate') {
+
+    group = 'verification'
+    description = 'Fails the build when java-conventions.gradle leaves a lint gate out of test or check.'
+
+    def gateScripts = fileTree('../gradle/tasks/lint') { include '**/*.gradle' }
+    def registeredTaskPattern = ~/tasks\.register\('([^']+)'/
+
+    inputs.files(gateScripts)
+        .withPropertyName('gateScripts')
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+
+    // Read while this task is configured, when the build's wiring is complete. What a lifecycle
+    // task depends on is read off its declared dependencies by name, so no gate is realised to answer.
+    def readDependencyNames = { String lifecycleTaskName ->
+
+        tasks.named(lifecycleTaskName).get().dependsOn.collect { dependency ->
+            dependency instanceof TaskProvider || dependency instanceof Task ? dependency.name : dependency.toString()
+        } as Set
+    }
+
+    def lifecycleDependencyNames = ['test', 'check'].collectEntries { [(it): readDependencyNames(it)] }
+
+    def unwiredGates = []
+
+    gateScripts.each { script ->
+
+        script.getText('UTF-8').findAll(registeredTaskPattern) { match, taskName -> taskName }.each { taskName ->
+
+            def missingLifecycleTasks = lifecycleDependencyNames.findAll { !(taskName in it.value) }*.key
+
+            if (!tasks.names.contains(taskName)) {
+                unwiredGates << "${taskName} (${script.name}): not applied"
+            } else if (!missingLifecycleTasks.isEmpty()) {
+                unwiredGates << "${taskName} (${script.name}): not run by ${missingLifecycleTasks.join(', ')}"
+            }
+        }
+    }
+
+    doLast {
+
+        if (!unwiredGates.isEmpty()) {
+
+            throw new GradleException('Gates java-conventions.gradle does not run under test and check:\n  ' +
+                unwiredGates.sort().join('\n  ') +
+                '\nEach needs an apply line in java-conventions.gradle.')
+        }
+    }
+}
+
+// Run with the rest of verification: 'check' covers 'build', which this repo's CI runs, and
+// 'coverage', which a consumer's CI runs.
 tasks.matching { it.name in ['check', 'coverage'] }.configureEach {
-    dependsOn testGradle, verifyEveryGateHasASuite
+    dependsOn testGradle, verifyEveryGateHasASuite, verifyConventionsWireEveryGate
 }

@@ -1,0 +1,12 @@
+package example.consumer;
+
+import example.library.internal.Renamed;
+
+/**
+ * Names the unpromised type only in a method descriptor, right after a primitive parameter. An
+ * abstract method carries no code, so the descriptor is the one place the name is compiled.
+ */
+public abstract class Caller {
+
+    public abstract void take(int count, Renamed value);
+}

@@ -1,5 +1,0 @@
-class Sample {
-    void make() {
-        var sector = mock(SectorAPI.class);
-    }
-}

@@ -2,14 +2,13 @@
 # reusable _ci-gradle engine, exactly as a consumer repo's ci-gradle.yml
 # does, just pointed at the local engine by `./` path.
 #
-# Its job here is to give the shared gradle/java-conventions.gradle direct
-# coverage by building the ci-smoke project (which applies the conventions
-# by relative path). A regression in the conventions fails here, in their
-# own repo, instead of first surfacing in a downstream consumer's build.
+# Its job here is to give the shared Gradle scripts direct coverage by
+# building the ci-smoke project (which applies them by relative path). A
+# regression in them fails here, in their own repo, instead of first
+# surfacing in a downstream consumer's build.
 #
-# Runs on a stock hosted runner: the smoke project has no Starsector
-# dependency, so it needs only a provisioned JDK (setup-java), no
-# STARSECTOR_HOME and no self-hosted runner.
+# Runs on a stock hosted runner: the smoke project needs nothing from the
+# machine beyond a JDK, which setup-java provisions.
 #
 # The bash/YAML linting of this repo is handled separately by ci-bash.yml
 # and ci-yaml.yml (which delegate to Common-Automation).
@@ -32,6 +31,11 @@ on:
         required: false
         type: string
         default: ''
+
+# The build only reads the checkout; the token gets nothing more, whatever the
+# repository default grants.
+permissions:
+  contents: read
 
 jobs:
   smoke:

@@ -1,0 +1,99 @@
+// The word scan the vocabulary gates are made of: what a file says, read as the
+// words a reader reads, and where a declared phrase is said in it.
+//
+// enforcePackageVocabulary closes a package root to words a consuming build
+// names; enforceNoTestVocabulary closes production trees to a word list it owns.
+// Both judge an identifier and a sentence by one rule, so they read words the
+// same way from here: a word that parted differently in one gate would be a
+// phrase that one of them can never find.
+
+apply from: new File(buildscript.sourceFile.parentFile, 'lint-gate.gradle')
+
+// One word, as a reader reads it: a run of letters, parted at each camel hump.
+// This is what lets a gate judge an identifier and a sentence by the same rule -
+// `buildSectorMock` says the same three words the prose does - while leaving
+// `mockingbird` alone, since `mock` is not one of its words.
+//
+// Digits and every non-letter part words rather than joining them, so `mock2`
+// and `filter_mock` both say `mock`. A plural is a different word, so a list
+// forbidding `mock` does not catch `mocks`; a declaration names both.
+ext.nameWordPattern = ~/\p{Lu}?\p{Ll}+|\p{Lu}+(?!\p{Ll})/
+
+// The words a piece of text says, lower case, in reading order.
+ext.splitIntoNameWords = { String text ->
+
+    def words = []
+    def matcher = nameWordPattern.matcher(text)
+
+    while (matcher.find()) {
+        words << matcher.group().toLowerCase()
+    }
+
+    return words
+}
+
+// One declared entry read as the phrase a gate looks for. Parted by the same
+// rule as the text it is matched against, so `NationalBorder`, `national
+// border` and `national-border` declare the one phrase. An entry with no words
+// in it could never match, so it is refused where it is written.
+ext.readDeclaredPhrase = { String declaringCall, String declared ->
+
+    def words = splitIntoNameWords(declared)
+
+    if (words.isEmpty()) {
+
+        throw new GradleException("${declaringCall} names a word with no letters " +
+            "in it, which can never match; got: '${declared}'")
+    }
+
+    return [declared: declared, words: words]
+}
+
+// Every word the file says, in reading order, each paired with the line it sits
+// on. Collected across the whole file rather than per line so a phrase that
+// wraps in prose is still one phrase.
+ext.readNameWords = { File sourceFile ->
+
+    def words = []
+
+    sourceFile.eachLine(sourceEncoding) { line, lineNumber ->
+
+        splitIntoNameWords(line).each { words << [text: it, line: lineNumber] }
+    }
+
+    return words
+}
+
+// Every place the file says one of the phrases, as [phrase, line]: the phrase
+// as declared, and the line its first word is on, which is where a reader starts
+// looking.
+//
+// The phrases are indexed by their first word, so each position in the file
+// is compared only against the phrases that could start there.
+ext.findSpokenPhrases = { List words, List phrases ->
+
+    def found = []
+    def phrasesByFirstWord = phrases.groupBy { it.words.first() }
+
+    words.eachWithIndex { word, start ->
+
+        phrasesByFirstWord[word.text].each { phrase ->
+
+            def end = start + phrase.words.size()
+
+            if (end > words.size()) {
+                return
+            }
+
+            def isSpoken = (1..<phrase.words.size()).every { offset ->
+                words[start + offset].text == phrase.words[offset]
+            }
+
+            if (isSpoken) {
+                found << [phrase: phrase, line: word.line]
+            }
+        }
+    }
+
+    return found
+}

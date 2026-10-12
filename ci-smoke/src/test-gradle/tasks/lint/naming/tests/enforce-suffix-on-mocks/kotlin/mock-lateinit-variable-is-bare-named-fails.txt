@@ -1,0 +1,7 @@
+class Sample {
+    private lateinit var clock: Clock
+
+    fun setUp() {
+        clock = mock(Clock::class.java)
+    }
+}

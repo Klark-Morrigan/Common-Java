@@ -1,0 +1,13 @@
+class Sample {
+
+    @MockK
+    private lateinit var clockMock: Clock
+
+    @RelaxedMockK lateinit var calendarMock: Calendar
+
+    fun make() {
+        val systemMock = mockStatic(System::class.java)
+        val registryMock = mockk<Registry>(relaxed = true)
+        val builderMock = spyk(Builder())
+    }
+}

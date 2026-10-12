@@ -1,19 +1,16 @@
-// Hand-written test-double naming gate, applied by java-conventions.gradle into every consumer.
-// Sits beside the mock gate (enforce-suffix-on-mocks.gradle) as the same kind of concern keyed on
-// Mockito rather than hand-written fakes; how either one reads a source file is
-// double-naming-scan.gradle's, so each script holds only the rule it states.
+// Hand-written test-double naming gate. Sits beside the mock gate (enforce-suffix-on-mocks.gradle)
+// as the same kind of concern keyed on hand-written fakes rather than mocking libraries; how either
+// one reads a source file is double-naming-scan.gradle's, so each script holds only the rule it
+// states.
 //
 // Two conventions, because a hand-written fake is named twice - it has a source type, where a
-// Mockito double does not:
-//   1. a test-double TYPE is suffixed 'Fake' (EditableMarketFake, never FakeEditableMarket).
-//      Flagged when a declared type name contains 'Fake' but does not end with it.
-//   2. a variable built from a '*Fake(...)' constructor or factory is suffixed 'Fake' (marketFake,
-//      never market), or '_FAKE' where the name is a constant (EMPTY_FAKE, never EMPTY) - a
+// generated mock does not:
+//   1. a test-double TYPE is suffixed 'Fake' (ClockFake, never FakeClock). Flagged when a declared
+//      type name contains 'Fake' but does not end with it.
+//   2. a variable built from a '*Fake(...)' constructor or factory is suffixed 'Fake' (clockFake,
+//      never clock), or '_FAKE' where the name is a constant (EMPTY_FAKE, never EMPTY) - a
 //      SCREAMING_SNAKE name being unable to end in a camel-case word. Flagged when such an
 //      assignment targets a name carrying neither spelling.
-//
-// Applied by this script, not assumed from the conventions file: the gate is applied on its own by
-// its integration test, so it has to carry what it uses.
 apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, 'double-naming-scan.gradle')
 
@@ -22,24 +19,22 @@ def enforceSuffixOnFakes = tasks.register('enforceSuffixOnFakes') {
             'variables are not suffixed Fake.'
     group = 'verification'
 
-    def testRoots = declareSourceRoots(it, ['src/test'])
+    def scannedFiles = declareScannedFiles(it, testSourceRoots, jvmSourceIncludes)
 
     doLast {
         def violations = findDoubleNamingViolations(
-            testRoots: testRoots,
+            scannedFiles: scannedFiles,
             suffix: 'Fake',
             // A '*Fake(' or '*Fake<' constructor or factory, with or without Java's 'new'.
-            // Anchoring on the call keeps real-typed fixtures (MarketAPI helpers, mocks) out of
-            // scope.
+            // Anchoring on the call keeps real-typed fixtures and mocks out of scope.
             factoryCall: /(?:new\s+)?\w*Fake\w*/,
             // 'Fake' anywhere in a declared type name; the scan's own endsWith check separates a
             // compliant suffix from a non-compliant prefix or infix.
-            typePattern: ~/\b(?:class|interface|enum|record|object)\s+(\w*Fake\w*)/)
+            typePattern: ~/\b(?:class|interface|enum|record|object)\s+(\w*Fake\w*)/,
+            holderAnnotation: null)
 
         failOnViolations('Fake naming convention violated', violations)
     }
 }
 
-// Make it a gate: an output so it can be skipped while what it reads is
-// unchanged, and a place in the verification lifecycle; see lint-gate.gradle.
 installLintGate(enforceSuffixOnFakes)

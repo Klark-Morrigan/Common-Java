@@ -1,0 +1,20 @@
+// Neither declaration opens a body, so the top-level function's brace below must not
+// open either one's scope and turn the function's locals into its members.
+object Marker
+
+data class Point(val x: Int)
+
+private fun build() {
+    fun first() {
+    }
+    fun second() {
+    }
+}
+
+class Sample {
+    fun alpha() {
+    }
+
+    private fun helper() {
+    }
+}

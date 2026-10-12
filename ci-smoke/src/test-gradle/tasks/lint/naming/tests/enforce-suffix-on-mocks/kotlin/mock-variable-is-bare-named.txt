@@ -1,5 +1,0 @@
-class Probe {
-    fun make() {
-        val sector = mock(SectorAPI::class.java)
-    }
-}

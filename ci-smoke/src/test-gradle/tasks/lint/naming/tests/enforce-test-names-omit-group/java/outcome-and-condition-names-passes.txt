@@ -1,0 +1,22 @@
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+
+class Sample {
+
+    @Nested
+    class ReadTotal {
+
+        @Test void isZeroBeforeAnyEntryIsAdded() {
+        }
+
+        // A comment naming readTotalIsZero() and a string doing the same are not declarations.
+        @Test
+        void answersTheSumOfEveryEntry() {
+            String reason = "readTotalIsZero()";
+        }
+    }
+
+    // A helper outside any group repeats nothing, whatever it is called.
+    private void readTotalHelper() {
+    }
+}

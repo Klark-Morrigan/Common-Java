@@ -1,0 +1,6 @@
+class Sample {
+
+    int spaced  =  1;
+
+	int tabbed	= 2;
+}

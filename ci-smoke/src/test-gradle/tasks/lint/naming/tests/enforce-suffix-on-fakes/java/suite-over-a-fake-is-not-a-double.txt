@@ -1,5 +1,0 @@
-class ConditionRepositoryFakeTests {
-    void collectsWhatWasWritten() {
-        var repositoryFake = new ConditionRepositoryFake();
-    }
-}

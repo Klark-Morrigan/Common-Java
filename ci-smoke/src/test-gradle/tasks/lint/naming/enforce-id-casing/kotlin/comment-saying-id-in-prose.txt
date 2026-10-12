@@ -1,0 +1,8 @@
+package example.production
+
+/** The place named by the id it is addressed by. */
+class Sample {
+
+    // Keyed on the whole key rather than on the id it carries.
+    fun readFirst(): Int = 1
+}

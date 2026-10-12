@@ -1,0 +1,161 @@
+// The end-of-run report every Test task in a build prints: the slowest tests, then the failures
+// re-listed.
+//
+// A helper a task takes rather than a block each task copies: a task registered beside 'test' - a
+// TestKit tree, say - would otherwise print its failures only where they happened and re-list
+// nothing, which is the one place a reader of a long CI log needs them.
+//
+// The slowest tests make a creeping suite runtime visible instead of hiding it in the aggregate.
+// The failures are re-listed because the inline FAILED lines print where each test happens to run,
+// which on a suite of thousands leaves them scattered far above the point a log reader starts from.
+
+apply from: new File(buildscript.sourceFile.parentFile, 'cause-chain.gradle')
+
+def maxLongestTestsListed = 10
+
+// How much of each failure is re-listed. A run that dies on its environment - a runner with no
+// fonts, a missing native library - fails every test it has with one fault, so an uncapped detail
+// block buries the rest of the log under copies of a single trace. The frame cap keeps the head of
+// each throwable, which is where the call that failed sits, while the cause chain is walked to its
+// end: the line that names the real fault is the last "Caused by".
+def maxDetailedFailures = 10
+def maxFramesPerThrowable = 12
+
+// The line both failure blocks head an entry with. Shared so that a failure is numbered the same in
+// each: the number is how a reader carries a name from the list to its trace.
+def reportNumberedTest = { String testName, int index ->
+
+    logger.lifecycle(String.format('%2d. %s', index + 1, testName))
+}
+
+// One throwable as the lines a reader needs: every link of the cause chain, each headed the way a
+// printed trace heads it, carrying the frames nearest its own throw.
+//
+// An assertion library puts its detail on the lines AFTER the header one - "expected: 2 / but was:
+// 1" - so a header is split and indented as the several lines it is rather than quoted as one.
+def describeFailure = { Throwable failure ->
+
+    def lines = []
+
+    readCauseChain(failure).eachWithIndex { Throwable link, int depth ->
+
+        def header = depth == 0 ? link.toString() : 'Caused by: ' + link
+        def frames = link.stackTrace
+
+        header.readLines().each { line -> lines << line }
+        frames.take(maxFramesPerThrowable).each { frame -> lines << '    at ' + frame }
+
+        if (frames.length > maxFramesPerThrowable) {
+            lines << "    ... ${frames.length - maxFramesPerThrowable} more frames"
+        }
+    }
+
+    return lines
+}
+
+// Records one finished test's wall-clock time, and its failure when it failed.
+//
+// The failure is described now rather than at report time because the throwable belongs to the
+// result being handed over, not to anything the report keeps. The first exception is the one
+// re-listed: a test that fails its teardown as well reports several, and the first is what made
+// it fail. Read through getExceptions() rather than getException(), which throws when a failure
+// carries none.
+def recordTestOutcome = { TestDescriptor descriptor, TestResult result, List durations, List failures ->
+
+    def testName = "${descriptor.className}.${descriptor.name}"
+
+    durations << [name: testName, durationMillis: result.endTime - result.startTime]
+
+    if (result.resultType != TestResult.ResultType.FAILURE) {
+        return
+    }
+
+    def firstException = result.exceptions.isEmpty() ? null : result.exceptions.first()
+
+    failures << [
+        name: testName,
+        trace: firstException == null ? ['(no exception recorded)'] : describeFailure(firstException)]
+}
+
+def reportLongestTests = { List durations ->
+
+    if (durations.isEmpty()) {
+        return
+    }
+
+    logger.lifecycle("Top ${maxLongestTestsListed} longest tests:")
+
+    durations
+        .sort { -it.durationMillis }
+        .take(maxLongestTestsListed)
+        .eachWithIndex { entry, index ->
+            logger.lifecycle(String.format('%2d. %6d ms  %s', index + 1, entry.durationMillis, entry.name))
+        }
+}
+
+// Why each failure broke, in the same order and under the same numbers as the list above it, so a
+// name picked out of that list is looked up rather than searched for.
+def reportFailureDetails = { List failures ->
+
+    logger.lifecycle('')
+    logger.lifecycle('Failure details:')
+
+    failures.take(maxDetailedFailures).eachWithIndex { entry, index ->
+        reportNumberedTest(entry.name, index)
+        entry.trace.each { line -> logger.lifecycle('    ' + line) }
+    }
+
+    def undetailed = failures.size() - maxDetailedFailures
+
+    if (undetailed > 0) {
+        logger.lifecycle("    ... and ${undetailed} more, in the task's HTML test report")
+    }
+}
+
+// The names on their own first, the traces after. The names are what a reader scans to see WHAT
+// broke, and a trace between every pair of them would scatter the names again.
+def reportFailedTests = { List failures ->
+
+    if (failures.isEmpty()) {
+        return
+    }
+
+    logger.lifecycle("Failed tests (${failures.size()}):")
+
+    failures.eachWithIndex { entry, index -> reportNumberedTest(entry.name, index) }
+
+    reportFailureDetails(failures)
+}
+
+ext.reportTestOutcomesOf = { Test testTask ->
+
+    // Forks may run in parallel, so the stores must be thread-safe.
+    def recordedTestDurations = Collections.synchronizedList(new ArrayList())
+    def recordedTestFailures = Collections.synchronizedList(new ArrayList())
+
+    // A TestListener rather than the task's own afterTest/afterSuite closures, which Gradle 10
+    // removes.
+    testTask.addTestListener(new TestListener() {
+
+        void beforeSuite(TestDescriptor suite) {}
+        void beforeTest(TestDescriptor test) {}
+
+        void afterTest(TestDescriptor descriptor, TestResult result) {
+            recordTestOutcome(descriptor, result, recordedTestDurations, recordedTestFailures)
+        }
+
+        // Reported at the root suite (the one with no parent), which fires once the entire run
+        // completes - including failing runs, unlike a doLast action a test failure would skip.
+        void afterSuite(TestDescriptor descriptor, TestResult result) {
+
+            if (descriptor.parent != null) {
+                return
+            }
+
+            reportLongestTests(recordedTestDurations)
+            // Last, so the failures sit directly above Gradle's own "there were failing tests"
+            // message rather than behind the timings block.
+            reportFailedTests(recordedTestFailures)
+        }
+    })
+}

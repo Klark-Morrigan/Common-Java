@@ -1,21 +1,17 @@
-// Magic-literal gate for Kotlin sources, applied by java-conventions.gradle into
-// every consumer that applies these conventions. Kept in its own script so the
-// conventions file stays about classpath, version, and jar output while this
-// owns one concern: the verification rule.
+// Magic-literal gate for Kotlin sources.
 //
 // The convention: "named constants good, loose literals bad" on Kotlin (magic
-// numbers). It is enforced with the detekt CLI
-// - resolved as a dependency and run as a JavaExec task - rather than the
-// detekt Gradle plugin, because the plugin's stable line tops out at Gradle 8
-// while this build runs Gradle 9; the CLI is a plain jar and so is immune to
-// that. The shared rule config lives at gradle/detekt.yml, three levels up.
+// numbers). It is enforced with the detekt CLI - resolved as a dependency and run
+// as a JavaExec task - rather than the detekt Gradle plugin, because the plugin's
+// stable line tops out at Gradle 8; the CLI is a plain jar and so runs under any
+// Gradle. The shared rule config lives at gradle/detekt.yml, three levels up.
 //
-// Scope: Kotlin main sources of any project taking these conventions. A
-// Java-only project has no src/main/kotlin and so no-ops; test sources,
-// inherently literal-heavy, are left out by scanning only src/main. No
-// owner-based exclusion is wired in - a repo carrying code it does not own
-// simply does not take these conventions for it. mavenCentral,
-// needed to resolve the CLI, is provided by java-conventions, applied earlier.
+// Scope: the Kotlin of every source set except test, whose data and fixtures are
+// literal-heavy by nature. Checkstyle's MagicNumber draws the same line for Java.
+// A project with no Kotlin skips the JVM launch entirely. mavenCentral, needed to
+// resolve the CLI, is the consuming build's to declare; java-conventions does.
+
+apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
 
 // The detekt CLI and its transitive deps, kept in their own configuration so
 // the lint tool never leaks onto a compile classpath or into the project's jar.
@@ -27,37 +23,53 @@ dependencies {
     detektCli 'io.gitlab.arturbosch.detekt:detekt-cli:1.23.8'
 }
 
-// Applied by this script, not assumed from the conventions file: the gate is
-// applied on its own by its integration test, so it has to carry what it uses.
-apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
+def kotlinSourceIncludes = ['**/*.kt']
 
 def enforceNoMagicLiteralsKotlin = tasks.register('enforceNoMagicLiteralsKotlin', JavaExec) {
     description = 'Fails the build when a Kotlin source uses a magic number ' +
             'instead of a named constant.'
     group = 'verification'
 
+    // Refused in the terms of what the gate needs, rather than left to surface as a
+    // missing property from inside the scan.
+    if (!project.pluginManager.hasPlugin('java')) {
+        throw new GradleException('enforceNoMagicLiteralsKotlin needs the java plugin: it reads ' +
+            "the project's source sets to find the Kotlin it judges.")
+    }
+
+    // Lazy, because a project declares its own source sets after this script is applied.
+    def judgedSources = project.provider {
+        sourceSets.toList()
+            .findAll { sourceSet -> sourceSet.name != SourceSet.TEST_SOURCE_SET_NAME }
+            .collect { sourceSet -> sourceSet.allSource }
+    }
+
     // Declared as inputs so an unchanged tree lets Gradle skip the JVM launch.
-    def kotlinMainDir = declareSourceRoots(it, ['src/main/kotlin']).first()
+    def kotlinFiles = declareScannedFiles(it, judgedSources, kotlinSourceIncludes)
+
     // Resolve the shared rule config relative to THIS script, not the
     // consumer's rootDir, so it holds for every consumer alike.
     def detektConfig = new File(buildscript.sourceFile.parentFile, '../../../detekt.yml')
 
-    // Run only when there are Kotlin sources to scan, so a Java-only consumer
-    // skips the JVM launch entirely.
-    onlyIf {
-        kotlinMainDir.exists()
-    }
     inputs.files(detektConfig).withPropertyName('detektConfig')
+
+    onlyIf { !kotlinFiles.isEmpty() }
 
     classpath = configurations.detektCli
     mainClass = 'io.gitlab.arturbosch.detekt.cli.Main'
+
     // --config alone (no --build-upon-default-config) runs only the rules the
     // config names. detekt exits non-zero on any finding, which fails the
-    // JavaExec - the gate's verdict.
-    args = ['--config', detektConfig.absolutePath,
-            '--input', kotlinMainDir.absolutePath]
+    // JavaExec - the gate's verdict. The source directories rather than the
+    // files, so a large tree cannot outgrow a command line.
+    argumentProviders.add({
+        def judgedDirectories = judgedSources.get()
+            .collectMany { sources -> sources.srcDirs }
+            .findAll { directory -> directory.exists() }
+
+        return ['--config', detektConfig.absolutePath,
+                '--input', judgedDirectories*.absolutePath.join(',')]
+    } as CommandLineArgumentProvider)
 }
 
-// Make it a gate: an output so it can be skipped while what it reads is
-// unchanged, and a place in the verification lifecycle; see lint-gate.gradle.
 installLintGate(enforceNoMagicLiteralsKotlin)

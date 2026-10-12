@@ -8,16 +8,12 @@
 //
 // WHAT THIS DOES NOT DO, and must never do: it does not lay code out. No
 // indentation, no line wrapping, no brace or blank-line placement, no reflowing
-// of comments or Javadoc prose. A whole-file formatter - Spotless driving the
-// Eclipse JDT formatter from an eclipse-formatter.xml - used to sit here and was
-// removed: its settings could not express this family's continuation indent and
-// argument wrapping, so every run re-laid code it had no business touching. One
-// invocation rewrote several hundred files and buried the real change among
-// them. Code layout belongs to the person writing it.
+// of comments or Javadoc prose. Code layout belongs to the person writing it, and
+// a whole-file formatter rewrites hundreds of files and buries the real change.
 //
 // What is left is the mechanical half: edits with exactly one correct answer,
-// which no style preference can disagree with. Each pairs with a gate that today
-// only reports the same thing, so the gate keeps saying what is wrong and this
+// which no style preference can disagree with. Each pairs with a gate that only
+// reports the same thing, so the gate keeps saying what is wrong and this
 // says it need not be fixed by hand:
 //
 //   removeUnusedImports  <- checkstyle UnusedImports
@@ -35,10 +31,10 @@
 //
 // By default every Java source set is cleaned. A repo that owns source it does
 // not style - mirrors of a third party's shape, generated code - names those
-// source sets before applying this script:
+// source sets in its build script, before or after applying this one:
 //
-//     ext.formatterExcludedSourceSets = ['bridgeStubs']
 //     apply from: "${rootDir}/../Common-Java/gradle/spotless-java.gradle"
+//     ext.formatterExcludedSourceSets = ['bridgeStubs']
 
 buildscript {
     repositories {
@@ -61,12 +57,13 @@ apply plugin: com.diffplug.gradle.spotless.SpotlessPlugin
 // the same way, so neither owns it; see the applied script.
 apply from: new File(buildscript.sourceFile.parentFile, 'tasks/format/formatted-source-sets.gradle')
 
-def cleanedJavaSources = selectFormattedSourceSets().collect { sourceSet -> sourceSet.java }
-
 spotless {
     enforceCheck = false
     java {
-        target cleanedJavaSources
+        // Spotless keeps a FileCollection target as it is handed over, so this one is
+        // resolved only when the task reads it - after the build has declared its own
+        // source sets and exemptions.
+        target collectFormattedSources { sourceSet -> sourceSet.java }
 
         // An import no longer named by the file. Safe because it is decided by
         // what the source references, not by anyone's taste.

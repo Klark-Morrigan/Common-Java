@@ -1,0 +1,4 @@
+class Sample {
+
+    static final ClockFake EMPTY_FAKE = new ClockFake();
+}

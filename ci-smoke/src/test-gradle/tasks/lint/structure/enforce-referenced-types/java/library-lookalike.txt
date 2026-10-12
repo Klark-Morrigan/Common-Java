@@ -1,0 +1,7 @@
+package other.example.library;
+
+/**
+ * A type under a longer path that ends in the namespace's segments, which is not the namespace.
+ */
+public class Lookalike {
+}

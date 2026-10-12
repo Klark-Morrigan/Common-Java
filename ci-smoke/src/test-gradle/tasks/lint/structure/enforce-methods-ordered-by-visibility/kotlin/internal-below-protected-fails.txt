@@ -1,0 +1,10 @@
+open class Sample {
+    fun alpha() {
+    }
+
+    protected fun beta() {
+    }
+
+    internal fun gamma() {
+    }
+}

@@ -1,79 +1,111 @@
 # Common-Java
 
-Shared, framework-agnostic build/CI/tooling scaffolding for JVM projects.
-This repo holds no runtime library code and no knowledge of any specific
-consumer - it is the generic tier that downstream projects build on.
+Shared build, CI and tooling scaffolding for JVM projects.
+This repo holds no runtime library code and knows no consumer.
+It is the generic tier that downstream projects build on.
 
 ## Index
 
 - [What lives here](#what-lives-here)
 - [Gradle conventions](#gradle-conventions)
+  - [Test run report](#test-run-report)
+  - [Checkstyle](#checkstyle)
 - [Lint gates](#lint-gates)
+  - [Declarations and allowances](#declarations-and-allowances)
+  - [Formatting gates](#formatting-gates) -
+    `enforceNoTrailingWhitespace`, `enforceSingleBlankLines`
+  - [Markdown gates](#markdown-gates) -
+    `enforceDocLinksResolve`, `enforceIdCasing`
+  - [Test-tree gates](#test-tree-gates) -
+    `enforceCamelCaseTestNames`, `enforceSuffixOnFakes`, `enforceSuffixOnMocks`, `enforceSuffixOnSuites`,
+    `enforceTestNamesOmitGroup`, `enforceTestsNested`
+  - [Method order and Kotlin literals](#method-order-and-kotlin-literals) -
+    `enforceMethodsOrderedByVisibility`, `enforceNoMagicLiteralsKotlin`
+  - [Test vocabulary](#test-vocabulary) -
+    `enforceNoTestVocabulary`
+  - [Package layering](#package-layering) -
+    `enforcePackageLayering`
+  - [Package vocabulary](#package-vocabulary) -
+    `enforcePackageVocabulary`
+  - [Restricted calls](#restricted-calls) -
+    `enforceRestrictedCalls`
+  - [Referenced types](#referenced-types) -
+    `enforceReferencedTypes`
+  - [Helper scripts](#helper-scripts)
 - [AWT environment probe](#awt-environment-probe)
 - [Formatting](#formatting)
+  - [Excluded source sets](#excluded-source-sets)
 - [Reusable CI](#reusable-ci)
+- [Local scripts and hooks](#local-scripts-and-hooks)
+- [Testing the scripts](#testing-the-scripts)
 - [Consuming with a domain layer](#consuming-with-a-domain-layer)
 
 ## What lives here
 
-- `gradle/java-conventions.gradle` - generic JVM build conventions.
-- `gradle/tasks/lint/` - source-text gates the conventions apply.
-- `gradle/tasks/diagnostics/` - what the conventions report about the machine
-  rather than the code.
-- `gradle/spotless-java.gradle`, `gradle/tasks/format/` - the opt-in,
-  on-demand source cleanup. Mechanical fixes only; never re-lays code.
-- `.github/workflows/_ci-gradle.yml` - reusable Gradle build/test workflow.
-- `.github/workflows/ci-bash.yml`, `ci-yaml.yml` - thin callers that
-  delegate shell/YAML linting to Common-Automation.
-- `.github/lib/trimmed-file-types.sh` - the JVM text types every JVM repo's
-  pre-commit hook adds to Common-Automation's whitespace trim.
-- `scripts/` - shims to Common-Automation's lint/test/permission/whitespace
-  engines.
+- `gradle/java-conventions.gradle` - the generic JVM build conventions a consumer applies.
+- `gradle/checkstyle.xml` - the Java checks the conventions run through Checkstyle.
+- `gradle/detekt.yml` - the Kotlin magic-number rule `enforceNoMagicLiteralsKotlin` runs.
+- `gradle/tasks/source-text.gradle` - the file types and encoding every script reading code agrees on.
+- `gradle/tasks/lint/` - the lint gates the conventions apply, and their helpers.
+- `gradle/tasks/diagnostics/` - reports about the machine and the test run rather than the code.
+- `gradle/spotless-java.gradle`, `gradle/tasks/format/` - the opt-in, on-demand source cleanup.
+- `ci-smoke/` - a Gradle project that applies the conventions as a consumer would,
+  and holds the TestKit suites for every script.
+- `.github/workflows/_ci-gradle.yml` - the reusable Gradle build and test workflow.
+- `.github/workflows/ci-gradle.yml` - this repo's own caller of that workflow, building `ci-smoke/`.
+- `.github/workflows/ci-bash.yml`, `ci-yaml.yml` - callers that delegate shell and YAML linting to Common-Automation.
+- `.github/lib/` - the JVM tier's declarations for the shared pre-commit fixes:
+  `executable-paths.sh` and `trimmed-file-types.sh`.
+- `.githooks/pre-commit` - this repo's commit hook.
+- `scripts/` - local runners: shims to Common-Automation's engines,
+  and `run-ci-gradle.sh`, the Gradle engine consumer repos call.
 
 ## Gradle conventions
 
-`gradle/java-conventions.gradle` standardises the language target (Java 17),
-the test stack (JUnit 5 + AssertJ + Mockito),
-and JaCoCo coverage (plus a `coverage` task) -
-over the main sources and,
-for a project applying `java-test-fixtures`,
-the fixtures it publishes too.
+[gradle/java-conventions.gradle](gradle/java-conventions.gradle) sets:
+
+- Java 17 as the compile release, with UTF-8 sources.
+- JUnit 5, AssertJ and Mockito as the test stack, pinned in one place.
+- JaCoCo coverage, with HTML, XML and CSV reports and a `coverage` task that runs the tests first.
+- For a project applying `java-test-fixtures`: the same test stack for the fixtures, and coverage over them.
+- Checkstyle, the lint gates and the AWT probe described below.
+
 A consumer applies it by path:
 
 ```groovy
 apply from: "${rootDir}/../Common-Java/gradle/java-conventions.gradle"
 ```
 
-Applied by path rather than published as a plugin, on the assumption that
-consumers are checked out as siblings under the same parent directory, so
-a relative path is the lowest-ceremony single source of truth. No
-`settings.gradle` change is needed.
+The path assumes consumers are checked out as siblings under the same parent directory.
+No `settings.gradle` change is needed.
 
-Every test run ends with the ten slowest tests,
-so a creeping suite runtime is visible rather than hidden in the aggregate,
-and a failing one adds the failures twice over:
-a clean list of names,
-then the same names under the same numbers with the stack trace behind each,
-cause chain followed to its end.
-Both sit at the bottom of the log,
-where a reader starts,
-rather than where each test happened to run.
-Details stop after the first ten failures -
-a run that dies on its environment fails every test it has with one fault -
-and the rest are in the `test-reports` artifact.
+Each configured project logs the Gradle version and the JVM it ran on.
 
-A `Test` task registered beside `test`,
-such as a TestKit tree,
-asks for the same report:
+### Test run report
+
+Every test run ends with the ten slowest tests.
+A failing run then lists the failures twice:
+first the names, then the same names under the same numbers, each with its stack trace and full cause chain.
+Both blocks sit at the bottom of the log, where a reader starts.
+Traces stop after the first ten failures;
+the rest are in the task's HTML test report.
+
+A `Test` task registered beside `test`, such as a TestKit tree, asks for the same report:
 
 ```groovy
 reportTestOutcomesOf(it)
 ```
 
-Checkstyle runs from `gradle/checkstyle.xml`, whose import-order rule takes
-the blocks as a property rather than naming any consumer's packages. The
-default is everything-then-the-JDK; a consumer (or a layer above it, such
-as a family's own conventions script) states its real blocks over the top:
+### Checkstyle
+
+Checkstyle runs from [gradle/checkstyle.xml](gradle/checkstyle.xml).
+It reports unused, redundant, wildcard and misordered imports, unused locals, and magic numbers.
+Magic numbers are not checked under `src/test`.
+Violations fail the build.
+
+The import-order rule takes its blocks as properties.
+The default is everything, then the JDK.
+A consumer, or a family conventions script above this one, states its real blocks:
 
 ```groovy
 def importGroups = 'com.example.api,mylib,myapp,/^org\\./,java'
@@ -82,286 +114,88 @@ checkstyle.configProperties.importGroups = importGroups
 checkstyle.configProperties.staticImportGroups = importGroups
 ```
 
-Every group a project imports from has to be named. Checkstyle sorts an
-import matching no group after every named one - below `java.*` - so a
-package left off the list fails in a way that reads as nothing to do with
-the list.
+Every package a project imports from must match a group.
+Checkstyle sorts an unmatched import after every named group, below `java.*`,
+so a missing group fails as a misordered import.
 
 ## Lint gates
 
-`java-conventions.gradle` also applies the gates under
-[gradle/tasks/lint/](gradle/tasks/lint/), so a consumer inherits them from
-one place alongside checkstyle. Each asserts one convention no compiler
-reports, and each runs as part of `check` and `test`. All but one read
-source text; `enforceReferencedTypes` reads the classes that text compiled
-to, for the reason given below:
+`java-conventions.gradle` applies every gate under [gradle/tasks/lint/](gradle/tasks/lint/).
+Each asserts one convention no compiler reports.
+`test` and `check` depend on every gate.
+A gate is skipped as up to date while its inputs and rules are unchanged.
 
-| Task | Rule |
-| --- | --- |
-| `enforceCamelCaseTestNames` | test methods are named in camelCase, not snake_case |
-| `enforceDocLinksResolve` | a relative link in a `.md` file points at something that exists |
-| `enforceIdCasing` | prose spells the abbreviation `ID`, not `id` |
-| `enforceMethodsOrderedByVisibility` | production methods run most-public-first |
-| `enforceNoMagicLiteralsKotlin` | Kotlin numbers are named; Java's ride in `checkstyle.xml` |
-| `enforceNoTestVocabulary` | production code is not written in the words of the suites that test it |
-| `enforceNoTrailingWhitespace` | no line ends in whitespace |
-| `enforcePackageLayering` | a package root does not import one the consumer declared it closed to |
-| `enforcePackageVocabulary` | a package root does not say a word the consumer declared it closed to |
-| `enforceReferencedTypes` | compiled code names a type from a restricted namespace only where the consumer declared that type allowed |
-| `enforceRestrictedCalls` | a call a package root is closed to is made only in the types the consumer named |
-| `enforceSingleBlankLines` | at most one consecutive blank line |
-| `enforceSuffixOnFakes` | hand-written test doubles are suffixed `Fake`, or `_FAKE` where the holder is a constant |
-| `enforceSuffixOnMocks` | Mockito mock variables are suffixed `Mock`, or `_MOCK` where the holder is a constant |
-| `enforceSuffixOnSuites` | a class holding tests is suffixed `Tests` |
-| `enforceTestNamesOmitGroup` | a test method's name does not repeat its `@Nested` group's |
-| `enforceTestsNested` | every `@Test` sits inside a `@Nested` class |
+| Task | Reads | Rule |
+| --- | --- | --- |
+| `enforceCamelCaseTestNames` | test trees | methods are named in camelCase, not snake_case |
+| `enforceDocLinksResolve` | every `.md` file in the project | a relative link points at a file that exists, spelt in the same case |
+| `enforceIdCasing` | every `.md` file, and Java and Kotlin comments under `src/` | prose spells the abbreviation `ID`, not `id` |
+| `enforceMethodsOrderedByVisibility` | Java and Kotlin under `src/main` | methods in a type run most-public-first |
+| `enforceNoMagicLiteralsKotlin` | Kotlin in every source set but `test` | numbers are named constants |
+| `enforceNoTestVocabulary` | Java, Kotlin and `.md` under `src/`, test trees exempt | production sources do not use the words of a test suite |
+| `enforceNoTrailingWhitespace` | Java and Kotlin in the formatted source sets | no line ends in whitespace |
+| `enforcePackageLayering` | Java and Kotlin under `src/` | a package does not import a layer it is declared closed to |
+| `enforcePackageVocabulary` | Java, Kotlin and `.md` under `src/` | a package root does not say a word it is declared closed to |
+| `enforceReferencedTypes` | compiled classes under `build/classes` | code names a restricted namespace's types only where they are allowed |
+| `enforceRestrictedCalls` | Java and Kotlin under `src/` | a restricted call is made only in the types named for it |
+| `enforceSingleBlankLines` | Java and Kotlin in the formatted source sets | at most one consecutive blank line |
+| `enforceSuffixOnFakes` | test trees | hand-written test doubles and their holders end in `Fake` |
+| `enforceSuffixOnMocks` | test trees | holders of generated mocks and spies end in `Mock` |
+| `enforceSuffixOnSuites` | test trees | a class holding tests ends in `Tests` |
+| `enforceTestNamesOmitGroup` | test trees | a test method's name does not repeat its `@Nested` group's |
+| `enforceTestsNested` | test trees | every test method sits inside a `@Nested` class JUnit runs |
 
-A gate only ever reports, which is what makes inheriting them everywhere
-free. Each carries its own TestKit integration test in `ci-smoke/` that
-applies the one script into a throwaway project and drives a real build,
-and `verifyEveryGateHasASuite` counts the scripts against those suites: a
-gate whose suite was never written, or whose folder was renamed out from
-under the tree that collects them, is a gate nothing runs - which is
-exactly what a passing build looks like.
+The test trees are `src/test` and `src/testFixtures`.
 
-Neither half of being a gate is written out per script. `lint-gate.gradle`
-owns both: the stamp that lets Gradle skip a gate whose sources have not
-changed, and the `test`/`check` dependency that makes a build run it at
-all. A gate takes them in one call, `installLintGate(taskProvider)`, so
-there is no second thing for the next gate's author to remember - and
-forgetting either was silent in both directions.
+### Declarations and allowances
 
-The two ends of a gate's own work are shared the same way.
-`lint-gate.gradle` also declares the source roots a gate reads (`declareSourceRoots`),
-walks their Java and Kotlin files (`eachSourceFile`),
-and fails with what the gate found under its heading (`failOnViolations`).
-How a gate reads a file is shared too:
-`source-scan.gradle` strips comments and literals from each line,
-Kotlin raw strings and backtick names included,
-and tracks which class, and which `@Nested` group, a line sits in;
-`naming/tests/double-naming-scan.gradle` finds a test double's holder
-for the two double-naming gates.
-A new source-text gate applies these rather than copying them,
-and each helper is exercised through the suites of the gates that apply it.
+Four gates check nothing until a consumer declares rules:
+`enforcePackageLayering`, `enforcePackageVocabulary`, `enforceRestrictedCalls` and `enforceReferencedTypes`.
+Which package may reach which, and which words or calls it may use, is a per-project fact this repo cannot know.
 
-`enforceDocLinksResolve` skips version-control and build-tool directories
-by name, which is all this repo knows about. A consumer whose own tooling
-writes markdown names that directory too, from a script that runs after
-the conventions - the list is read when the tree is scanned, so a late
-addition still counts:
+A declaration takes named arguments and states a whole rule in one call.
+A malformed declaration fails where it is written.
+Where a gate offers allowances or exemptions,
+each is a line in the build that a reviewer reads in the diff,
+never an inline marker in the source.
 
-```groovy
-docLinkScanExcludedDirectoryNames << 'graphify-out'
-```
+A stranded allowance fails the build;
+each gate's section says when one is stranded.
+A stale entry reads as a rule while exempting nothing,
+and the text it was written for is unguarded again the moment it returns under another name.
 
-`enforcePackageLayering` checks nothing until the consumer says what its
-layers are, since which package may not reach which is a per-project fact
-this repo cannot know. Each edge is declared whole, in one call, so a
-half-stated rule is never a thing that exists:
+### Formatting gates
+
+`enforceNoTrailingWhitespace` and `enforceSingleBlankLines` read the Java and Kotlin of every source set,
+less those named in [`formatterExcludedSourceSets`](#excluded-source-sets).
+A line holding only whitespace counts as blank.
+Both need the `java` plugin, which the conventions apply.
+
+### Markdown gates
+
+`enforceDocLinksResolve` and `enforceIdCasing` read every `.md` file in the project,
+not only those under `src/`, because a repository's longest prose is its root README.
+Both skip directories named in `markdownScanExcludedDirectoryNames`.
+Its defaults are version-control and build-tool directories:
+`.git`, `.gradle`, `bin`, `build`, `out` and `node_modules`.
+A consumer whose own tooling writes Markdown adds that directory.
+Additions made after the gates are applied still count:
 
 ```groovy
-enforcePackageLayering {
-    forbidImport under: 'example.framework', of: 'example.feature'
-    forbidImport under: 'example.framework.reads',
-                    of: ['example.framework.writes',
-                        'example.framework.layout']
-}
+markdownScanExcludedDirectoryNames << 'generated-docs'
 ```
 
-`of` takes one package root or a list of them, since a root is usually
-closed to several at once - the siblings it must not reach into. Each
-entry is still its own edge; the list only spares the closed side from
-being restated once per pair.
+`enforceDocLinksResolve` checks inline links outside fenced code blocks.
+A target with a scheme or `//host`, a target above the project root, and a pure `#fragment` are out of scope.
+A target that exists only in another case fails too,
+since it resolves on a case-insensitive disk and breaks on a repository host.
 
-A closed root may leave subtrees of its own out with `except` - one package or a list, each strictly beneath the root:
-
-```groovy
-enforcePackageLayering {
-    forbidImport under: 'example.framework',
-                 except: 'example.framework.kinds',
-                 of: 'example.framework.kinds'
-}
-```
-
-That is the shape a framework takes when the fillers of its own seams live inside it:
-the rest of it may not reach them, while they reach each other freely.
-Spelt as one edge per sibling package instead, the rule fails open for the next package anybody adds.
-An `except` outside the root, or naming the root itself, is refused where it is written,
-and `exactly` takes none, since a package closed alone has no subtree to leave out.
-`enforcePackageVocabulary`'s `forbidWords` takes the same `except` on the same terms.
-
-An `of` entry may be a layer of the same shape - a map with `under` and `except`:
-
-```groovy
-enforcePackageLayering {
-    forbidImport under: 'example.framework.kinds',
-                 of: [under: 'example.framework',
-                      except: 'example.framework.kinds']
-}
-```
-
-That is the shape a package needs when its parent depends on it and it must not depend back.
-Closed to the whole parent, it would be closed to its own static imports;
-spelt as its siblings, the parent's top-level classes would stay open.
-The `except` is held to the same terms as the closed side's.
-
-Every source set is scanned, not `main` and `test` alone: a layering rule
-that exempts a tree is a layering rule with a hole in it. Test sources
-matter as much as production ones, since a suite reaching across the line
-for a real type is the shortest way to make it compile.
-
-`enforcePackageVocabulary` is that gate one level in: it keeps a package
-root from being *written in* another's words, in code, in comments, and in
-the markdown filed beside them. A leaked import stops compiling the day
-the package moves; a leaked noun in a Javadoc survives every move in
-silence, and it is what a reader of the package actually reads. Like the
-layering rule, the vocabulary is a per-project fact this repo cannot know:
-
-```groovy
-enforcePackageVocabulary {
-    forbidWords under: 'example.framework',
-                words: ['feature', 'features', 'territory']
-    allowWord word: 'territory',
-            inFile: 'src/main/java/example/framework/theme/README.md'
-    allowWords words: ['feature', 'features'],
-            inFile: 'src/utils/java/example/framework/ui/Viewer.java'
-}
-```
-
-`allowWords` is the same allowance for several words in one file - the
-shape a README explaining a rule takes, since it has to name every word
-the rule bans. `enforceNoTestVocabulary` takes both spellings too.
-
-Words are matched whole and parted at camel humps, so `blocks` is its own
-word and `clipInsideTheNationalBorder` says `national border`. A plural is
-a different word, so a list forbidding `bloc` does not catch `blocs` - the
-consumer declares both. A phrase is found across a line break too, since
-prose wraps where the column runs out rather than where the phrase ends.
-
-The escape hatch is a declared allowance rather than an inline marker
-comment, and the declaration is the point: an entry is a line someone adds
-to the build and a reviewer reads in the diff, where an inline opt-out is
-invisible until somebody greps for it. An allowance is per file and per
-word, and one naming a file the gate does not scan fails the build - a
-stale path exempts nothing while reading as though it does.
-
-`enforceRestrictedCalls` is the third of the family, one step finer than
-either: it says which *types* may make a particular call. That is the rule
-an architecture needs when one API is legitimate at a single seam and a
-defect everywhere else - an ambient global read contained at the adapter
-that hands what it found downward, while every other type takes it as an
-argument:
-
-```groovy
-enforceRestrictedCalls {
-    restrictCall call: 'Example.getGlobalHandle()',
-            under: 'example.framework',
-            toTypes: ['Adapter']
-}
-```
-
-Stated over where a call may be made rather than over how many there are:
-a count pins whichever number the code was standing on, where a named list
-fails the build for a caller nobody declared. Omitting `toTypes` closes
-the root to the call outright, so a mistyped key enforces the rule
-everywhere rather than allowing it everywhere.
-An optional `instead` names what to write in place of the call,
-and is appended to the failure -
-for a rule whose one allowed seam lives in another build,
-where the empty allowed list says nothing about where to go.
-
-A type is named by the file it lives in. The call is matched as literal
-text against the code with comments stripped first, so a Javadoc
-explaining why a call is contained is prose about the rule rather than a
-breach of it.
-
-`enforceReferencedTypes` is the fourth, and the only gate that reads
-compiled classes. It asks which of a namespace's type names the build is
-allowed to carry, for a library whose published surface is stable and
-whose internals are not - one shipped per platform, a shaded
-redistribution, an obfuscated release whose non-public names are
-regenerated. Code compiled against one spelling then fails to link against
-another, and it fails at the call rather than at load:
-
-```groovy
-enforceReferencedTypes {
-    restrictReferences namespace: 'example.library',
-        allowingPackages: ['example.library.api'],
-        allowingTypes: ['example.library.internal.Seam']
-}
-```
-
-It reads classes because a source pass cannot see the reference that
-matters. A file that never names a type still compiles one into a
-descriptor wherever an inferred local takes a returned value, or the
-compiler writes a bridge for an inherited method - and the descriptor is
-what the runtime resolves. Both cases are real: one shipped a crash, the
-other sits in a consumer that extends a library base class and names
-nothing.
-
-A package allowance covers everything beneath it; a type allowance covers
-that type and the types nested inside it, which are declared with it and
-renamed with it. A sibling in the same package is its own declaration.
-Omitting both closes the namespace outright, so a mistyped key closes it
-rather than opening it.
-
-The check runs both ways. A type allowance that nothing compiled names
-fails the build too: it reads as a dependency the project has, and whoever
-writes the next reference to that type finds it already approved for
-reasons nobody checked. That is a failure rather than a warning for the
-reason the whole family states its rules as named lists - an entry is a
-line a reviewer reads in the diff, and a gate skipped while its inputs
-hold would say a warning once and then never again. Package allowances are
-not judged this way, being a policy about a whole tree rather than a claim
-about what is used.
-
-Classes compiled into the namespace itself are passed over: a class filed
-under a library's own package is written to that library's internals by
-definition, and it is the one place the promise does not apply. A
-violation names the class and the type it referenced, with no line
-number - a class file records which types a method touches, not where
-each was written.
-
-A namespace can also be closed for a reason other than unstable spellings,
-such as a runtime that refuses to load it.
-`inSourceSets` then holds the rule to the trees that ship,
-since a suite on a plain JVM may use what the runtime refuses;
-a source set the build does not have fails the build rather than checking nothing.
-`reason` ends each finding with the true cause in place of the default sentence.
-It continues "X references T, which",
-so it is written as the clause that follows:
-
-```groovy
-enforceReferencedTypes {
-    restrictReferences namespace: 'java.lang.reflect',
-        inSourceSets: ['main'],
-        reason: 'the game refuses to load for mod code'
-}
-```
-
-Each namespace is declared once, its whole rule in one call.
-A second declaration over the same namespace fails the build:
-the gate gathers what was named per namespace,
-so two rules would judge each other's allowances.
-
-A class the walk cannot follow - one carrying a constant-pool tag from a
-class-file version newer than the walk knows - fails the build ahead of
-any of that, and says which classes and how many. The cause is the gate
-falling behind rather than anything in the code, and the fix is a tag
-added to its table; but a gate that cannot read a class cannot promise
-what it exists to promise, and a class read as empty is indistinguishable
-from a class that passed.
-
-`enforceIdCasing` keeps `ID` spelt as English rather than as a field name.
-The two spellings are not a style toss-up: `ID` abbreviates
-*identification*, while `id` is how a symbol is spelt. Prose drifts to the
-lower-case form on its own, because a sentence written beside
-`market.getId()` borrows the casing of the symbol it describes - and left
-alone the drift wins on volume.
-
-Unlike the vocabulary gates it owns its rule outright, since the correct
-spelling of an abbreviation is not a per-project fact. A consumer declares
-only what to leave alone:
+`enforceIdCasing` owns its whole rule, since the spelling of an abbreviation is the same in every repository.
+It reads only prose:
+code spans, `{@code}` spans, `<pre>` samples, fenced blocks, `@param` names and dotted, hyphenated or underscored spellings are left alone.
+In Java and Kotlin it reads comments only, so it never asks for a rename.
+See [the script](gradle/tasks/lint/naming/enforce-id-casing.gradle) for the full list.
+A consumer exempts prose it carries without authoring:
 
 ```groovy
 enforceIdCasing {
@@ -369,144 +203,305 @@ enforceIdCasing {
 }
 ```
 
-Nearly all of the gate is spent *not* firing, which is what makes a rule
-about a two-letter word usable at all. A backticked `` `id` ``, a
-`{@code}` span, a `<pre>` sample and a fenced block are source being
-quoted and keep the casing the source has; the token after `@param` is a
-parameter's name; `mod-id`, `market.id` and `field_id` are file, path and
-column spellings. In code only comment text is read, so no identifier,
-literal or CSV column can ever be reported - the gate cannot ask for a
-rename, only for a word to be written properly or backticked.
+An `exemptPath` matching no file fails the build.
 
-Markdown is scanned across the whole project rather than under `src/`,
-because a repository's longest prose is its root README. An `exemptPath`
-matching no file fails the build, on the same reasoning as a stranded
-allowance above.
+### Test-tree gates
+
+These gates read `src/test` and `src/testFixtures`.
+
+- `enforceCamelCaseTestNames` reports any snake_case name that opens a call,
+  which covers test methods and helpers alike.
+  Kotlin backtick names, constants and literals are left alone.
+- `enforceSuffixOnFakes` reports a type with `Fake` in its name that does not end in it,
+  and a variable built from a `*Fake(...)` call that is not suffixed `Fake`, or `_FAKE` for a constant.
+- `enforceSuffixOnMocks` reports a holder not suffixed `Mock`, or `_MOCK` for a constant.
+  A holder is a variable assigned from Mockito's `mock`, `mockStatic`, `mockConstruction` or `spy`,
+  or MockK's `mockk` or `spyk`,
+  or a field annotated `@Mock`, `@Spy`, `@MockK`, `@RelaxedMockK` or `@SpyK`.
+- `enforceSuffixOnSuites` reports an outermost class that holds a test or a `@Nested` group and does not end in `Tests`.
+  Name an integration suite `<Subject>IntegrationTests`.
+- `enforceTestNamesOmitGroup` reports a test name that opens with its `@Nested` group's name and goes on to another word,
+  such as `readTotalIsZero` under `ReadTotal`.
+- `enforceTestsNested` reports a test method outside a `@Nested` class.
+  It also reports a `@Nested` class JUnit skips:
+  a Kotlin one not declared `inner`, and a Java one declared `static`.
+
+### Method order and Kotlin literals
+
+`enforceMethodsOrderedByVisibility` reads `src/main` only.
+Within a type, methods descend the visibility ladder:
+`public`, `protected`, package-private, `private` in Java,
+and `public`, `internal`, `protected`, `private` in Kotlin.
+An unmodified Java method is package-private, or public inside an interface;
+an unmodified Kotlin method is public.
+Constructors, enum constants and top-level Kotlin functions are not ranked.
+
+`enforceNoMagicLiteralsKotlin` runs the detekt CLI with [gradle/detekt.yml](gradle/detekt.yml),
+which enables only `MagicNumber` and turns config validation on.
+It reads the Kotlin of every source set except `test`, and is skipped when there is none.
+Java's magic numbers are Checkstyle's.
+
+### Test vocabulary
+
+`enforceNoTestVocabulary` keeps the words of a test suite out of production code and the Markdown beside it.
+It owns its word list:
+words like `mock`, `fake`, `stubbing` and `JUnit`,
+and phrases like `unit test` and `test harness`.
+See [the script](gradle/tasks/lint/naming/enforce-no-test-vocabulary.gradle) for the list.
+Words are matched as in [package vocabulary](#package-vocabulary).
+
+It reads every tree under `src/` except the test trees,
+which are `test` and `testFixtures` by default.
+A consumer declares only exemptions:
+
+```groovy
+enforceNoTestVocabulary {
+    exemptSourceSet name: 'bridgeStubs'
+    exemptPackage root: 'example.production.testsupport'
+    allowWord word: 'mocking', inFile: 'src/main/java/example/production/README.md'
+    allowWords words: ['mock', 'unit test'], inFile: 'src/main/java/example/production/Guide.md'
+}
+```
+
+- `exemptSourceSet name:` exempts a whole tree, named as its directory under `src/`.
+- `exemptPackage root:` exempts a package root wherever it sits,
+  for fixtures that ship in a production source set.
+- `allowWord word: inFile:` lets one project-relative file say one banned entry, spelt as the list spells it.
+- `allowWords words: inFile:` does the same for a list of entries.
+
+An allowance fails the build when its file is not scanned, sits in an exempt tree,
+or its word is no banned entry.
+
+### Package layering
+
+`enforcePackageLayering` reads the imports of every Java and Kotlin file under `src/`, test code included.
+Each `forbidImport` closes one side to one or more layers:
+
+```groovy
+enforcePackageLayering {
+    forbidImport under: 'example.framework', of: 'example.feature'
+    forbidImport under: 'example.framework.reads',
+        of: ['example.framework.writes', 'example.framework.layout']
+}
+```
+
+The closed side comes in two widths:
+
+- `under:` closes a root and everything beneath it.
+  `except:` leaves out subtrees of it, one package or a list, each strictly beneath the root.
+- `exactly:` closes that one package and leaves its subpackages free.
+  It takes no `except`.
+
+Naming both widths, or an `except` outside its root, fails where it is written.
+
+`of:` takes a root, a layer map `[under:, except:]`, or a list of either.
+Each entry is its own edge.
+A layer map closes a subtree to the rest of its parent without closing it to itself:
+
+```groovy
+enforcePackageLayering {
+    forbidImport under: 'example.framework.kinds',
+        of: [under: 'example.framework', except: 'example.framework.kinds']
+}
+```
+
+An `except` on the closed side fits a framework whose seam fillers live inside it:
+the rest of the framework may not reach them, while they reach each other freely.
+
+```groovy
+enforcePackageLayering {
+    forbidImport under: 'example.framework',
+        except: 'example.framework.kinds',
+        of: 'example.framework.kinds'
+}
+```
+
+Commented-out imports and imports spelt inside strings are not judged.
+
+### Package vocabulary
+
+`enforcePackageVocabulary` keeps a package root from being written in another's words:
+in code, in comments, and in the Markdown filed beside them.
+It reads Java, Kotlin and `.md` files under every source set,
+and judges each by the package its directories spell.
+
+```groovy
+enforcePackageVocabulary {
+    forbidWords under: 'example.framework',
+        except: 'example.framework.kinds',
+        words: ['ledger', 'sales order']
+    allowWord word: 'ledger', inFile: 'src/main/java/example/framework/README.md'
+    allowWords words: ['ledger', 'sales order'], inFile: 'src/main/java/example/framework/Rules.md'
+}
+```
+
+- `forbidWords under:` names the closed root.
+  `except:` takes one subtree or a list, on the same terms as in [package layering](#package-layering).
+  `words:` takes one entry or a list.
+- `allowWord` lets one project-relative file say one entry.
+  `allowWords` takes one entry or a list, for a README that has to name every word its rule bans.
+  An allowance naming a file the gate does not scan fails the build.
+
+Text is parted into words at camel humps and at every non-letter.
+An entry is parted the same way,
+so `'SalesOrder'`, `'sales order'` and `'sales-order'` declare one phrase,
+found in an identifier and in prose alike.
+An entry with no letters is refused.
+A phrase is found across a line break.
+A plural is a different word, so a list forbidding `ledger` does not catch `ledgers`.
+
+### Restricted calls
+
+`enforceRestrictedCalls` lets only named types make a call under a package root.
+It fits an ambient global read contained at one adapter,
+while every other type takes what it found as an argument.
+
+```groovy
+enforceRestrictedCalls {
+    restrictCall call: 'Example.getGlobalHandle()',
+        under: 'example.framework',
+        toTypes: ['Adapter'],
+        instead: 'Seams.openGlobalHandle()'
+}
+```
+
+- `call:` is matched as literal text in the code.
+  Comments are stripped first; string literals are kept.
+  A spelling with whitespace inside it does not match.
+- `toTypes:` takes one type or a list, each named by the file it lives in.
+  Left out, the root is closed to the call outright.
+- `instead:` is optional and ends each finding,
+  for a rule whose allowed seam lives in another build.
+
+It reads Java and Kotlin under `src/`, every source set included.
+
+### Referenced types
+
+`enforceReferencedTypes` reads compiled classes, not source.
+A class records types its source never spells:
+an inferred local or a returned value puts a type into a descriptor, and the JVM resolves the descriptor.
+It guards a library whose non-public names differ between builds,
+and a runtime that refuses to load a namespace.
+
+```groovy
+enforceReferencedTypes {
+    restrictReferences namespace: 'example.library',
+        allowingPackages: ['example.library.api'],
+        allowingTypes: ['example.library.internal.Seam']
+    restrictReferences namespace: 'java.lang.reflect',
+        inSourceSets: ['main'],
+        reason: 'the runtime refuses to load it'
+}
+```
+
+- `namespace:` is the restricted package root, declared once.
+  A second declaration of it fails the build.
+- `allowingPackages:` and `allowingTypes:` take one name or a list.
+  A package allowance covers everything beneath it.
+  A type allowance covers that type and the types nested in it.
+  With neither, the namespace is closed outright.
+- `inSourceSets:` takes one name or a list and limits the rule to those trees.
+  A source set the build does not have fails the build.
+- `reason:` ends each finding as the clause after "X references T, which".
+
+A type allowance that nothing compiled names fails the build.
+Package allowances are not judged this way.
+Classes compiled into the namespace itself are exempt.
+A finding names the class and the type, with no line number.
+A class the gate cannot parse fails the build ahead of any finding;
+the fix is a constant-pool tag added to the gate.
+
+The gate depends on every compile task, Kotlin's included.
+
+### Helper scripts
+
+Gates are built from shared helpers.
+Each script applies the helpers it uses itself,
+since its suite applies it alone.
+[lint-gate.gradle](gradle/tasks/lint/lint-gate.gradle) states the conventions every gate follows.
+
+| Script | Provides |
+| --- | --- |
+| [tasks/source-text.gradle](gradle/tasks/source-text.gradle) | `jvmSourceIncludes` and `sourceEncoding`, shared by the gates and the formatter |
+| [tasks/lint/lint-gate.gradle](gradle/tasks/lint/lint-gate.gradle) | `installLintGate`, `failOnViolations`, `declareScannedFiles`, `declareRuleSnapshot`, `readOneOrMany` |
+| [tasks/lint/source-scan.gradle](gradle/tasks/lint/source-scan.gradle) | lines stripped of comments and literals, and the class and `@Nested` group each line sits in |
+| [tasks/lint/package-roots.gradle](gradle/tasks/lint/package-roots.gradle) | package declarations, package roots, and layers with `except` |
+| [tasks/lint/word-scan.gradle](gradle/tasks/lint/word-scan.gradle) | text parted into words, and where a declared phrase is said |
+| [tasks/lint/markdown-scan.gradle](gradle/tasks/lint/markdown-scan.gradle) | the authored `.md` tree and the lines outside fenced blocks |
+| [tasks/format/formatted-source-sets.gradle](gradle/tasks/format/formatted-source-sets.gradle) | the source sets less `formatterExcludedSourceSets` |
+| [tasks/lint/formatting/formatted-source-line-gate.gradle](gradle/tasks/lint/formatting/formatted-source-line-gate.gradle) | the line-by-line body of the two formatting gates |
+| [tasks/lint/naming/tests/double-naming-scan.gradle](gradle/tasks/lint/naming/tests/double-naming-scan.gradle) | a test double's holder, for the fake and mock gates |
+| [tasks/diagnostics/cause-chain.gradle](gradle/tasks/diagnostics/cause-chain.gradle) | a throwable's cause chain, for the reports that name a real fault |
+| [tasks/diagnostics/report-test-outcomes.gradle](gradle/tasks/diagnostics/report-test-outcomes.gradle) | `reportTestOutcomesOf`, the [test run report](#test-run-report) |
+
+`installLintGate` gives a gate an output stamp, so Gradle can skip it, and makes `test` and `check` depend on it.
 
 ## AWT environment probe
 
-`gradle/tasks/diagnostics/report-awt-environment.gradle` reports whether the
-machine a build is running on can draw text at all:
-the JVM that answered,
-the headless setting,
-the JDK's own font directory,
-how many font families are offered,
-and whether a string can actually be measured.
+`reportAwtEnvironment` reports whether the build machine can draw text:
+the JVM, the headless setting, the JDK's font directory, the font families offered, and whether a string can be measured.
+A JVM with no usable fonts fails the first Swing text component with an `InternalError` that names neither fonts nor the machine.
+[The script](gradle/tasks/diagnostics/report-awt-environment.gradle) explains the failure.
 
-It exists because of how badly that failure reads without it.
-A JVM with no usable fonts cannot construct a font manager,
-and the first Swing text component built in one dies with
-`java.lang.InternalError: java.lang.reflect.InvocationTargetException` -
-a JDK internal with an empty cause,
-naming neither fonts nor the machine,
-several tests into a suite about something else entirely.
-The fix is a package on the runner,
-so the machine is the one thing the failure has to name.
-
-Every consumer inherits the task and nothing is gated by default,
-since a repo with no UI code does not care what its runner can draw.
-A consumer whose suites build text components declares what it needs:
+Every consumer inherits the task, and nothing depends on it by default.
+A consumer whose suites build text components declares what they need:
 
 ```groovy
 awtFontFamiliesRequired = 1
 ```
 
-From then on the probe runs ahead of that project's tests
-and fails with the environment written out,
-rather than letting the suites fail one at a time.
-Run it directly - `gradlew reportAwtEnvironment` - on any runner whose graphics
-stack is in doubt.
+The probe then runs before that project's `test` task,
+and fails with the environment written out when the machine offers fewer families.
+Run `gradlew reportAwtEnvironment` directly on any runner in doubt.
 
-One limitation worth stating:
-the probe runs in the build JVM while the suites run in the test JVM.
-Fonts are installed per machine rather than per process,
-so the answer carries across in practice,
-but a project whose test task uses a different toolchain is being told about the
-build's JVM rather than its own.
+The probe runs in the build JVM, not the test JVM.
+A test task on a different toolchain is told about the build's JVM.
 
 ## Formatting
 
-The formatter is opt-in and never automatic, which is why
-`java-conventions.gradle` does not apply it: it rewrites source, and most
-consumers must never have it - the Starsector port mods carry third-party
-code where a reformat destroys the diff against upstream. A repo opts in
-by applying the script itself:
+The formatter rewrites source, so `java-conventions.gradle` does not apply it.
+A repo carrying third-party code has source that is not its own to touch.
+A repo opts in by applying the script itself:
 
 ```groovy
 apply from: "${rootDir}/../Common-Java/gradle/spotless-java.gradle"
 ```
 
-It comes in two passes, each independently runnable:
+It has two passes, each runnable on its own, and a task running both:
 
-- `spotlessApply` - mechanical fixes with exactly one correct answer:
-  `removeUnusedImports`, `trimTrailingWhitespace`, `endWithNewline`.
-- `alignJavadocParams` - re-aligns the `@param` description column in
-  Javadoc and KDoc blocks whose alignment has drifted. It fixes drift
-  rather than imposing a style: a block that uses one space throughout, or
-  whose descriptions already agree, is left exactly as written. This is
-  the pass to reach for after a rename.
+- `spotlessApply` - `removeUnusedImports`, `trimTrailingWhitespace` and `endWithNewline`.
+- `alignJavadocParams` - re-aligns the `@param` description column in Javadoc and KDoc blocks whose alignment has drifted.
+  A block using one space throughout, or already aligned, is left as written.
+  Run it after a rename.
 - `formatJava` - both, in that order.
 
-**Neither pass lays code out.**
-No indentation, no line wrapping, no brace or blank-line placement, no reflowing of comment prose.
-A whole-file formatter - Spotless driving the Eclipse JDT formatter from an `eclipse-formatter.xml` -
-used to sit here and was removed:
-its settings could not express this family's continuation indent and argument wrapping,
-so every run re-laid code it had no business touching,
-and a single invocation rewrote several hundred files and buried the real change among them.
-Code layout belongs to the person writing it,
-backed by the reporting gates under `gradle/tasks/lint/`, which never rewrite.
+Neither pass lays code out:
+no indentation, wrapping, brace or blank-line placement, and no reflowed comments.
+Import order is left to Checkstyle.
+[spotless-java.gradle](gradle/spotless-java.gradle) gives the reasons.
 
-Import *order* is deliberately absent for a related reason:
-the group list is assigned per repo over the default in `java-conventions.gradle`,
-and checkstyle's `ImportOrder` already reports a wrong order,
-so a second copy of the list here would be one more thing to drift out of true.
+Nothing depends on these tasks, and `spotlessCheck` is detached from `check`,
+so a build never fails on unclean source.
 
-Nothing depends on any of them, and `spotlessCheck` is detached from
-`check` (`enforceCheck = false`), so a build cannot fail on merely
-unclean source.
+`alignJavadocParams` can be applied alone from [align-javadoc-params.gradle](gradle/tasks/format/align-javadoc-params.gradle).
 
-A repo that owns source it does not style - a mirror of a third party's
-shape, generated code - names those source sets first, and both passes
-honour the list:
+### Excluded source sets
+
+A repo that owns source it does not style, such as a mirror of a third party's API or generated code,
+names those source sets in `formatterExcludedSourceSets`:
 
 ```groovy
 ext.formatterExcludedSourceSets = ['bridgeStubs']
-apply from: "${rootDir}/../Common-Java/gradle/spotless-java.gradle"
 ```
 
-Both passes read source sets,
-and so does the `enforceNoTrailingWhitespace` gate,
-which leaves `.gradle` scripts owned by neither -
-and this repo has no Gradle project at its root to format them with anyway.
-So Gradle scripts are trimmed on commit instead:
-[.github/lib/trimmed-file-types.sh](.github/lib/trimmed-file-types.sh) declares
-`*.gradle` as this tier's text type,
-and every JVM repo's pre-commit hook hands that file to the shared hook body
-in Common-Automation,
-which owns the trim itself and covers Markdown on its own.
-Declared once here rather than per repo,
-so a second type is one edit rather than five.
-
-Installed per clone with `./scripts/setup-hooks.sh`;
-`./scripts/fix-whitespace.sh` trims a whole repo,
-which is how files that predate the hook get healed.
-A consuming JVM repo's own `scripts/fix-whitespace.sh` points that at itself,
-so each mod trims its own Gradle scripts without restating the type.
+Both formatter passes and both [formatting gates](#formatting-gates) honour the list.
+It may be set before or after applying the scripts,
+and source sets declared after them are included.
 
 ## Reusable CI
 
-`.github/workflows/_ci-gradle.yml` runs `./gradlew <tasks>` on a chosen
-runner. It is language-agnostic (Java and Kotlin both build through
-`gradlew`, so there is no separate ci-java / ci-kotlin), with all variance
-expressed as inputs: `runner`, `gradle-tasks`, `setup-java`,
-`java-version`, `artifact-suffix`.
-
-Every run uploads its Gradle HTML test reports as a `test-reports`
-artifact, so the per-test detail behind a red check is reachable without
-access to the runner's disk. A caller that invokes the engine more than
-once in a workflow (a matrix over build variants) passes `artifact-suffix`
-to keep the names apart.
+[.github/workflows/_ci-gradle.yml](.github/workflows/_ci-gradle.yml) runs `./gradlew <tasks>` on a chosen runner.
+Java and Kotlin both build through `gradlew`, so one workflow serves both.
 
 ```yaml
 jobs:
@@ -516,11 +511,85 @@ jobs:
       gradle-tasks: test jar
 ```
 
+| Input | Type | Default | Purpose |
+| --- | --- | --- | --- |
+| `runner` | string, JSON label array | `''` | `runs-on` override, such as `'["self-hosted","some-label"]'` |
+| `gradle-tasks` | string | `test jar` | Gradle tasks, separated by spaces |
+| `checkout-path` | string | `.` | where the caller repo is checked out |
+| `working-directory` | string | `.` | where `gradlew` runs |
+| `sibling-checkouts` | string, JSON `[{repo, ref?, path}]` | `[]` | repos cloned beside the caller, so relative `apply from` paths resolve |
+| `setup-java` | boolean | `false` | provision a Temurin JDK |
+| `java-version` | string | `17` | the JDK `setup-java` provisions |
+| `artifact-suffix` | string | `''` | tells this run's test-report artifact apart, for a caller invoking the workflow more than once |
+
+- The optional secret `sibling_checkout_token` clones private siblings.
+  Without it the clone uses `github.token`.
+- The runner is the `runner` input, else the `CI_JAVA_RUNNER` variable, else `["ubuntu-latest"]`.
+  `CI_JAVA_RUNNER` is a JSON label array read from the caller's repository.
+- The workflow grants `github.token` `contents: read` only.
+- A self-hosted runner's workspace is cleaned before checkout.
+  The pinned actions need Node 24 on the runner.
+- Gradle runs with `--no-daemon --console=plain --warning-mode all`.
+- Test reports upload as `test-reports`, or `test-reports-<suffix>`, even when the build fails,
+  and are kept for 7 days.
+
+This repo's own [ci-gradle.yml](.github/workflows/ci-gradle.yml) calls the workflow to run `build` in `ci-smoke/`.
+A manual run may override the runner.
+
+## Local scripts and hooks
+
+Run `./scripts/setup-hooks.sh` once per clone.
+It points git at `.githooks/`.
+The pre-commit hook then runs Common-Automation's shared fixes on staged files:
+the executable bit, and trailing whitespace in Markdown and Gradle scripts.
+It skips the fixes when Common-Automation is not checked out.
+
+| Script | Does |
+| --- | --- |
+| `setup-hooks.sh` | wires `.githooks/` into git |
+| `fix-permissions.sh` | Common-Automation's fix plus `gradlew` and `*/gradlew`, from [.github/lib/executable-paths.sh](.github/lib/executable-paths.sh) |
+| `fix-whitespace.sh` | Common-Automation's trim plus `*.gradle`, from [.github/lib/trimmed-file-types.sh](.github/lib/trimmed-file-types.sh) |
+| `run-ci-gradle.sh [tasks]` | the local mirror of `_ci-gradle.yml`, with the same Gradle flags |
+| `run-ci-yaml-and-bash.sh` | the shell and YAML lint and the bats suites, as `ci-bash.yml` and `ci-yaml.yml` run them |
+| `run-lint-yaml-and-bash.sh` | the lint half alone |
+| `run-tests-bash.sh` | the bats half alone |
+| `publish-version-tags.sh [vX.Y.Z]` | tags `origin/master` with `vX.Y.Z` and the floating `vX`; prompts when the version is omitted |
+
+Each `.sh` has a `.bat` launcher for an Explorer double-click.
+The shims find Common-Automation through `COMMON_AUTOMATION_ROOT`,
+which defaults to the `Common-Automation` folder beside this repo.
+They work on the repo `COMMON_JAVA_TARGET_REPO` names, which defaults to Common-Java.
+`publish-version-tags.sh` always tags this repo.
+
+`run-ci-gradle.sh` is Common-Java's own engine.
+A consumer repo calls it with `COMMON_JAVA_TARGET_REPO` set,
+and must then pass the tasks its CI runs.
+Without a target, it runs in `ci-smoke/` and defaults to `build`.
+
+A consumer JVM repo's pre-commit hook reads `executable-paths.sh` and `trimmed-file-types.sh`
+from `../Common-Java/.github/lib/`,
+so the tier's executables and text types are declared once.
+
+## Testing the scripts
+
+[ci-smoke/](ci-smoke/) applies `java-conventions.gradle` by relative path, as a consumer does.
+Its `testGradle` task runs a TestKit suite per script:
+each suite applies its one script to a throwaway project and drives a real build.
+A suite and its `.txt` fixtures sit at the script's own path under `ci-smoke/src/test-gradle/tasks/`.
+
+Two checks guard the suites themselves:
+
+- `verifyEveryGateHasASuite` fails when a script that registers a task has no suite at its path.
+- `verifyConventionsWireEveryGate` fails when `java-conventions.gradle` leaves a lint gate out of `check`.
+
+Both run with `check`, as does `testGradle`.
+
 ## Consuming with a domain layer
 
-A project that needs more than the generic conventions (extra classpath,
-a version source, a custom artifact location) puts that in its own
-intermediate convention script, which applies `java-conventions` first and
-then adds its layer. Consumers then apply the intermediate script. The
-dependency arrow only ever points up to this repo - nothing here reaches
-back down to know what those layers are.
+A project that needs more than the generic conventions,
+such as extra classpath, a version source or a custom artifact location,
+puts that in its own intermediate convention script.
+That script applies `java-conventions.gradle` first, then adds its layer.
+Consumers apply the intermediate script.
+The dependency arrow only points up to this repo:
+nothing here knows what those layers are.

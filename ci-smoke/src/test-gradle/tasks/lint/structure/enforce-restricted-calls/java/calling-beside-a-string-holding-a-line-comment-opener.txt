@@ -1,0 +1,5 @@
+package example.framework.render;
+
+class Sample {
+    String link = "http://x"; Object handle = Example.getGlobalHandle();
+}

@@ -4,16 +4,15 @@
     "https://checkstyle.org/dtds/configuration_1_3.dtd">
 
 <!--
-  Single source of truth for the Java family's import hygiene and the
-  "named constants good, loose literals bad" rule for numbers. Two concerns,
-  both the kind a plain `javac` build silently tolerates: import cruft (unused,
-  redundant, wildcard imports) and magic numbers buried in logic. Applied by
-  Common-Java/gradle/java-conventions.gradle, so every Java consumer inherits
-  it from one place; the Kotlin counterpart of the magic-number rule is the
-  detekt gate (gradle/tasks/lint/literals), kept in step with this one.
+  Single source of truth for the Java checks a plain `javac` build silently
+  tolerates: import hygiene (unused, redundant, wildcard and misordered
+  imports), unused locals, and the "named constants good, loose literals bad"
+  rule for numbers. Applied by Common-Java/gradle/java-conventions.gradle, so
+  every Java consumer inherits it from one place; the Kotlin counterpart of the
+  magic-number rule is the detekt gate (gradle/tasks/lint/literals).
 
-  Severity is error: a violation fails the build's `check` task, which is the
-  whole point - silent accumulation is what let this cruft survive before.
+  Severity is error: a violation fails the build's `check` task, since a
+  tolerated warning count only ever grows.
 -->
 <module name="Checker">
     <property name="severity" value="error"/>
@@ -21,9 +20,9 @@
     <!-- Checkstyle reads sources as UTF-8 to match the compiler's encoding. -->
     <property name="charset" value="UTF-8"/>
 
-    <!-- Magic numbers are not checked in test sources: test data and fixtures
-         are legitimately literal-heavy, the same reason the Kotlin detekt gate
-         scans only src/main. Import hygiene still applies to tests. -->
+    <!-- Magic numbers are not checked in the test source set: test data is
+         legitimately literal-heavy. The Kotlin gate draws the same line. Import
+         hygiene still applies to tests. -->
     <module name="SuppressionSingleFilter">
         <property name="checks" value="MagicNumberCheck"/>
         <property name="files" value="[\\/]src[\\/]test[\\/]"/>
@@ -45,8 +44,7 @@
         <module name="RedundantImport"/>
 
         <!-- Wildcard imports hide exactly which types a file depends on, and
-             defeat UnusedImports. None exist in the family today; this keeps
-             it that way. -->
+             defeat UnusedImports. -->
         <module name="AvoidStarImport"/>
 
         <!-- Imports grouped, blank-line separated, alphabetical within group,

@@ -1,0 +1,8 @@
+class Sample {
+    fun make() {
+        val clock = 0
+        openSchedule(
+            clock = ClockFake(),
+        )
+    }
+}

@@ -1,0 +1,4 @@
+class Sample {
+
+    static final Clock EMPTY = mock(Clock.class);
+}

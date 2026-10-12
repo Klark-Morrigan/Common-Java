@@ -5,6 +5,6 @@ package example.framework;
 // as one word.
 final class Sample {
 
-    void clipTheAcceptedLineInsideTheNationalBorder() {
+    void fillTheFormForTheSalesOrderScreen() {
     }
 }

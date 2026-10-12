@@ -36,16 +36,36 @@
 // in a build script that runs after this one is applied.
 ext.awtFontFamiliesRequired = 0
 
+apply from: new File(buildscript.sourceFile.parentFile, 'cause-chain.gradle')
+
+// The family count when the machine could not be asked at all, below any count it could answer.
+def unansweredFamilyCount = -1
+
+// How many family names the report lists: enough to recognise the font stack by.
+def maxListedFamilyNames = 3
+
+// What the measurement draws. Dialog is a logical font every JDK maps to an installed one.
+def measuredFontName = 'Dialog'
+def measuredFontSize = 12
+def measuredText = 'Mg'
+
 def requiredFontFamilies = project.provider {
     (project.findProperty('awtFontFamiliesRequired') ?: 0) as int
 }
 
+// A throwable as one line: its own class and message, then each cause's, which
+// for this failure is the whole of the diagnosis - the InternalError says
+// nothing, its InvocationTargetException says nothing, and the Error at the end
+// of the chain is the one that names fonts.
+def describeCauseChain = { Throwable failure ->
+
+    return readCauseChain(failure).collect { "${it.class.name}: ${it.message}" }.join(' <- caused by ')
+}
+
 def reportAwtEnvironment = tasks.register('reportAwtEnvironment') {
 
-    // Parenthesised: without them Groovy reads the leading + of the second line
-    // as a statement of its own and the description keeps only the first half.
-    description = ('Reports the JVM graphics environment; fails when it cannot offer the '
-        + 'fonts a consumer declared its suites need.')
+    description = 'Reports the JVM graphics environment; fails when it cannot offer the ' +
+        'fonts a consumer declared its suites need.'
 
     group = 'verification'
 
@@ -62,7 +82,7 @@ def reportAwtEnvironment = tasks.register('reportAwtEnvironment') {
         // an InternalError out of the font manager, or the "no fonts found"
         // Error behind it.
         def facts = []
-        def familyCount = -1
+        def familyCount = unansweredFamilyCount
 
         facts << "jvm: ${System.getProperty('java.version')} at ${System.getProperty('java.home')}"
         facts << "java.awt.headless: ${System.getProperty('java.awt.headless') ?: '(unset)'}"
@@ -73,9 +93,9 @@ def reportAwtEnvironment = tasks.register('reportAwtEnvironment') {
         // Absent is normal and not the fault: most JDKs ship no fonts of their own and rely on
         // the platform's. It is reported because where it IS present it is the fallback that
         // keeps a bare container able to draw at all.
-        facts << ("${jdkFontDir}: "
-            + (jdkFontDir.isDirectory() ? "${jdkFontFiles} files" : 'absent (normal - the '
-                + "platform's own fonts are what a JDK usually draws with)"))
+        facts << "${jdkFontDir}: " +
+            (jdkFontDir.isDirectory() ? "${jdkFontFiles} files" : 'absent (normal - the ' +
+                "platform's own fonts are what a JDK usually draws with)")
 
         try {
             def graphics = java.awt.GraphicsEnvironment.localGraphicsEnvironment
@@ -85,8 +105,8 @@ def reportAwtEnvironment = tasks.register('reportAwtEnvironment') {
             def families = graphics.availableFontFamilyNames
             familyCount = families.length
 
-            facts << ("font families: ${familyCount}"
-                + (familyCount > 0 ? " (first: ${families.take(3).join(', ')})" : ''))
+            facts << "font families: ${familyCount}" +
+                (familyCount > 0 ? " (first: ${families.take(maxListedFamilyNames).join(', ')})" : '')
 
         } catch (Throwable cannotAskAboutFonts) {
             facts << "font families: unavailable - ${describeCauseChain(cannotAskAboutFonts)}"
@@ -100,9 +120,10 @@ def reportAwtEnvironment = tasks.register('reportAwtEnvironment') {
             def canvas = new java.awt.image.BufferedImage(
                 1, 1, java.awt.image.BufferedImage.TYPE_INT_ARGB)
             def metrics = canvas.createGraphics().getFontMetrics(
-                new java.awt.Font('Dialog', java.awt.Font.PLAIN, 12))
+                new java.awt.Font(measuredFontName, java.awt.Font.PLAIN, measuredFontSize))
 
-            facts << "measured width of \"Mg\" in Dialog 12: ${metrics.stringWidth('Mg')}px"
+            facts << "text measurement: \"${measuredText}\" in ${measuredFontName} ${measuredFontSize} is " +
+                "${metrics.stringWidth(measuredText)}px"
 
         } catch (Throwable cannotMeasure) {
             facts << "text measurement: unavailable - ${describeCauseChain(cannotMeasure)}"
@@ -113,13 +134,15 @@ def reportAwtEnvironment = tasks.register('reportAwtEnvironment') {
 
         if (required > 0 && familyCount < required) {
 
-            throw new GradleException(report
-                + "\n\nThis project declared awtFontFamiliesRequired = ${required}, and this "
-                + "machine offers ${familyCount < 0 ? 'no answer at all' : familyCount}. A JVM "
-                + 'with no usable fonts cannot construct a font manager, so every test that '
-                + 'builds a text component will fail with an InternalError naming nothing. '
-                + 'Install a font package and fontconfig on this machine (fonts-dejavu-core '
-                + 'plus fontconfig on Debian and Ubuntu, dejavu-sans-fonts on RHEL-likes).')
+            def offered = familyCount == unansweredFamilyCount ? 'no answer at all' : familyCount
+
+            throw new GradleException(report +
+                "\n\nThis project declared awtFontFamiliesRequired = ${required}, and this " +
+                "machine offers ${offered}. A JVM with no usable fonts cannot construct a " +
+                'font manager, so every test that ' +
+                'builds a text component will fail with an InternalError naming nothing. ' +
+                'Install a font package and fontconfig on this machine (fonts-dejavu-core ' +
+                'plus fontconfig on Debian and Ubuntu, dejavu-sans-fonts on RHEL-likes).')
         }
 
         logger.lifecycle(report)
@@ -133,21 +156,4 @@ def reportAwtEnvironment = tasks.register('reportAwtEnvironment') {
 // after the consumer's own script has set it.
 tasks.matching { it.name == 'test' }.configureEach {
     dependsOn({ requiredFontFamilies.get() > 0 ? reportAwtEnvironment : [] })
-}
-
-// A throwable as one line: its own class and message, then each cause's, which
-// for this failure is the whole of the diagnosis - the InternalError says
-// nothing, its InvocationTargetException says nothing, and the Error at the end
-// of the chain is the one that names fonts.
-def describeCauseChain(Throwable failure) {
-
-    def described = []
-    def link = failure
-
-    while (link != null && !described.any { it.is(link) }) {
-        described << link
-        link = link.cause
-    }
-
-    return described.collect { "${it.class.name}: ${it.message}" }.join(' <- caused by ')
 }

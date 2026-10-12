@@ -1,0 +1,11 @@
+class Sample {
+
+    @Mock
+    private Clock clock;
+
+    @Spy(name = "registry") Registry registry = new Registry();
+
+    @org.mockito.Mock(answer = Answers.RETURNS_DEEP_STUBS)
+    @SuppressWarnings("unused")
+    private Map<String, List<Integer>> lookup;
+}

@@ -1,0 +1,10 @@
+enum class Sample {
+    ALPHA,
+    BETA;
+
+    private fun helper() {
+    }
+
+    fun describe() {
+    }
+}

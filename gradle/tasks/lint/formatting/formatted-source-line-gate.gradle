@@ -1,0 +1,61 @@
+// The shared body of the gates that judge source text line by line: which files they read, and
+// how they walk them. Each gate keeps only its rule.
+//
+// They read every source set the project declares, rather than a list of tree names. The rules
+// are about how code reads, which does not depend on which tree it sits in, and a gate naming its
+// trees silently stops covering a source set the moment one is added. Held out where the formatter
+// is held out, since a source set exempt from it is exempt for a reason that covers its whole
+// layout.
+
+apply from: new File(
+    buildscript.sourceFile.parentFile,
+    '../lint-gate.gradle')
+
+apply from: new File(
+    buildscript.sourceFile.parentFile,
+    '../../format/formatted-source-sets.gradle')
+
+// Turns 'gate' into a line gate: it reads the formatted source sets' Java and Kotlin, and fails
+// under 'heading' with every line 'findLineViolation' objects to.
+//
+// findLineViolation is handed a line and the line before it (null on the first line), without
+// their terminators, and answers the finding's text or null. eachLine strips CRLF as well as LF,
+// so a Windows checkout's carriage return never reaches a rule.
+ext.configureFormattedSourceLineGate = { Task gate, String heading, Closure findLineViolation ->
+
+    // Checked when the gate is configured rather than when this is applied, so a build may apply
+    // the java plugin after the gate. Refused in the terms of what the gate needs, rather than
+    // left to surface as a missing property from inside the scan.
+    if (!gate.project.pluginManager.hasPlugin('java')) {
+        throw new GradleException("${gate.name} needs the java plugin: it reads " +
+            "the project's source sets to find the trees it scans.")
+    }
+
+    def scannedFiles = declareScannedFiles(
+        gate,
+        collectFormattedSources { sourceSet -> sourceSet.allSource },
+        jvmSourceIncludes)
+
+    gate.doLast {
+
+        def violations = []
+
+        scannedFiles.each { sourceFile ->
+
+            def previousLine = null
+
+            sourceFile.eachLine(sourceEncoding) { line, lineNumber ->
+
+                def finding = findLineViolation(line, previousLine)
+
+                if (finding != null) {
+                    violations << "${sourceFile}:${lineNumber}: ${finding}"
+                }
+
+                previousLine = line
+            }
+        }
+
+        failOnViolations(heading, violations)
+    }
+}

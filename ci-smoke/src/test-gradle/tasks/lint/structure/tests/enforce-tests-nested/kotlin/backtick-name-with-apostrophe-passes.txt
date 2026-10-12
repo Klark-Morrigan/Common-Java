@@ -6,11 +6,11 @@ class Sample {
     @Nested
     inner class ChargeFee {
         @Test
-        fun `charges the calculator's demolition fee`() {
+        fun `charges the calculator's handling fee`() {
         }
 
         @Test
-        fun `is a no-op for a free facility`() {
+        fun `is a no-op for an empty order`() {
         }
     }
 }

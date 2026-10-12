@@ -1,0 +1,8 @@
+class RepositoryFake
+
+class Sample {
+    fun make() {
+        val clockFake = ClockFake()
+        val repositoryFake: Repository = RepositoryFake()
+    }
+}

@@ -1,0 +1,11 @@
+/**
+ * A doc example the gate must not read: {@code clock = mock(Clock.class);}
+ */
+class Sample {
+    private Clock clock;
+
+    void make() {
+        // clock = mock(Clock.class);
+        var clockMock = mock(Clock.class); /* clock = mock(Clock.class); */
+    }
+}

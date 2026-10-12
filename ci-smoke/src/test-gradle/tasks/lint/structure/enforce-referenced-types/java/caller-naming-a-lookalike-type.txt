@@ -1,0 +1,11 @@
+package example.consumer;
+
+import other.example.library.Lookalike;
+
+/**
+ * Names a type whose path holds the namespace's segments below another package.
+ */
+public class Caller {
+
+    public Lookalike held;
+}

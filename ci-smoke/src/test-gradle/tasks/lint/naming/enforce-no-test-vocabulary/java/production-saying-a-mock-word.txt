@@ -5,7 +5,7 @@ package example.production;
 // A reader of this class is told about a harness it must not know about.
 final class Sample {
 
-    // Absent during early engine boot, or when the sector is a mock.
+    // Absent during early engine boot, or when the catalogue is a mock.
     void resolveColour() {
     }
 }

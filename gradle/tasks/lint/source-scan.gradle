@@ -4,34 +4,48 @@
 // No bytecode-level tool sees a source file's shape cleanly across Java and Kotlin, so the gates
 // reading it are source-text passes. None of them can trust a token or a brace until comments and
 // literals are gone: a '{' or the word 'class' inside a string would otherwise move the depth or
-// open a frame. That stripping, and the class-scope stack the test-structure gates read a method's
-// group off, are the same whichever rule a gate then states over them, so they are held once, here.
-//
-// Applied by each gate rather than by the conventions file, on the same reasoning lint-gate.gradle
-// states: a gate is applied on its own by its integration test, so it has to carry what it uses.
-// Applying this more than once per project is harmless - the assignments below simply overwrite
-// identical values.
+// open a frame. That stripping, and the class-scope stack the structure gates read a member's class
+// off, are the same whichever rule a gate then states over them, so they are held once, here.
 
-// The annotations that declare a JUnit test method. The trailing \b stops the alternation from also
-// catching @Testable or @TestInstance.
-ext.testMethodAnnotation = ~/@(?:Test|ParameterizedTest|RepeatedTest|TestFactory)\b/
+apply from: new File(buildscript.sourceFile.parentFile, 'lint-gate.gradle')
+
+// The annotations that declare a JUnit test method, bare or fully qualified. The trailing \b stops
+// the alternation from also catching @Testable or @TestInstance.
+ext.testMethodAnnotation = ~(/@(?:org\.junit\.jupiter\.(?:api|params)\.)?/ +
+    /(?:Test|ParameterizedTest|RepeatedTest|TestFactory)\b/)
+
+// The roots a project's test code lives under: its suites, and the fixtures they share. The gates
+// holding test code to a convention read both, since a fixture is test code a suite reaches for.
+ext.testSourceRoots = ['src/test', 'src/testFixtures']
 
 // The word a suite's class name ends in: enforceSuffixOnSuites holds suites to it, and the
 // test-double gates read it to tell a suite over a double from the double itself.
 ext.suiteSuffix = 'Tests'
 
-// Removes comment and string/char-literal bodies from one line before any token or brace is read,
-// along with Kotlin's backtick-quoted identifiers. Block comments and Kotlin triple-quoted strings
-// span lines, so their open state is threaded back in by the caller. Known heuristic limit: a quote
-// embedded in Kotlin '${...}' interpolation can end a literal early - tolerated, as a heuristic
-// gate can afford to be.
-ext.stripSourceLine = { String raw, boolean inBlock, boolean inRaw ->
+// Removes comments from one line before any token or brace is read, and with them the bodies of
+// string and char literals and Kotlin's backtick-quoted identifiers. Block comments and Kotlin
+// triple-quoted strings span lines, so their open state is threaded back in by the caller.
+//
+// keepsLiterals leaves literal bodies in place, for a gate whose subject can be spelt inside one;
+// they are still read as literals, so a '//' or '/*' inside a string opens no comment.
+//
+// Known heuristic limit: a quote embedded in Kotlin '${...}' interpolation can end a literal early -
+// tolerated, as a heuristic gate can afford to be.
+ext.stripSourceLine = { String raw, boolean inBlock, boolean inRaw, boolean keepsLiterals = false ->
 
     def out = new StringBuilder()
     def i = 0
     def n = raw.length()
     def block = inBlock
     def rawString = inRaw
+
+    // Copies one literal character when the caller keeps literal bodies.
+    def keepLiteralText = { String text ->
+
+        if (keepsLiterals) {
+            out.append(text)
+        }
+    }
 
     while (i < n) {
 
@@ -42,27 +56,39 @@ ext.stripSourceLine = { String raw, boolean inBlock, boolean inRaw ->
             } else {
                 i++
             }
+
             continue
         }
 
         if (rawString) {
 
             if (i + 3 <= n && raw.substring(i, i + 3) == '"""') {
+
+                keepLiteralText('"""')
                 rawString = false; i += 3
+
             } else {
+
+                keepLiteralText(raw[i])
                 i++
             }
+
             continue
         }
 
         def two = (i + 1 < n) ? raw.substring(i, i + 2) : ''
+
         if (two == '//') {
             break
         }
+
         if (two == '/*') {
             block = true; i += 2; continue
         }
+
         if (i + 3 <= n && raw.substring(i, i + 3) == '"""') {
+
+            keepLiteralText('"""')
             rawString = true; i += 3; continue
         }
 
@@ -75,76 +101,110 @@ ext.stripSourceLine = { String raw, boolean inBlock, boolean inRaw ->
         if (c == '`') {
 
             i++
+
             while (i < n && raw[i] != '`') {
                 i++
             }
+
             if (i < n) {
                 i++
             }
+
             continue
         }
 
         if (c == '"' || c == '\'') {
 
             def quote = c
+            def literalStart = i
+
             i++
+
             while (i < n) {
+
                 if (raw[i] == '\\') {
                     i += 2; continue
                 }
+
                 if (raw[i] == quote) {
                     i++; break
                 }
+
                 i++
             }
+
+            keepLiteralText(raw.substring(literalStart, Math.min(i, n)))
             continue
         }
 
         out.append(c)
         i++
     }
+
     [text: out.toString(), inBlock: block, inRaw: rawString]
 }
+
+// Hands each line of a source file to visitLine as its stripped text and 1-based number, carrying
+// the block-comment and raw-string state from one line to the next.
+ext.eachStrippedLine = { File sourceFile, boolean keepsLiterals = false, Closure visitLine ->
+
+    def isInBlockComment = false
+    def isInRawString = false
+
+    sourceFile.readLines(sourceEncoding).eachWithIndex { rawLine, index ->
+
+        def stripped = stripSourceLine(rawLine, isInBlockComment, isInRawString, keepsLiterals)
+
+        isInBlockComment = stripped.inBlock
+        isInRawString = stripped.inRaw
+
+        visitLine(stripped.text, index + 1)
+    }
+}
+
+// A class-like declaration that opens a scope, its keyword and its name. The lookbehind rejects a
+// Kotlin reference such as 'Foo::class' or 'x.object', which are uses, not declarations. 'enum
+// class' is read whole so Kotlin's enum is not read as a class named 'class'; 'object' covers
+// Kotlin singletons; 'record' covers Java records.
+ext.classDeclarationPattern = ~/(?<![:.\w])(enum\s+class|class|interface|enum|record|object)\s+(\w+)/
+
+// What ends a declaration that never opens a body, when it is met at parenthesis depth zero before
+// any '{': a statement end, an initialiser, or the next declaration. A Kotlin class needs no body,
+// so 'object Marker' or 'data class Point(val x: Int)' must not hand its frame to the next brace.
+def bodilessDeclarationEnd = ~/[;=]|\b(?:fun|val|var|typealias|import|package|init)\b/
 
 /**
  * Walks one source file line by line, handing each line to visitLine with the class scope it sits
  * in.
  *
+ * A class frame is a map: name, keyword ('class', 'interface', 'enum', 'record', 'object'), isNested
+ * (a @Nested annotation preceded it) and openDepth (the brace depth its body opened at). A gate may
+ * keep its own state on the frame it is handed; the same map is handed for every line in the class.
+ *
  * visitLine receives one map per line:
  *
  * - text            the line with comments and literals removed
  * - number          the line's 1-based number
- * - enclosingClass  the innermost class open before this line's own braces, as [name, isNested], or
- *                   null at the top level; a @Test's verdict reads here, since its method's class is
- *                   already open by the time the annotation is seen
- * - declaredClass   the class this line declares, as [name, isNested], or null; isNested says a
- *                   @Nested annotation preceded it
+ * - braceDepth      the brace depth before this line's own braces
+ * - parenDepth      the parenthesis depth before this line's own parentheses; above zero, the line
+ *                   continues an argument or parameter list
+ * - enclosingClass  the innermost class frame open before this line's own braces, or null at the
+ *                   top level; a @Test's verdict reads here, since its method's class is already
+ *                   open by the time the annotation is seen
+ * - declaredClass   the class this line declares, as a frame without openDepth, or null
  */
 ext.scanClassScopes = { File sourceFile, Closure visitLine ->
 
     def nestedAnnotation = ~/@Nested\b/
-
-    // A class-like declaration that opens a scope. The lookbehind rejects a Kotlin reference such
-    // as 'Foo::class' or 'x.object', which are uses, not declarations. 'object' covers Kotlin
-    // singletons; 'record' covers Java records.
-    def classDecl = ~/(?<![:.\w])(?:class|interface|enum|record|object)\s+(\w+)/
     def braceDepth = 0
+    def parenDepth = 0
 
-    // One frame per open class scope: the brace depth its body opened at, its name, and whether the
-    // declaration carried @Nested. The nearest frame is the class a line belongs to.
+    // One frame per open class scope. The nearest frame is the class a line belongs to.
     def classStack = []
     def isNestedPending = false      // a @Nested seen, awaiting its class
-    def pendingClass = null          // a class decl seen, awaiting its '{'
-    def isInBlockComment = false
-    def isInRawString = false
+    def pendingClass = null          // a class declaration seen, awaiting its '{'
 
-    sourceFile.eachLine { rawLine, lineNumber ->
-
-        def stripped = stripSourceLine(rawLine, isInBlockComment, isInRawString)
-        def line = stripped.text
-
-        isInBlockComment = stripped.inBlock
-        isInRawString = stripped.inRaw
+    eachStrippedLine(sourceFile) { line, lineNumber ->
 
         def enclosing = classStack.isEmpty() ? null : classStack.last()
 
@@ -153,28 +213,56 @@ ext.scanClassScopes = { File sourceFile, Closure visitLine ->
         }
 
         def declared = null
-        def declMatcher = classDecl.matcher(line)
+        def declarationEnd = 0
+        def declarationMatcher = classDeclarationPattern.matcher(line)
 
-        if (declMatcher.find()) {
+        if (declarationMatcher.find()) {
 
-            declared = [name: declMatcher.group(1), isNested: isNestedPending]
+            def keyword = declarationMatcher.group(1).startsWith('enum') ? 'enum' : declarationMatcher.group(1)
+
+            declared = [name: declarationMatcher.group(2), keyword: keyword, isNested: isNestedPending]
+            declarationEnd = declarationMatcher.end()
             pendingClass = declared
             isNestedPending = false
         }
 
         visitLine([text: line,
             number: lineNumber,
+            braceDepth: braceDepth,
+            parenDepth: parenDepth,
             enclosingClass: enclosing,
             declaredClass: declared])
 
+        def headerEndPositions = [] as Set
+        def endMatcher = bodilessDeclarationEnd.matcher(line)
+
+        while (endMatcher.find()) {
+            headerEndPositions << endMatcher.start()
+        }
+
         // Walk braces left to right so a class frame is pushed at its own opening brace and popped
         // at the matching close. A frame is popped only when a '}' lands at the exact depth its
-        // body opened at, so lambda and method braces deeper inside never disturb it.
-        line.each { ch ->
+        // body opened at, so lambda and method braces deeper inside never disturb it. Parentheses
+        // are counted so a constructor's parameters are not read as the end of its header.
+        line.eachWithIndex { ch, index ->
 
-            if (ch == '{') {
+            if (pendingClass != null && parenDepth == 0 && index >= declarationEnd
+                    && index in headerEndPositions) {
+                pendingClass = null
+            }
+
+            if (ch == '(') {
+
+                parenDepth++
+
+            } else if (ch == ')') {
+
+                parenDepth = Math.max(0, parenDepth - 1)
+
+            } else if (ch == '{') {
 
                 braceDepth++
+
                 if (pendingClass != null) {
 
                     classStack << (pendingClass + [openDepth: braceDepth])
@@ -186,6 +274,7 @@ ext.scanClassScopes = { File sourceFile, Closure visitLine ->
                 if (!classStack.isEmpty() && classStack.last().openDepth == braceDepth) {
                     classStack.removeAt(classStack.size() - 1)
                 }
+
                 braceDepth--
             }
         }

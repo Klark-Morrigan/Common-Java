@@ -12,18 +12,21 @@
 // Spotless half keeps, and the reason both are safe to run without curating the diff
 // by hand.
 //
-// It stays off `check` and `build` and runs only when a person asks for it. It lives
-// beside the lint gates but deliberately not among them: everything under tasks/lint
-// only ever reports.
+// It stays off `check` and `build` and runs only when a person asks for it: it rewrites
+// source, so it must never ride along on a build. It lives beside the lint gates but
+// deliberately not among them: everything under tasks/lint only ever reports.
 //
 // Applied by spotless-java.gradle so a repo that opted into the cleanup gets both
 // halves, and appliable on its own by a repo that wants only this one - which needs
-// the java or kotlin plugin already applied, since the pass reads source sets rather
-// than guessing at directory names.
+// the java or kotlin plugin, since the pass reads source sets rather than guessing at
+// directory names.
 
 // The exemption list is resolved by the script that owns it, so this pass and Spotless
 // cannot come to disagree about which source sets the formatter touches.
 apply from: new File(buildscript.sourceFile.parentFile, 'formatted-source-sets.gradle')
+
+// For the source file types and the encoding every pass over code reads with.
+apply from: new File(buildscript.sourceFile.parentFile, '../source-text.gradle')
 
 // The two shapes inside a doc block this pass understands.
 //
@@ -31,7 +34,7 @@ apply from: new File(buildscript.sourceFile.parentFile, 'formatted-source-sets.g
 //   ^(\s*\*)([ \t]+)(continuation of the description above)$
 //
 // Anchored at \z with the line ending captured separately, so a rewritten line
-// keeps whatever ending it arrived with (these trees are checked out CRLF).
+// keeps whatever ending it arrived with (a CRLF checkout stays CRLF).
 def javadocParamPattern = ~/^(\s*\*[ \t]+)@param[ \t]+(\S+)([ \t]+)(\S.*?)([\r\n]*)\z/
 def javadocContinuationPattern = ~/^(\s*\*)([ \t]+)(\S.*?)([\r\n]*)\z/
 def docBlockOpenPattern = ~/^\s*\/\*\*/
@@ -40,6 +43,9 @@ def docBlockClosePattern = ~/\*\//
 // The tag and the single space that always follows it. A description's column is the
 // comment prefix plus this, plus the parameter name and whatever padding follows it.
 def paramTag = '@param '
+
+// The text a tag opens with, which ends a wrapped description: the next tag starts there.
+def tagMarker = '@'
 
 // Re-lays one wrapped description line so its text starts at 'column', keeping the
 // line's own leading whitespace-and-star and its original line ending. Returns true
@@ -59,17 +65,10 @@ def alignContinuationToColumn = { List<String> block, continuation, int column -
     return true
 }
 
-// Re-lays one doc comment's @param descriptions onto a single column, and pulls
-// each wrapped continuation line onto that same column. Returns true when it
-// changed something.
-//
-// Two guards keep it from restyling blocks that were never column-aligned. It acts
-// only when some @param pads its name with more than one space (the author aligned
-// on purpose) AND the descriptions currently disagree about which column they start
-// in (the alignment is actually broken). A block that already agrees, or that uses
-// one space throughout, is left exactly as written - the pass fixes drift, it does
-// not impose a house style on prose.
-def alignDocBlockParams = { List<String> block ->
+// Reads one doc block's @param lines, each with the wrapped lines that continue its
+// description. Any other line - another tag, prose, the close - ends the description
+// above it.
+def readDocBlockParams = { List<String> block ->
     def params = []
     def current = null
     block.eachWithIndex { line, index ->
@@ -88,7 +87,7 @@ def alignDocBlockParams = { List<String> block ->
             return
         }
         def continuationMatch = javadocContinuationPattern.matcher(line)
-        if (current != null && continuationMatch.matches() && !continuationMatch.group(3).startsWith('@')) {
+        if (current != null && continuationMatch.matches() && !continuationMatch.group(3).startsWith(tagMarker)) {
             current.continuations << [
                 index     : index,
                 star      : continuationMatch.group(1),
@@ -100,35 +99,16 @@ def alignDocBlockParams = { List<String> block ->
         }
         current = null
     }
-    if (params.isEmpty()) {
-        return false
-    }
+    return params
+}
 
-    def descriptionColumnOf = { param ->
-        param.prefix.length() + paramTag.length() + param.name.length() + param.gap
-    }
-    def isPaddedOnPurpose = params.any { it.gap > 1 }
-    if (!isPaddedOnPurpose) {
-        return false
-    }
+def readDescriptionColumn = { param ->
+    param.prefix.length() + paramTag.length() + param.name.length() + param.gap
+}
 
-    // A lone @param has no sibling to disagree with, so only its wrapped lines can
-    // have drifted away from it - and they drift towards the column it already sets,
-    // which is why this path never touches the @param line itself.
-    if (params.size() == 1) {
-        def column = descriptionColumnOf(params[0])
-        def isChanged = false
-        params[0].continuations.each { continuation ->
-            isChanged |= alignContinuationToColumn(block, continuation, column)
-        }
-        return isChanged
-    }
-
-    // Every description already starts in the same place: aligned, nothing to fix.
-    if (params.collect(descriptionColumnOf).toSet().size() == 1) {
-        return false
-    }
-
+// Re-lays every @param onto one description column, the narrowest that fits the
+// longest name, and pulls each wrapped line onto it.
+def realignParamsToOneColumn = { List<String> block, List params ->
     def nameWidth = params.collect { it.name.length() }.max()
     params.each { param ->
         block[param.index] = param.prefix + paramTag + param.name +
@@ -139,18 +119,96 @@ def alignDocBlockParams = { List<String> block ->
             alignContinuationToColumn(block, continuation, column)
         }
     }
+}
+
+// Re-lays one doc comment's @param descriptions onto a single column, and pulls
+// each wrapped continuation line onto that same column. Returns true when it
+// changed something.
+//
+// Two guards keep it from restyling blocks that were never column-aligned. It acts
+// only when some @param pads its name with more than one space (the author aligned
+// on purpose) AND the descriptions currently disagree about which column they start
+// in (the alignment is actually broken). A block that already agrees, or that uses
+// one space throughout, is left exactly as written - the pass fixes drift, it does
+// not impose a house style on prose.
+def alignDocBlockParams = { List<String> block ->
+    def params = readDocBlockParams(block)
+    def isPaddedOnPurpose = params.any { it.gap > 1 }
+    if (!isPaddedOnPurpose) {
+        return false
+    }
+
+    // A lone @param has no sibling to disagree with, so only its wrapped lines can
+    // have drifted away from it - and they drift towards the column it already sets,
+    // which is why this path never touches the @param line itself.
+    if (params.size() == 1) {
+        def column = readDescriptionColumn(params[0])
+        def isChanged = false
+        params[0].continuations.each { continuation ->
+            isChanged |= alignContinuationToColumn(block, continuation, column)
+        }
+        return isChanged
+    }
+
+    // Every description already starts in the same place: aligned, nothing to fix.
+    if (params.collect(readDescriptionColumn).toSet().size() == 1) {
+        return false
+    }
+
+    realignParamsToOneColumn(block, params)
     return true
 }
 
-// Resolved here rather than inside the task's own closure: the selector is a project
-// extra property, and reading it where this script is the enclosing scope keeps the
-// lookup unambiguous. Kotlin as well as Java - KDoc uses the same @param shape, so a
-// Kotlin-only repo can apply this script on its own and get the same pass.
-def alignedSources = selectFormattedSourceSets().collect { sourceSet ->
-    sourceSet.allSource.matching { include '**/*.java', '**/*.kt' }
+// Re-aligns every doc block in one file and writes the file back when any changed.
+// Returns how many blocks it re-aligned.
+//
+// Split after each newline so every line keeps its own ending; the patterns capture
+// that ending and put it back, which is what stops a CRLF checkout being silently
+// rewritten to LF.
+def rewriteDocBlocksIn = { File sourceFile ->
+    def originalText = sourceFile.getText(sourceEncoding)
+    if (originalText.isEmpty()) {
+        return 0
+    }
+    def lines = originalText.split(/(?<=\n)/) as List
+
+    def blockCount = 0
+    def blockStart = -1
+    def isInsideBlock = false
+    lines.eachWithIndex { line, index ->
+        if (!isInsideBlock && docBlockOpenPattern.matcher(line).find()) {
+            isInsideBlock = true
+            blockStart = index
+        }
+        // Falls through to the close test on the opening line rather than
+        // skipping it: a one-line /** ... */ opens and closes in the same
+        // place, and leaving it open would run the block on to the NEXT
+        // comment's terminator, mis-scoping both.
+        if (!isInsideBlock || !docBlockClosePattern.matcher(line).find()) {
+            return
+        }
+        def block = lines[blockStart..index]
+        if (alignDocBlockParams(block)) {
+            (blockStart..index).each { position ->
+                lines[position] = block[position - blockStart]
+            }
+            blockCount++
+        }
+        isInsideBlock = false
+    }
+    if (blockCount > 0) {
+        sourceFile.setText(lines.join(''), sourceEncoding)
+    }
+    return blockCount
 }
 
-def alignJavadocParams = tasks.register('alignJavadocParams') {
+// Kotlin as well as Java: KDoc uses the same @param shape, so a Kotlin-only repo can
+// apply this script on its own and get the same pass.
+def alignedFiles = collectFormattedSources { sourceSet -> sourceSet.allSource }
+    .asFileTree
+    .matching { include jvmSourceIncludes }
+
+tasks.register('alignJavadocParams') {
     description = 'Re-aligns the @param description column in Javadoc and KDoc ' +
             'blocks whose alignment has drifted.'
     group = 'formatting'
@@ -158,50 +216,14 @@ def alignJavadocParams = tasks.register('alignJavadocParams') {
     // Deliberately declares neither inputs nor outputs. A formatter rewrites the very
     // files it reads, so the two would name the same set and there is nothing for an
     // up-to-date check to compare; a task asked for by hand wants to run every time
-    // regardless. The lint gates have the opposite problem - they produce nothing at
-    // all, so they can never be skipped - which is what lint-gate.gradle solves.
+    // regardless.
 
     doLast {
         def rewrittenFiles = []
-        alignedSources.each { source ->
-            source.each { sourceFile ->
-                // Split after each newline so every line keeps its own ending; the
-                // patterns capture that ending and put it back, which is what stops
-                // a CRLF checkout being silently rewritten to LF.
-                def originalText = sourceFile.getText('UTF-8')
-                if (originalText.isEmpty()) {
-                    return
-                }
-                def lines = originalText.split(/(?<=\n)/) as List
-
-                def blockCount = 0
-                def blockStart = -1
-                def isInsideBlock = false
-                lines.eachWithIndex { line, index ->
-                    if (!isInsideBlock && docBlockOpenPattern.matcher(line).find()) {
-                        isInsideBlock = true
-                        blockStart = index
-                    }
-                    // Falls through to the close test on the opening line rather than
-                    // skipping it: a one-line /** ... */ opens and closes in the same
-                    // place, and leaving it open would run the block on to the NEXT
-                    // comment's terminator, mis-scoping both.
-                    if (!isInsideBlock || !docBlockClosePattern.matcher(line).find()) {
-                        return
-                    }
-                    def block = lines[blockStart..index]
-                    if (alignDocBlockParams(block)) {
-                        (blockStart..index).each { position ->
-                            lines[position] = block[position - blockStart]
-                        }
-                        blockCount++
-                    }
-                    isInsideBlock = false
-                }
-                if (blockCount > 0) {
-                    sourceFile.setText(lines.join(''), 'UTF-8')
-                    rewrittenFiles << "${sourceFile} (${blockCount})"
-                }
+        alignedFiles.each { sourceFile ->
+            def blockCount = rewriteDocBlocksIn(sourceFile)
+            if (blockCount > 0) {
+                rewrittenFiles << "${sourceFile} (${blockCount})"
             }
         }
         if (rewrittenFiles.isEmpty()) {
@@ -212,8 +234,3 @@ def alignJavadocParams = tasks.register('alignJavadocParams') {
         }
     }
 }
-
-// Nothing depends on it: this rewrites source, so it must never ride along on a
-// build. The reference keeps the task configured and silences the unused-variable
-// warning.
-alignJavadocParams

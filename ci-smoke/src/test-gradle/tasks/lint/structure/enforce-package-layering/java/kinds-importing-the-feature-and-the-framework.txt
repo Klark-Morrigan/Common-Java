@@ -1,0 +1,10 @@
+package example.framework.kinds;
+
+import example.feature.view.FeatureView;
+import example.framework.FrameworkRoot;
+
+class Sample {
+
+    FeatureView view;
+    FrameworkRoot root;
+}

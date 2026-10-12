@@ -1,0 +1,16 @@
+class Sample {
+
+    static final Clock EMPTY_MOCK = mock(Clock.class);
+
+    @Mock
+    private Clock clockMock;
+
+    @Spy List<String> namesMock = new ArrayList<>();
+
+    void make() {
+        var calendarMock = mock(Calendar.class);
+        var systemMock = mockStatic(System.class);
+        var builderMock = mockConstruction(Builder.class);
+        var registryMock = spy(new Registry());
+    }
+}

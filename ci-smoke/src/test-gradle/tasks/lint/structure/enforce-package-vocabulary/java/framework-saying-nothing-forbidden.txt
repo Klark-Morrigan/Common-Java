@@ -1,9 +1,9 @@
 package example.framework;
 
-// Written in the framework's own words throughout: a cluster, its border, the
-// owner an opaque key resolves to.
+// Written in the framework's own words throughout: a record, its entries, the
+// total an opaque key resolves to.
 final class Sample {
 
-    void fillCluster() {
+    void fillRecord() {
     }
 }

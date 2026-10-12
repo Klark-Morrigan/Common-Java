@@ -1,0 +1,5 @@
+class Sample {
+
+    @MockK
+    private lateinit var clock: Clock
+}

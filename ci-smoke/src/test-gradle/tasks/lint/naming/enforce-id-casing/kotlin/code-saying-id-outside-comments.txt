@@ -1,0 +1,10 @@
+package example.production
+
+class Sample(val id: String) {
+
+    val template = """
+        // the id inside a raw string
+    """
+
+    fun `reads the id`(): String = "root // the id"
+}

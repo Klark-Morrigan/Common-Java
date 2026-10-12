@@ -1,0 +1,5 @@
+class Sample {
+    void make() {
+        var system = Mockito.mockStatic(System.class);
+    }
+}

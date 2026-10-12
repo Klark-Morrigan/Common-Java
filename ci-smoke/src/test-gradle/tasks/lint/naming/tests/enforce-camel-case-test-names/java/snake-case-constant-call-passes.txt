@@ -1,0 +1,10 @@
+class Sample {
+
+    enum Signal {
+        RED_LIGHT(1),
+        GREEN_LIGHT(2);
+
+        Signal(int order) {
+        }
+    }
+}

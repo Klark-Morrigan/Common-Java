@@ -1,48 +1,43 @@
-// Mockito double naming gate, applied by java-conventions.gradle into every consumer. Sits beside
-// the fake gate (enforce-suffix-on-fakes.gradle) as the same kind of concern keyed on hand-written
-// doubles rather than Mockito; how either one reads a source file is double-naming-scan.gradle's,
-// so each script holds only the rule it states.
+// Generated test-double naming gate. Sits beside the fake gate (enforce-suffix-on-fakes.gradle) as
+// the same kind of concern keyed on mocking libraries rather than hand-written doubles; how either
+// one reads a source file is double-naming-scan.gradle's, so each script holds only the rule it
+// states.
 //
-// One convention, where the fake gate has two: Mockito generates a double's TYPE at runtime, so
-// there is no source type to suffix the way a fake's class is, and the only thing a reader sees is
-// the variable holding it. So a holder built from a Mockito double factory is suffixed 'Mock'
-// (sectorMock, globalMock - never sector or globalStatic), or '_MOCK' where the holder is a
-// constant, a SCREAMING_SNAKE name being unable to end in a camel-case word.
+// One convention, where the fake gate has two: a mocking library generates a double's TYPE at
+// runtime, so there is no source type to suffix the way a fake's class is, and the only thing a
+// reader sees is the variable holding it. So a holder of a generated double is suffixed 'Mock'
+// (clockMock - never clock), or '_MOCK' where the holder is a constant, a SCREAMING_SNAKE name being
+// unable to end in a camel-case word.
 //
-// Keying on the factory call ('mock(', 'mockStatic(', 'mockConstruction(') lets one rule cover both
-// languages and both a mocked-static field and a plain mock local, since every Mockito double is
-// born from one of those calls. 'spy' is deliberately out of scope - a spy is a partial real
-// object, not a mock, so forcing a 'Mock' suffix on it would read wrong; add it here only if that
-// convention is ever adopted.
-//
-// Applied by this script, not assumed from the conventions file: the gate is applied on its own by
-// its integration test, so it has to carry what it uses.
+// A generated double is recognised by the two ways a test asks for one: a factory call (Mockito's
+// 'mock', 'mockStatic', 'mockConstruction' and 'spy', MockK's 'mockk' and 'spyk') or an annotation
+// the extension fills ('@Mock', '@Spy', '@MockK', '@RelaxedMockK', '@SpyK'). A spy is held to the
+// same suffix: it is a generated subclass standing in for the real object, which is what the
+// suffix tells a reader.
 apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, 'double-naming-scan.gradle')
 
 def enforceSuffixOnMocks = tasks.register('enforceSuffixOnMocks') {
-    description = 'Fails the build when a variable holding a Mockito mock is ' +
+    description = 'Fails the build when a variable holding a generated mock or spy is ' +
             'not suffixed Mock.'
     group = 'verification'
 
-    def testRoots = declareSourceRoots(it, ['src/test'])
+    def scannedFiles = declareScannedFiles(it, testSourceRoots, jvmSourceIncludes)
 
     doLast {
         def violations = findDoubleNamingViolations(
-            testRoots: testRoots,
+            scannedFiles: scannedFiles,
             suffix: 'Mock',
-            // A Mockito double factory, with or without a qualifier ('Mockito.mock'). The scan's
-            // bracket anchor admits 'mock(', 'mockStatic(' and mockito-kotlin's 'mock<T>()' while
-            // keeping a same-prefixed method like 'mockMap(' out of scope, since 'Map' is neither
-            // the optional 'Static'/'Construction' nor the opening bracket.
-            factoryCall: /(?:\w+\.)?mock(?:Static|Construction)?/,
+            // A double factory under any qualifier ('Mockito.mock', 'org.mockito.Mockito.mock'). The
+            // scan's bracket anchor admits 'mock(' and the reified 'mock<T>()' while keeping a
+            // same-prefixed method like 'mockMap(' out of scope.
+            factoryCall: /(?:\w+\.)*(?:mock(?:Static|Construction)?|mockk|spy|spyk)/,
             // Nothing to check: the type is generated, so a name only exists on the holder.
-            typePattern: null)
+            typePattern: null,
+            holderAnnotation: ~/@(?:[\w]+\.)*(?:Mock|Spy|MockK|RelaxedMockK|SpyK)\b(?:\s*\([^)]*\))?/)
 
         failOnViolations('Mock naming convention violated', violations)
     }
 }
 
-// Make it a gate: an output so it can be skipped while what it reads is
-// unchanged, and a place in the verification lifecycle; see lint-gate.gradle.
 installLintGate(enforceSuffixOnMocks)

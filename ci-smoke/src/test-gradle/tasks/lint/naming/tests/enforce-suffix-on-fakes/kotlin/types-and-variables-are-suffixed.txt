@@ -1,9 +1,0 @@
-class ConditionRepositoryFake {
-}
-
-class Probe {
-    fun make() {
-        val marketFake = EditableMarketFake()
-        val repositoryFake: ConditionRepository = ConditionRepositoryFake()
-    }
-}

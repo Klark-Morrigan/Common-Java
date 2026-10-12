@@ -1,0 +1,9 @@
+class Sample {
+
+    void first() {
+    }
+    
+    void second() {
+    }
+
+}

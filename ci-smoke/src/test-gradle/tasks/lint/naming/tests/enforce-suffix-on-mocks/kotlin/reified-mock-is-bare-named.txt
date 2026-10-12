@@ -1,5 +1,0 @@
-class Probe {
-    fun make() {
-        val faction = mock<FactionAPI>()
-    }
-}

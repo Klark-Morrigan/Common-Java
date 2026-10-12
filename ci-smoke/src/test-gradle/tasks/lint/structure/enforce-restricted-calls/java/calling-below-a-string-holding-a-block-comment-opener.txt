@@ -1,0 +1,6 @@
+package example.framework.render;
+
+class Sample {
+    String sources = "**/*.java";
+    Object handle = Example.getGlobalHandle();
+}

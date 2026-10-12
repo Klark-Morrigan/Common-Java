@@ -1,0 +1,9 @@
+// What every script reading source text agrees on: which files are code, and the encoding they
+// are read in. Shared by the lint gates and the formatter, which judge and rewrite the same files.
+
+// The file types a script reading code reads.
+ext.jvmSourceIncludes = ['**/*.java', '**/*.kt']
+
+// The encoding every script reads and writes text in, so no file is judged by the platform default
+// of whichever machine runs the build.
+ext.sourceEncoding = 'UTF-8'

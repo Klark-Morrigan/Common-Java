@@ -1,130 +1,68 @@
-// Package-layering gate, applied by java-conventions.gradle into every
-// consuming project. Kept in its own script so the conventions file stays about
-// classpath, version, and test stack, while this owns one concern: the
-// verification rule.
+// Package-layering gate: a package declared closed to a layer may not import it, in any source set.
+// The compiler accepts an import in either direction, so one stray import inverts a dependency
+// arrow while the build stays green.
 //
-// The convention: a package root declared closed to another may not import it,
-// in any source set. Nothing else can see this - the compiler accepts
-// either direction, so one accidental import inverts a dependency arrow while
-// the build stays green, and the inversion is only rediscovered the next time
-// someone tries to build on the layer it was meant to protect. That is a
-// convention on the honour system, and every other one in this family
-// (blank-line runs, test-double naming, method ordering) is a gate for the
-// same reason.
+// The closed side comes in two widths. 'under' closes a root and everything beneath it, less any
+// subtrees named in 'except'. 'exactly' closes that one package and leaves its subpackages free,
+// which is the shape a package needs when its own subpackages are what it is closed to.
 //
-// A layering rule is a per-project fact rather than a shared one, so this
-// script owns only the mechanism and the consuming build declares the edges.
-// The names below are the ones this gate's own integration test is written
-// against, this repo knowing no consumer's architecture:
-//
-//     enforcePackageLayering {
-//         forbidImport under: 'example.framework',
-//             of: 'example.feature'
-//     }
-//
-// Both halves arrive in one call rather than through a fluent chain, so a
-// half-declared edge is never a state anything can hold or a caller can
-// forget to finish.
-//
-// The closed side comes in two widths. 'under' closes a root and everything
-// beneath it, which is the usual shape - a layer is its whole subtree. 'exactly'
-// closes one package alone and leaves its subpackages free:
-//
-//     enforcePackageLayering {
-//         forbidImport exactly: 'example.framework',
-//             of: 'example.framework.writes'
-//     }
-//
-// which is the shape a package needs when its own subpackages are what it is
-// closed to. A package holding reads, with an operation in a package beneath it,
-// may not reach down into that operation - while the operation's sibling
-// subpackage still may. Stated with 'under', the same edge would close the
-// operations to each other too, and there would be no way to write the rule at
-// all. The imported side has no narrow width: what a package is closed to is a
-// layer, and no caller has yet needed to name one package of it.
-//
-// A closed subtree may leave subtrees of its own out:
-//
-//     enforcePackageLayering {
-//         forbidImport under: 'example.framework',
-//             except: 'example.framework.kinds',
-//             of: 'example.framework.kinds'
-//     }
-//
-// which is the shape a framework takes when the fillers of its own seams live
-// inside it: the rest of the framework may not reach them, while they reach
-// each other freely. Spelt instead as one edge per sibling package, the rule
-// fails open for the next package anybody adds beside them. 'except' takes one
-// package or a list, each strictly beneath the closed root - naming one outside
-// it, or the root itself, exempts nothing the rule reaches or everything it
-// does, so either is refused where it is written. It narrows the 'under' width
-// alone: a package closed 'exactly' has no subtree to leave out.
-//
-// The imported side is a layer of the same shape. An 'of' entry is a root, or a
-// map with the closed side's own keys, 'under' and 'except':
+// The imported side ('of') is one layer or a list. A layer is a root, or a map with the closed
+// side's 'under' and 'except'. The map is how a subtree is closed to the rest of its parent
+// without being closed to itself:
 //
 //     enforcePackageLayering {
 //         forbidImport under: 'example.framework.kinds',
-//             of: [under: 'example.framework',
-//                  except: 'example.framework.kinds']
+//             of: ['example.feature',
+//                  [under: 'example.framework', except: 'example.framework.kinds']]
 //     }
-//
-// which is the shape a package needs when its parent depends on it and it must
-// not depend back. Closed to the whole parent, it would be closed to itself,
-// and its own static imports would fail. Spelt as its siblings instead, the
-// parent's own top-level classes stay open, and so does the next sibling anybody
-// adds. Its 'except' is held to the same terms as the closed side's.
-//
-// A build that declares no edge inherits the task and checks nothing, which is
-// what lets the conventions file apply it everywhere rather than leaving each
-// consumer to opt in.
 
-// Applied by this script, not assumed from the conventions file: the gate is
-// applied on its own by its integration test, so it has to carry what it uses.
 apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
-
-// How a package declaration is read, what it means for one dotted name to sit
-// under another, and how the subtrees an edge leaves out are read. Shared with
-// enforceRestrictedCalls, which asks the same question about the same syntax;
-// see package-roots.gradle.
 apply from: new File(buildscript.sourceFile.parentFile, '../package-roots.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../source-scan.gradle')
 
-// An import, static or not, aliased or not. The captured name runs to the
-// first character that cannot appear in one, so Java's trailing `;` and
-// Kotlin's trailing `as Alias` both fall outside it, and an on-demand
-// `import x.y.*` keeps its star - which still reads as being under `x.y`.
+// An import, static or not, aliased or not. The captured name stops before Java's ';' and Kotlin's
+// 'as Alias', and keeps an on-demand import's star, which still reads as being under its package.
 def importDeclarationPattern = ~/^\s*import\s+(?:static\s+)?([\w.*]+)/
 
-// Reports one message per import in this file that its own package is closed
-// to.
+// Answers whether a file in this package is held to the edge.
+def isClosedByEdge = { String declaredPackage, Map edge ->
+
+    return edge.isClosedExactly
+        ? declaredPackage == edge.closedRoot
+        : isInsideLayer(declaredPackage, edge.closedRoot, edge.exceptedRoots)
+}
+
+// Reports one message per import in this file that its own package is closed to.
+//
+// Lines are read with comments and literals gone, so a commented-out import or one spelt inside a
+// raw string is not judged. Imports cannot follow a type declaration, so the scan stops at the first.
 def findForbiddenImports = { File sourceFile, List forbiddenEdges ->
 
     def forbidden = []
-    def lines = sourceFile.readLines()
-    def declaredPackage = readDeclaredPackage(lines)
+    def declaredPackage = readDeclaredPackage(sourceFile.readLines(sourceEncoding))
 
     if (declaredPackage == null) {
-        // The default package sits under no root, so no edge can name it.
         return forbidden
     }
 
-    def applicableEdges = forbiddenEdges.findAll { edge ->
-
-        if (edge.isClosedExactly) {
-            return declaredPackage == edge.closedRoot
-        }
-
-        return isAtOrUnderPackageRoot(declaredPackage, edge.closedRoot)
-            && !edge.exceptedRoots.any { isAtOrUnderPackageRoot(declaredPackage, it) }
-    }
+    def applicableEdges = forbiddenEdges.findAll { isClosedByEdge(declaredPackage, it) }
 
     if (applicableEdges.isEmpty()) {
         return forbidden
     }
 
-    lines.eachWithIndex { line, index ->
+    def hasReachedTypeDeclaration = false
+
+    eachStrippedLine(sourceFile) { String line, int lineNumber ->
+
+        if (hasReachedTypeDeclaration) {
+            return
+        }
+
+        hasReachedTypeDeclaration = classDeclarationPattern.matcher(line).find()
 
         def matcher = importDeclarationPattern.matcher(line)
+
         if (!matcher.find()) {
             return
         }
@@ -133,31 +71,19 @@ def findForbiddenImports = { File sourceFile, List forbiddenEdges ->
 
         applicableEdges.each { edge ->
 
-            if (isAtOrUnderPackageRoot(importedName, edge.forbiddenRoot)
-                    && !edge.forbiddenExceptedRoots.any { isAtOrUnderPackageRoot(importedName, it) }) {
+            if (isInsideLayer(importedName, edge.forbiddenRoot, edge.forbiddenExceptedRoots)) {
 
-                // Bracketed so the leading '+' continues this expression. Groovy ends a
-                // statement at a line break wherever the line already parses whole, and reads
-                // the next one as unary plus on a string - which fails at the call, not here.
-                forbidden << ("${sourceFile}:${index + 1}: "
-                    + "${edge.closedSideLabel} may not import ${edge.forbiddenSideLabel}: ${importedName}")
+                forbidden << "${sourceFile}:${lineNumber}: " +
+                    "${edge.closedSideLabel} may not import ${edge.forbiddenSideLabel}: ${importedName}"
             }
         }
     }
+
     return forbidden
 }
 
-// How a layer reads in a message: its root, then the subtrees it leaves out.
-def describeLayer = { String root, List exceptedRoots ->
-
-    return exceptedRoots.isEmpty()
-        ? root
-        : "${root} except ${exceptedRoots.join(', ')}".toString()
-}
-
-// One 'of' entry read as the layer it names: a bare root, or a map with the
-// closed side's 'under' and 'except'. A map without 'under' or with 'exactly' is
-// refused, since the imported side has no other width.
+// One 'of' entry read as the layer it names. A map without 'under', or with 'exactly', is refused:
+// the imported side has no other width.
 def readForbiddenLayer = { Object entry ->
 
     if (!(entry instanceof Map)) {
@@ -166,8 +92,8 @@ def readForbiddenLayer = { Object entry ->
 
     if (!entry.under || entry.exactly) {
 
-        throw new GradleException("forbidImport 'of' names a package root, or a "
-            + "layer as [under: root, except: subtrees]; got: ${entry}")
+        throw new GradleException("forbidImport 'of' names a package root, or a " +
+            "layer as [under: root, except: subtrees]; got: ${entry}")
     }
 
     def root = entry.under.toString()
@@ -175,62 +101,45 @@ def readForbiddenLayer = { Object entry ->
     return [root: root, exceptedRoots: readExceptedRoots('forbidImport', entry, root)]
 }
 
-// Filled by the consuming build through the task's own `forbidImport`, so it
-// is captured here rather than inside the task: the execution-time action
-// reads the same list the declarations appended to.
 def forbiddenEdges = []
 
-def enforcePackageLayering = tasks.register('enforcePackageLayering') {
+def enforcePackageLayering = tasks.register('enforcePackageLayering') { gate ->
 
     group = 'verification'
+    description = 'Fails the build when a package root imports one the ' +
+        'consuming build declared it closed to.'
 
-    // Bracketed for the same reason as the message above: without it the leading '+' is a
-    // statement of its own, and this one fails at configuration time in every consumer.
-    description = ('Fails the build when a package root imports one the '
-        + 'consuming build declared it closed to.')
-
-    // Declares one forbidden edge. Named arguments rather than positional
-    // ones because both are dotted package roots of the same type, so a
-    // transposition would otherwise assert the rule backwards and still pass.
     ext.forbidImport = { Map edge ->
 
-        // Rejected before the missing-half check, so a declaration naming both
-        // widths is reported as the contradiction it is rather than as
-        // whichever one happened to be read first.
+        // Checked before the missing-half check, so naming both widths is reported as the
+        // contradiction it is.
         if (edge.under && edge.exactly) {
 
-            throw new GradleException("forbidImport closes a package root one "
-                + "way or the other: 'under' for it and everything beneath "
-                + "it, or 'exactly' for that one package - not both; "
-                + "got: ${edge}")
+            throw new GradleException("forbidImport closes a package root one " +
+                "way or the other: 'under' for it and everything beneath " +
+                "it, or 'exactly' for that one package - not both; " +
+                "got: ${edge}")
         }
 
         def closedRoot = edge.under ?: edge.exactly
 
         if (!closedRoot || !edge.of) {
 
-            throw new GradleException("forbidImport needs the package root "
-                + "that is closed - 'under' for it and everything beneath "
-                + "it, or 'exactly' for that one package - and 'of' (the "
-                + "package root it may not import); got: ${edge}")
+            throw new GradleException("forbidImport needs the package root " +
+                "that is closed - 'under' for it and everything beneath " +
+                "it, or 'exactly' for that one package - and 'of' (the " +
+                "package root it may not import); got: ${edge}")
         }
 
-        // 'of' takes one layer or a list of them. A root is usually closed to
-        // several at once - the siblings it must not reach into - and spelling
-        // one declaration per pair states the closed side over and over for a
-        // rule a reader holds as one. A single map is one layer, not a list.
-        def forbiddenEntries = edge.of instanceof Collection ? edge.of : [edge.of]
         def exceptedRoots = readExceptedRoots('forbidImport', edge, closedRoot)
 
-        // The labels carry the width and the left-out subtrees into every
-        // message the edge produces, including the input-property snapshot
-        // below: each is a different rule over the same pair of roots, so a run
-        // cleared under one must not read as UP-TO-DATE under another.
-        def closedSideLabel = describeLayer(
-            edge.exactly ? "${closedRoot} itself".toString() : closedRoot,
-            exceptedRoots)
+        // The label carries the width into every message and the rule snapshot: each width is a
+        // different rule over the same pair of roots.
+        def closedSideLabel = edge.exactly
+            ? "${closedRoot} itself".toString()
+            : describeLayer(closedRoot, exceptedRoots)
 
-        forbiddenEntries.each { forbiddenEntry ->
+        readOneOrMany(edge.of).each { forbiddenEntry ->
 
             def forbiddenLayer = readForbiddenLayer(forbiddenEntry)
 
@@ -246,35 +155,13 @@ def enforcePackageLayering = tasks.register('enforcePackageLayering') {
         }
     }
 
-    // Every source set under src/, rather than main and test alone: a layering
-    // rule that exempts a tree is a layering rule with a hole in it, and an
-    // extra source set (a dev tool, a stub tree) compiles against the same
-    // packages the code it is built from lives in. Test sources matter as much
-    // as production ones for the same reason - a suite reaching across the line
-    // for a real type is the shortest way to make it compile.
-    //
-    // Declared as the matched files rather than as the directories: an absent
-    // tree is then an empty scan rather than the configuration failure a
-    // declared-but-missing input directory would be, and a resource edit does
-    // not re-run a gate that only reads code.
-    def scannedSources = fileTree('src') {
-        include '**/*.java', '**/*.kt'
+    // Every source set under src/, test code included: a suite reaching across the line for a real
+    // type inverts the same arrow production code would.
+    def scannedSources = declareScannedFiles(gate, 'src', jvmSourceIncludes)
+
+    declareRuleSnapshot(gate, 'forbiddenEdges') {
+        forbiddenEdges.collect { "${it.closedSideLabel} !-> ${it.forbiddenSideLabel}" }
     }
-
-    inputs.files(scannedSources).withPropertyName('scannedSources')
-
-    // The edges are an input as much as the sources are - adding one has to
-    // re-run the gate rather than leave it UP-TO-DATE against the rule it was
-    // last cleared under. Wrapped in a provider because they are declared after
-    // this registration runs, and snapshotted as plain strings rather than as
-    // the maps themselves, since an input property's value has to be
-    // serialisable.
-    inputs.property('forbiddenEdges', providers.provider {
-
-        forbiddenEdges
-            .collect { "${it.closedSideLabel} !-> ${it.forbiddenSideLabel}".toString() }
-            .sort()
-    })
 
     doLast {
 
@@ -292,6 +179,4 @@ def enforcePackageLayering = tasks.register('enforcePackageLayering') {
     }
 }
 
-// Make it a gate: an output so it can be skipped while what it reads is
-// unchanged, and a place in the verification lifecycle; see lint-gate.gradle.
 installLintGate(enforcePackageLayering)

@@ -15,9 +15,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * The throwaway project a gate suite drives its gate in: a settings file, a build file applying the
  * one script under test, the sources the gate reads, and the run itself.
  *
- * Every gate suite was written around the same four steps, so they were written a dozen times over.
- * What actually varies is which gate, what the build says before and after it is applied, and where
- * a fixture lands - so those are what a caller states, and nothing else.
+ * Every gate suite runs the same four steps. What actually varies is which gate, what the build says
+ * before and after it is applied, and where a fixture lands - so those are what a caller states, and
+ * nothing else.
  *
  * Fluent because the steps are optional and independent: a suite states only the ones its gate
  * needs, rather than passing empty strings past the ones it does not.
@@ -34,10 +34,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 final class GateProject {
 
-    // Where a gate reading the test tree finds the one sample a case poses, per language. The name
-    // is arbitrary; the root is what puts it under the gate's scan.
-    private static final String JAVA_TEST_SAMPLE_PATH = "src/test/java/Sample.java";
-    private static final String KOTLIN_TEST_SAMPLE_PATH = "src/test/kotlin/Sample.kt";
+    // The source roots a case poses its sample under. The root is what puts a sample under a gate's
+    // scan, so a case names one of these rather than spelling the path.
+    static final String MAIN_JAVA_ROOT = "src/main/java";
+    static final String MAIN_KOTLIN_ROOT = "src/main/kotlin";
+    static final String TEST_JAVA_ROOT = "src/test/java";
+    static final String TEST_KOTLIN_ROOT = "src/test/kotlin";
+    static final String TEST_FIXTURES_JAVA_ROOT = "src/testFixtures/java";
+
+    // The one sample a case poses, per language. The name is arbitrary.
+    private static final String JAVA_SAMPLE_NAME = "Sample.java";
+    private static final String KOTLIN_SAMPLE_NAME = "Sample.kt";
 
     private final GateUnderTest gate;
     private final Path projectDir;
@@ -50,6 +57,7 @@ final class GateProject {
     private String requestedTask;
 
     private GateProject(GateUnderTest gate, Path projectDir) {
+
         this.gate = gate;
         this.projectDir = projectDir;
         this.requestedTask = gate.taskName();
@@ -83,11 +91,30 @@ final class GateProject {
             if (fixture == null) {
                 throw new IllegalStateException("Missing fixture: " + fixtureName);
             }
+
             return new String(fixture.readAllBytes(), StandardCharsets.UTF_8);
 
-        } catch (IOException cannotRead) {
-            throw new UncheckedIOException(cannotRead);
+        } catch (IOException ioException) {
+            throw new UncheckedIOException(ioException);
         }
+    }
+
+    /**
+     * The block a consuming build configures a gate in, one statement per line.
+     *
+     * @param extension  the gate's extension name, as the build calls it
+     * @param statements the declarations inside the block, each a whole call
+     * @return the block's text, ready for {@link #configuringTheGate}
+     */
+    static String buildConfigurationBlock(String extension, String... statements) {
+
+        var block = new StringBuilder(extension).append(" {\n");
+
+        for (var statement : statements) {
+            block.append("    ").append(statement).append('\n');
+        }
+
+        return block.append("}\n").toString();
     }
 
     /**
@@ -134,12 +161,32 @@ final class GateProject {
     }
 
     /**
+     * Writes a Java fixture as the one sample under a source root.
+     *
+     * @param sourceRoot  the root it goes under, one of the roots this class names
+     * @param fixtureName the fixture's name under its suite's java/ folder, without the .txt
+     */
+    GateProject holdingJavaSample(String sourceRoot, String fixtureName) {
+        return holdingFixture(sourceRoot + "/" + JAVA_SAMPLE_NAME, "java/" + fixtureName);
+    }
+
+    /**
+     * Writes a Kotlin fixture as the one sample under a source root.
+     *
+     * @param sourceRoot  the root it goes under, one of the roots this class names
+     * @param fixtureName the fixture's name under its suite's kotlin/ folder, without the .txt
+     */
+    GateProject holdingKotlinSample(String sourceRoot, String fixtureName) {
+        return holdingFixture(sourceRoot + "/" + KOTLIN_SAMPLE_NAME, "kotlin/" + fixtureName);
+    }
+
+    /**
      * Writes a Java fixture where a gate reading the test tree finds it.
      *
      * @param fixtureName the fixture's name under its suite's java/ folder, without the .txt
      */
     GateProject holdingJavaTestSample(String fixtureName) {
-        return holdingFixture(JAVA_TEST_SAMPLE_PATH, "java/" + fixtureName);
+        return holdingJavaSample(TEST_JAVA_ROOT, fixtureName);
     }
 
     /**
@@ -148,7 +195,24 @@ final class GateProject {
      * @param fixtureName the fixture's name under its suite's kotlin/ folder, without the .txt
      */
     GateProject holdingKotlinTestSample(String fixtureName) {
-        return holdingFixture(KOTLIN_TEST_SAMPLE_PATH, "kotlin/" + fixtureName);
+        return holdingKotlinSample(TEST_KOTLIN_ROOT, fixtureName);
+    }
+
+    /**
+     * Reads a file back out of the project, for a case about what a task wrote rather than what it
+     * reported.
+     *
+     * @param filePath the file, relative to the project root
+     * @return its text
+     */
+    String readText(String filePath) {
+
+        try {
+            return Files.readString(projectDir.resolve(filePath));
+
+        } catch (IOException ioException) {
+            throw new UncheckedIOException(ioException);
+        }
     }
 
     /**
@@ -166,9 +230,10 @@ final class GateProject {
             Files.createDirectories(file.getParent());
             Files.writeString(file, content);
 
-        } catch (IOException cannotWrite) {
-            throw new UncheckedIOException(cannotWrite);
+        } catch (IOException ioException) {
+            throw new UncheckedIOException(ioException);
         }
+
         return this;
     }
 
@@ -188,9 +253,10 @@ final class GateProject {
             Files.createDirectories(file.getParent());
             Files.write(file, content);
 
-        } catch (IOException cannotWrite) {
-            throw new UncheckedIOException(cannotWrite);
+        } catch (IOException ioException) {
+            throw new UncheckedIOException(ioException);
         }
+
         return this;
     }
 
@@ -205,9 +271,10 @@ final class GateProject {
         try {
             Files.createDirectories(projectDir.resolve(directoryPath));
 
-        } catch (IOException cannotCreate) {
-            throw new UncheckedIOException(cannotCreate);
+        } catch (IOException ioException) {
+            throw new UncheckedIOException(ioException);
         }
+
         return this;
     }
 
@@ -250,6 +317,27 @@ final class GateProject {
 
         assertThat(result.task(gate.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);
+
+        return result;
+    }
+
+    /**
+     * Runs a build the gate is expected to fail, and checks the gate itself is what failed. A build
+     * failing is not enough on its own: a configuration error or another task failing leaves the
+     * build red without the gate having judged anything.
+     *
+     * @return the result, for the case to read the gate's message off
+     */
+    BuildResult runExpectingGateToFail() {
+
+        var result = runExpectingFailure();
+
+        assertThat(result.task(gate.taskPath()))
+            .as("the gate ran")
+            .isNotNull();
+
+        assertThat(result.task(gate.taskPath()).getOutcome())
+            .isEqualTo(TaskOutcome.FAILED);
 
         return result;
     }

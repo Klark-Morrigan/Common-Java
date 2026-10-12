@@ -2,4 +2,5 @@
 
 Off the network: [site](https://example.com/nope.md).
 Off the network too: [mail](mailto:nobody@example.com).
+Off the network, protocol-relative: [host](//example.com/nope.md).
 Inside this file: [index](#index).

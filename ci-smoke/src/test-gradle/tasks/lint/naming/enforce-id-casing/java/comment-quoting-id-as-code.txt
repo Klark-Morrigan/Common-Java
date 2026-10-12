@@ -14,12 +14,12 @@ package example.production;
  *
  * <p>So is a {@code id} span, a `id` in backticks, a "id" in quotes, and the
  * &lt;id&gt; placeholder a usage line prints. A mod-id names a file on disk,
- * market.id a dotted path, and field_id a column.
+ * entity.id a dotted path, and field_id a column.
  */
 final class Sample {
 
     /**
-     * Reads the place off the sector.
+     * Reads the place off the catalogue.
      *
      * @param id the value the command was given
      * @return the place it names

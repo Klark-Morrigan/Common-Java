@@ -1,7 +1,6 @@
 # Sample
 
 The README filed beside the code is half of what a reader of a framework
-reads, and it carries no imports at all - so a gate that only judged code
-would leave the most-read surface unjudged.
+reads, and it carries no imports at all.
 
-Each cluster paints the territory it holds.
+Each record is posted to the ledger it belongs to.

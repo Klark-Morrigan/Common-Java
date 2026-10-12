@@ -1,41 +1,185 @@
-// Method-visibility ordering gate, applied by java-conventions.gradle into
-// every consuming project. Kept in its own script so the conventions file stays
-// about classpath, version, and jar output, while this owns one concern: the
-// verification rule.
+// Method-visibility ordering gate.
 //
-// The convention: within a type body, methods descend the visibility ladder -
-// most public at the top, most private at the bottom. Reading a class top to
-// bottom then walks from its widest surface to its private machinery, so the
-// public contract is what you meet first. The ladder, most to least visible:
+// The convention: within a type body, methods descend the visibility ladder - most public at the
+// top, most private at the bottom. Reading a class top to bottom then walks from its widest surface
+// to its private machinery, so the public contract is what you meet first. The ladder, most to
+// least visible:
 //
 //   Java:   public > protected > package-private (no modifier) > private
 //   Kotlin: public (no modifier) > internal > protected > private
 //
-// The load-bearing subtlety is that an omitted modifier lands at OPPOSITE ends
-// by language: a bare Java method is package-private (near the bottom), while a
-// bare Kotlin method is public (the top). A Java method with no modifier inside
-// an interface is implicitly public, not package-private, so the interface case
-// is branched separately. The default rank therefore depends on both the file
-// language and whether the enclosing type is an interface.
+// The load-bearing subtlety is that an omitted modifier lands at OPPOSITE ends by language: a bare
+// Java method is package-private (near the bottom), while a bare Kotlin method is public (the top).
+// A Java method with no modifier inside an interface is implicitly public, so the default rank
+// depends on both the file's language and whether the enclosing type is an interface.
 //
-// Constructors are excluded (the convention is about methods), as are enum
-// constants and top-level Kotlin functions (ordering is enforced within a type
-// body, not across a file).
+// Constructors are excluded (the convention is about methods), as are enum constants and top-level
+// Kotlin functions (ordering is enforced within a type body, not across a file).
 //
-// No bytecode-level tool sees this cleanly across both languages, so it is a
-// source-text pass over the main tree reading Kotlin as well as Java, stripped
-// of comments and literals by source-scan.gradle. Like the nested-tests gate,
-// telling a class-body method from a local one needs each declaration's
-// enclosing type, so the scan tracks brace depth and keeps a stack of open class
-// scopes. It keeps its own rather than source-scan's, since each frame here also
-// carries the interface flag and the least-visible method seen so far - a later,
-// more-visible method at that scope is the violation - and the walk counts
-// parens as well as braces.
-//
-// Applied by this script, not assumed from the conventions file: the gate is
-// applied on its own by its integration test, so it has to carry what it uses.
+// Telling a type-body method from a local one needs each declaration's enclosing type, which
+// source-scan.gradle's class scopes give.
 apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, '../source-scan.gradle')
+
+// The ladders, most visible first: a method's rank is its visibility's index here, so a later
+// method ranked below the most private one already seen in its type has climbed back up.
+def javaVisibilityLadder = ['public', 'protected', 'package-private', 'private']
+def kotlinVisibilityLadder = ['public', 'internal', 'protected', 'private']
+
+// The modifiers a declaration can spell, each read as a whole word. Package-private has none.
+def modifierPatterns = ['public', 'protected', 'internal', 'private']
+    .collectEntries { modifier -> [(modifier): ~/\b${modifier}\b/] }
+
+// A Kotlin function declaration: 'fun' as its own token, not a member reference or a substring.
+def kotlinFunction = ~/(?<![.\w])fun\b/
+
+// One leading Java annotation, with any single-line argument list, peeled off the front of a
+// signature so the modifiers behind it can be read.
+def leadingAnnotation = ~/^\s*@[\w.]+(?:\s*\([^)]*\))?\s*/
+
+// The method name is the last identifier before the parameter '('.
+def trailingName = ~/(\w+)\s*$/
+
+// The visibility a declaration prefix spells on a ladder, or the ladder's implicit one when it
+// spells none.
+def classifyVisibility = { String prefix, List ladder, String implicitVisibility ->
+
+    def spelled = ladder.find { visibility -> modifierPatterns[visibility]?.matcher(prefix)?.find() }
+
+    if (spelled != null) {
+        return [rank: ladder.indexOf(spelled), label: spelled]
+    }
+
+    return [rank: ladder.indexOf(implicitVisibility), label: "${implicitVisibility} (implicit)"]
+}
+
+// A Kotlin member function's visibility, or null when the line declares none. A 'fun' after '=' is
+// a function-expression property value, not a member.
+def readKotlinMemberVisibility = { String line ->
+
+    def functionMatcher = kotlinFunction.matcher(line)
+
+    if (!functionMatcher.find()) {
+        return null
+    }
+
+    def prefix = line.substring(0, functionMatcher.start())
+
+    if (prefix.contains('=')) {
+        return null
+    }
+
+    return classifyVisibility(prefix, kotlinVisibilityLadder, 'public')
+}
+
+// Peels every leading annotation off a Java signature.
+def peelJavaAnnotations = { String line ->
+
+    def signature = line
+    def annotation = leadingAnnotation.matcher(signature)
+
+    while (annotation.find()) {
+
+        signature = signature.substring(annotation.end())
+        annotation = leadingAnnotation.matcher(signature)
+    }
+
+    return signature
+}
+
+// A Java method's visibility, or null when the line declares no method of this type.
+//
+// An '=' before the '(' is a field initialiser calling something. An empty return type is an enum
+// constant, and a name equal to the type is a constructor. A prefix ending in '.' is a qualified
+// call on a wrapped initialiser's value line.
+def readJavaMemberVisibility = { String line, Map frame ->
+
+    def signature = peelJavaAnnotations(line)
+    def parameterStart = signature.indexOf('(')
+
+    if (parameterStart < 0) {
+        return null
+    }
+
+    def prefix = signature.substring(0, parameterStart)
+    def nameMatcher = trailingName.matcher(prefix)
+
+    if (prefix.contains('=') || !nameMatcher.find()) {
+        return null
+    }
+
+    def returnType = prefix.substring(0, nameMatcher.start()).trim()
+
+    if (returnType.isEmpty() || returnType.endsWith('.') || nameMatcher.group(1) == frame.name) {
+        return null
+    }
+
+    def implicitVisibility = frame.keyword == 'interface' ? 'public' : 'package-private'
+
+    return classifyVisibility(prefix, javaVisibilityLadder, implicitVisibility)
+}
+
+// Holds a method against the most private one already seen in its type, kept on the type's frame,
+// and answers the violation when it climbs back up the ladder.
+def recordMemberVisibility = { Map frame, Map visibility, File sourceFile, int lineNumber ->
+
+    if (frame.maxRank != null && visibility.rank < frame.maxRank) {
+
+        return "${sourceFile}:${lineNumber}: ${visibility.label} method declared below a " +
+            "${frame.maxLabel} method (line ${frame.maxLine}); more-visible methods must come first"
+    }
+
+    frame.maxRank = visibility.rank
+    frame.maxLabel = visibility.label
+    frame.maxLine = lineNumber
+
+    return null
+}
+
+// Every ordering violation in one source file.
+//
+// A line is a member site only at the body depth of its type, outside an argument list still open
+// from a line above, and not after a line ending in '=': a wrapped field initialiser's value line
+// ('Set.of(...)', 'new Foo(...)') otherwise reads as a bare package-private method.
+def findVisibilityOrderViolations = { File sourceFile ->
+
+    def isKotlin = sourceFile.name.endsWith('.kt')
+    def violations = []
+    def lastNonBlankLine = ''
+
+    scanClassScopes(sourceFile) { line ->
+
+        def text = line.text
+        def frame = line.enclosingClass
+        def isMemberSite = frame != null
+            && line.braceDepth == frame.openDepth
+            && line.declaredClass == null
+            && line.parenDepth == 0
+            && !lastNonBlankLine.endsWith('=')
+
+        if (isMemberSite) {
+
+            def visibility = isKotlin
+                ? readKotlinMemberVisibility(text)
+                : readJavaMemberVisibility(text, frame)
+
+            if (visibility != null) {
+
+                def violation = recordMemberVisibility(frame, visibility, sourceFile, line.number)
+
+                if (violation != null) {
+                    violations << violation
+                }
+            }
+        }
+
+        if (!text.trim().isEmpty()) {
+            lastNonBlankLine = text.trim()
+        }
+    }
+
+    return violations
+}
 
 def enforceMethodsOrderedByVisibility = tasks.register('enforceMethodsOrderedByVisibility') {
 
@@ -43,266 +187,16 @@ def enforceMethodsOrderedByVisibility = tasks.register('enforceMethodsOrderedByV
     description = 'Fails the build when a more-visible method is declared below ' +
         'a less-visible one within the same type.'
 
-    // Production code only: test classes order setup methods (@BeforeEach) and
-    // helpers by role rather than visibility, so the ladder does not apply there.
-    def sourceRoots = declareSourceRoots(it, ['src/main'])
+    // Production code only: test classes order setup methods (@BeforeEach) and helpers by role
+    // rather than visibility, so the ladder does not apply there.
+    def scannedFiles = declareScannedFiles(it, ['src/main'], jvmSourceIncludes)
 
     doLast {
-        // A class-like declaration that opens a scope, capturing keyword and name.
-        // The lookbehind rejects a Kotlin reference such as 'Foo::class' or
-        // 'x.object', which are uses, not declarations. 'object' covers Kotlin
-        // singletons; 'record' covers Java records; the 'interface' arm also
-        // matches Java '@interface' (annotation) declarations.
-        def classDecl =
-            ~/(?<![:.\w])(class|interface|enum|record|object)\s+(\w+)/
 
-        // A Kotlin function declaration: 'fun' as its own token, not a member
-        // reference like 'x.fun' (illegal anyway) or a substring.
-        def kotlinFun = ~/(?<![.\w])fun\b/
+        def violations = scannedFiles.collectMany { sourceFile -> findVisibilityOrderViolations(sourceFile) }
 
-        // Strips one leading Java annotation, including any single-line argument
-        // list, from the front of a signature so the modifier/return-type prefix
-        // that follows can be read. Applied repeatedly to peel a stack of them.
-        def leadingAnnotation = ~/^\s*@\w+(\s*\([^)]*\))?\s*/
-
-        // The method name is the last identifier before the parameter '('.
-        def trailingName = ~/(\w+)\s*$/
-
-        // Ranks a method by visibility: 0 is most public, 3 most private, so a
-        // later method whose rank is below the running maximum has jumped back up
-        // the ladder. 'isInterface' flips a bare Java method from package-private
-        // to public; 'isKotlin' flips a bare method to public regardless.
-        def classifyVisibility = { String prefix, boolean isKotlin, boolean isInterface ->
-
-            if (isKotlin) {
-
-                if (prefix =~ /\bprivate\b/)
-                    return [rank: 3, label: 'private']
-
-                if (prefix =~ /\bprotected\b/)
-                    return [rank: 2, label: 'protected']
-
-                if (prefix =~ /\binternal\b/)
-                    return [rank: 1, label: 'internal']
-
-                return [rank: 0, label: 'public (implicit)']
-            }
-
-            if (prefix =~ /\bpublic\b/)
-                return [rank: 0, label: 'public']
-
-            if (prefix =~ /\bprotected\b/)
-                return [rank: 1, label: 'protected']
-
-            if (prefix =~ /\bprivate\b/)
-                return [rank: 3, label: 'private']
-
-            if (isInterface)
-                return [rank: 0, label: 'public (implicit)']
-
-            return [rank: 2, label: 'package-private (implicit)']
-        }
-
-        def violations = []
-
-        eachSourceFile(sourceRoots) { sourceFile ->
-
-            def isKotlin = sourceFile.name.endsWith('.kt')
-            def braceDepth = 0
-
-            // One frame per open type scope: the brace depth its body opened at,
-            // its simple name (to spot constructors), whether it is an interface
-            // (bare Java methods are then public), and the least-visible method
-            // rank seen so far in this scope with the line that set it.
-            def classStack = []
-            def hasPendingClass = false
-            def pendingName = null
-            def isPendingInterface = false
-            def isInBlockComment = false
-            def isInRawString = false
-
-            // The previous non-blank stripped line, so a field initializer whose
-            // value wraps onto the next line (its '=' ending the line above) is not
-            // read as a method: no real method declaration ever follows a line that
-            // ends in '=', but 'Type.factory(...)' or 'new Type(...)' on such a
-            // continuation line otherwise looks like one.
-            def lastNonBlankStripped = null
-
-            // Paren nesting carried across lines, so a field initializer's argument
-            // list that wraps - 'new Foo(' opening on one line, more values (perhaps
-            // a nested 'new Bar(...)') on the next - is known to be inside an open
-            // paren, and its inner calls are not read as method declarations.
-            def parenDepth = 0
-
-            sourceFile.eachLine { rawLine, lineNumber ->
-
-                def stripped = stripSourceLine(rawLine, isInBlockComment, isInRawString)
-                def line = stripped.text
-
-                isInBlockComment = stripped.inBlock
-                isInRawString = stripped.inRaw
-
-                // The paren depth entering this line: when positive, the line is a
-                // continuation inside an open argument list, not a declaration site.
-                def parenDepthAtLineStart = parenDepth
-                def classMatcher = classDecl.matcher(line)
-                def hasClassDecl = classMatcher.find()
-
-                // Recognise a method only at the immediate body depth of the
-                // nearest open type - a decl deeper in is a local class member,
-                // lambda body, or initializer and is measured against its own
-                // frame or not at all. A class-declaration line is never also a
-                // method, so it is excluded outright.
-                def frame = classStack.isEmpty() ? null : classStack.last()
-
-                // A line whose previous non-blank line ended in '=' is the value of
-                // a multi-line field initializer, not a member declaration - skip it
-                // so 'Set.of(...)' or 'new Foo(...)' on the continuation line is not
-                // read as a package-private method against the fields above it.
-                def isInitializerContinuation =
-                    lastNonBlankStripped != null && lastNonBlankStripped.endsWith('=')
-
-                if (frame != null && braceDepth == frame.openDepth && !hasClassDecl
-                        && !isInitializerContinuation && parenDepthAtLineStart == 0) {
-
-                    def visibility = null
-
-                    if (isKotlin) {
-
-                        def funMatcher = kotlinFun.matcher(line)
-                        if (funMatcher.find()) {
-                            // A 'fun' preceded by '=' is a function-expression
-                            // property initializer, not a member declaration.
-                            def before = line.substring(0, funMatcher.start())
-                            if (!before.contains('=')) {
-                                visibility = classifyVisibility(before, true, frame.isInterface)
-                            }
-                        }
-                    } else {
-                        // Peel leading annotations, then read the modifier and
-                        // return-type prefix that precedes the parameter '('.
-                        def sig = line
-                        def peeled = leadingAnnotation.matcher(sig)
-
-                        while (peeled.find() && peeled.start() == 0) {
-
-                            sig = sig.substring(peeled.end())
-                            peeled = leadingAnnotation.matcher(sig)
-                        }
-
-                        def paren = sig.indexOf('(')
-                        if (paren >= 0) {
-
-                            def prefix = sig.substring(0, paren)
-
-                            // An '=' before the '(' is a field initializer whose
-                            // value happens to call something, not a method.
-                            if (!prefix.contains('=')) {
-
-                                def nameMatcher = trailingName.matcher(prefix)
-                                if (nameMatcher.find()) {
-
-                                    def name = nameMatcher.group(1)
-                                    def beforeName =
-                                        prefix.substring(0, nameMatcher.start()).trim()
-                                    // A real method carries a return type before
-                                    // its name; an empty prefix means an enum
-                                    // constant or a bare constructor. A name equal
-                                    // to the enclosing type is a constructor. A
-                                    // prefix ending in '.' is a qualified call, not
-                                    // a declaration - a multi-line field initializer
-                                    // whose 'Type.factory(...)' value sits on the
-                                    // line after the '=', which the same-line '='
-                                    // guard above cannot see on the previous line.
-                                    if (!beforeName.isEmpty()
-                                            && !beforeName.endsWith('.')
-                                            && name != frame.name) {
-
-                                        visibility = classifyVisibility(
-                                            prefix,
-                                            false,
-                                            frame.isInterface)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if (visibility != null) {
-
-                        if (visibility.rank < frame.maxRank) {
-
-                            violations << "${sourceFile}:${lineNumber}: " +
-                                "${visibility.label} method declared below a " +
-                                "${frame.maxLabel} method " +
-                                "(line ${frame.maxLine}); more-visible methods " +
-                                "must come first"
-
-                        } else {
-
-                            frame.maxRank = visibility.rank
-                            frame.maxLabel = visibility.label
-                            frame.maxLine = lineNumber
-                        }
-                    }
-                }
-
-                if (hasClassDecl) {
-
-                    hasPendingClass = true
-                    pendingName = classMatcher.group(2)
-                    isPendingInterface = classMatcher.group(1) == 'interface'
-                }
-
-                // Walk braces left to right so a type frame is pushed at its own
-                // opening brace and popped at the matching close. A frame is
-                // popped only when a '}' lands at the exact depth its body opened
-                // at, so method and lambda braces deeper inside never disturb it.
-                line.each { ch ->
-
-                    if (ch == '(') {
-                        parenDepth++
-
-                    } else if (ch == ')') {
-                        parenDepth = Math.max(0, parenDepth - 1)
-
-                    } else if (ch == '{') {
-
-                        braceDepth++
-                        if (hasPendingClass) {
-                            classStack << [openDepth   : braceDepth,
-                                           name        : pendingName,
-                                           isInterface : isPendingInterface,
-                                           maxRank     : -1,
-                                           maxLabel    : null,
-                                           maxLine     : 0]
-                            hasPendingClass = false
-                        }
-
-                    } else if (ch == '}') {
-
-                        if (!classStack.isEmpty()
-                                && classStack.last().openDepth == braceDepth) {
-
-                            classStack.removeAt(classStack.size() - 1)
-                        }
-
-                        braceDepth--
-                    }
-                }
-
-                // Remember this line for the next iteration's continuation check,
-                // ignoring blank/comment-only lines (stripped to empty) so a field's
-                // '=' still reaches the value line across an intervening blank.
-                if (!line.trim().isEmpty()) {
-                    lastNonBlankStripped = line.trim()
-                }
-            }
-        }
         failOnViolations('Method-visibility ordering violated', violations)
     }
 }
 
-// Make it a gate: an output so it can be skipped while what it reads is
-// unchanged, and a place in the verification lifecycle; see lint-gate.gradle.
 installLintGate(enforceMethodsOrderedByVisibility)

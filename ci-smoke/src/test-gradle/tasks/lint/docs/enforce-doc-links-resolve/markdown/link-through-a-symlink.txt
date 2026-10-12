@@ -1,0 +1,3 @@
+# Guide
+
+A symlink beside the file it points at: [alias](alias.md).
