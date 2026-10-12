@@ -175,14 +175,14 @@ Both need the `java` plugin, which the conventions apply.
 
 `enforceDocLinksResolve` and `enforceIdCasing` read every `.md` file in the project,
 not only those under `src/`, because a repository's longest prose is its root README.
-Both skip directories named in `markdownScanExcludedDirectoryNames`.
+Both skip directories named in `authoredScanExcludedDirectoryNames`.
 Its defaults are version-control and build-tool directories:
 `.git`, `.gradle`, `bin`, `build`, `out` and `node_modules`.
 A consumer whose own tooling writes Markdown adds that directory.
 Additions made after the gates are applied still count:
 
 ```groovy
-markdownScanExcludedDirectoryNames << 'generated-docs'
+authoredScanExcludedDirectoryNames << 'generated-docs'
 ```
 
 `enforceDocLinksResolve` checks inline links outside fenced code blocks.

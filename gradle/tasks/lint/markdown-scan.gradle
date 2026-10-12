@@ -1,22 +1,11 @@
 // The Markdown scan the gates reading a project's docs are made of: which .md files are authored, and which
-// of their lines sit outside a fenced code block.
+// of their lines sit outside a fenced code block or an inline code span.
 //
-// enforceDocLinksResolve and enforceIdCasing both judge a project's Markdown. A directory one of them skipped
-// and the other read would hand generated text to one gate and hide it from the other, so both read the tree
-// and the fences from here.
+// enforceDocLinksResolve and enforceIdCasing both judge a project's Markdown, so both read the fences and
+// spans from here.
 
 apply from: new File(buildscript.sourceFile.parentFile, 'lint-gate.gradle')
-
-// Directories whose files are generated, copied or vendored rather than authored. Scanning them would report
-// a violation against a file nobody edits, and tie a gate's up-to-dateness to build artefacts.
-//
-// The defaults are version-control and build-tool conventions, which is all this repo knows. A consumer whose
-// own tooling writes such a directory adds its name to this list. The list is read when a tree is walked, so
-// an addition made after the gates are applied still counts. It is created once, so a second gate applying
-// this script keeps what was added in between.
-if (!ext.has('markdownScanExcludedDirectoryNames')) {
-    ext.markdownScanExcludedDirectoryNames = ['.git', '.gradle', 'bin', 'build', 'out', 'node_modules']
-}
+apply from: new File(buildscript.sourceFile.parentFile, 'authored-files.gradle')
 
 // A line opening or closing a fenced code block. CommonMark lets a fence sit at most three spaces in; at four
 // the line is indented code instead.
@@ -30,17 +19,6 @@ ext.markdownCodeSpanPattern = ~/(`+).+?(?<!`)\1(?!`)/
 // quotes is neither prose nor navigation; the columns stay where they were for anything reporting them.
 ext.blankMarkdownCodeSpans = { String line ->
     return line.replaceAll(markdownCodeSpanPattern) { List<String> span -> ' ' * span[0].length() }
-}
-
-// A file tree under root that leaves out every excluded directory, matched against every segment of a path
-// rather than the first, so an excluded directory nested deeper in the tree is skipped too.
-ext.createAuthoredFileTree = { File root ->
-
-    def excludedDirectoryNames = markdownScanExcludedDirectoryNames
-
-    return project.fileTree(root) {
-        exclude { element -> element.relativePath.segments.any { it in excludedDirectoryNames } }
-    }
 }
 
 // Declares every authored .md file in the project as an input of the gate, and answers them as one tree.

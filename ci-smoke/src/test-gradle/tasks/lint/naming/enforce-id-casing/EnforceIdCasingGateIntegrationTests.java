@@ -173,7 +173,7 @@ class EnforceIdCasingGateIntegrationTests {
             GateProject.driving(GATE, projectDir)
                 .holdingFixture("generated/README.md", MARKDOWN_SAYING_ID)
                 .holdingJavaSample(GateProject.MAIN_JAVA_ROOT + "/generated", "comment-saying-id-in-prose")
-                .configuringTheGate("markdownScanExcludedDirectoryNames << 'generated'\n")
+                .configuringTheGate("authoredScanExcludedDirectoryNames << 'generated'\n")
                 .runExpectingGateToPass();
         }
 

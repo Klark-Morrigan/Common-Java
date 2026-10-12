@@ -1,0 +1,27 @@
+// Which files under a directory are authored rather than generated, copied or vendored: what the gates
+// that read a whole project, rather than its source sets, walk.
+//
+// A directory one of them skipped and another read would hand generated text to one gate and hide it from
+// the other, so they all read the tree from here.
+
+// Directories whose files are generated, copied or vendored rather than authored. Scanning them would report
+// a violation against a file nobody edits, and tie a gate's up-to-dateness to build artefacts.
+//
+// The defaults are version-control and build-tool conventions, which is all this repo knows. A consumer whose
+// own tooling writes such a directory adds its name to this list. The list is read when a tree is walked, so
+// an addition made after the gates are applied still counts. It is created once, so a second gate applying
+// this script keeps what was added in between.
+if (!ext.has('authoredScanExcludedDirectoryNames')) {
+    ext.authoredScanExcludedDirectoryNames = ['.git', '.gradle', 'bin', 'build', 'out', 'node_modules']
+}
+
+// A file tree under root that leaves out every excluded directory, matched against every segment of a path
+// rather than the first, so an excluded directory nested deeper in the tree is skipped too.
+ext.createAuthoredFileTree = { File root ->
+
+    def excludedDirectoryNames = authoredScanExcludedDirectoryNames
+
+    return project.fileTree(root) {
+        exclude { element -> element.relativePath.segments.any { it in excludedDirectoryNames } }
+    }
+}

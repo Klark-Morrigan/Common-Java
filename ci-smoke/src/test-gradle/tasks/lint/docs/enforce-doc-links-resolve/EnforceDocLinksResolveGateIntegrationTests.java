@@ -230,7 +230,7 @@ class EnforceDocLinksResolveGateIntegrationTests {
             // A consumer adds its own generated directory from a script that runs after the gate is applied.
             GateProject.driving(GATE, projectDir)
                 .holdingFixture("generated/guide.md", BROKEN_DOC_FIXTURE)
-                .configuringTheGate("markdownScanExcludedDirectoryNames << 'generated'\n")
+                .configuringTheGate("authoredScanExcludedDirectoryNames << 'generated'\n")
                 .runExpectingGateToPass();
         }
 
