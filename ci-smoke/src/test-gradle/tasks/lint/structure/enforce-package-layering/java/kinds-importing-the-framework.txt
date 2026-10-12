@@ -1,0 +1,8 @@
+package example.framework.kinds;
+
+import example.framework.FrameworkRoot;
+
+class Sample {
+
+    FrameworkRoot root;
+}

@@ -222,7 +222,7 @@ class EnforcePackageVocabularyGateIntegrationTests {
         var result = runGateExpectingFailure(projectDir, CLOSED_EXCEPT_A_PACKAGE_OUTSIDE_THE_ROOT);
 
         assertThat(result.getOutput())
-            .contains("forbidWords 'except' names a package strictly beneath the closed root "
+            .contains("forbidWords 'except' names a package strictly beneath its root "
                 + "example.framework; got: example.feature.kinds");
     }
 

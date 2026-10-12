@@ -190,6 +190,21 @@ An `except` outside the root, or naming the root itself, is refused where it is 
 and `exactly` takes none, since a package closed alone has no subtree to leave out.
 `enforcePackageVocabulary`'s `forbidWords` takes the same `except` on the same terms.
 
+An `of` entry may be a layer of the same shape - a map with `under` and `except`:
+
+```groovy
+enforcePackageLayering {
+    forbidImport under: 'example.framework.kinds',
+                 of: [under: 'example.framework',
+                      except: 'example.framework.kinds']
+}
+```
+
+That is the shape a package needs when its parent depends on it and it must not depend back.
+Closed to the whole parent, it would be closed to its own static imports;
+spelt as its siblings, the parent's top-level classes would stay open.
+The `except` is held to the same terms as the closed side's.
+
 Every source set is scanned, not `main` and `test` alone: a layering rule
 that exempts a tree is a layering rule with a hole in it. Test sources
 matter as much as production ones, since a suite reaching across the line

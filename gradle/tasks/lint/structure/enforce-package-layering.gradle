@@ -40,8 +40,8 @@
 // may not reach down into that operation - while the operation's sibling
 // subpackage still may. Stated with 'under', the same edge would close the
 // operations to each other too, and there would be no way to write the rule at
-// all. The imported side stays a subtree either way: what a package is closed to
-// is a layer, and no caller has yet needed to name one package of it.
+// all. The imported side has no narrow width: what a package is closed to is a
+// layer, and no caller has yet needed to name one package of it.
 //
 // A closed subtree may leave subtrees of its own out:
 //
@@ -59,6 +59,21 @@
 // it, or the root itself, exempts nothing the rule reaches or everything it
 // does, so either is refused where it is written. It narrows the 'under' width
 // alone: a package closed 'exactly' has no subtree to leave out.
+//
+// The imported side is a layer of the same shape. An 'of' entry is a root, or a
+// map with the closed side's own keys, 'under' and 'except':
+//
+//     enforcePackageLayering {
+//         forbidImport under: 'example.framework.kinds',
+//             of: [under: 'example.framework',
+//                  except: 'example.framework.kinds']
+//     }
+//
+// which is the shape a package needs when its parent depends on it and it must
+// not depend back. Closed to the whole parent, it would be closed to itself,
+// and its own static imports would fail. Spelt as its siblings instead, the
+// parent's own top-level classes stay open, and so does the next sibling anybody
+// adds. Its 'except' is held to the same terms as the closed side's.
 //
 // A build that declares no edge inherits the task and checks nothing, which is
 // what lets the conventions file apply it everywhere rather than leaving each
@@ -92,39 +107,72 @@ def findForbiddenImports = { File sourceFile, List forbiddenEdges ->
         // The default package sits under no root, so no edge can name it.
         return forbidden
     }
+
     def applicableEdges = forbiddenEdges.findAll { edge ->
 
         if (edge.isClosedExactly) {
             return declaredPackage == edge.closedRoot
         }
+
         return isAtOrUnderPackageRoot(declaredPackage, edge.closedRoot)
             && !edge.exceptedRoots.any { isAtOrUnderPackageRoot(declaredPackage, it) }
     }
+
     if (applicableEdges.isEmpty()) {
         return forbidden
     }
+
     lines.eachWithIndex { line, index ->
 
         def matcher = importDeclarationPattern.matcher(line)
-
         if (!matcher.find()) {
             return
         }
+
         def importedName = matcher.group(1)
 
         applicableEdges.each { edge ->
 
-            if (isAtOrUnderPackageRoot(importedName, edge.of)) {
+            if (isAtOrUnderPackageRoot(importedName, edge.forbiddenRoot)
+                    && !edge.forbiddenExceptedRoots.any { isAtOrUnderPackageRoot(importedName, it) }) {
 
                 // Bracketed so the leading '+' continues this expression. Groovy ends a
                 // statement at a line break wherever the line already parses whole, and reads
                 // the next one as unary plus on a string - which fails at the call, not here.
                 forbidden << ("${sourceFile}:${index + 1}: "
-                    + "${edge.closedSideLabel} may not import ${edge.of}: ${importedName}")
+                    + "${edge.closedSideLabel} may not import ${edge.forbiddenSideLabel}: ${importedName}")
             }
         }
     }
     return forbidden
+}
+
+// How a layer reads in a message: its root, then the subtrees it leaves out.
+def describeLayer = { String root, List exceptedRoots ->
+
+    return exceptedRoots.isEmpty()
+        ? root
+        : "${root} except ${exceptedRoots.join(', ')}".toString()
+}
+
+// One 'of' entry read as the layer it names: a bare root, or a map with the
+// closed side's 'under' and 'except'. A map without 'under' or with 'exactly' is
+// refused, since the imported side has no other width.
+def readForbiddenLayer = { Object entry ->
+
+    if (!(entry instanceof Map)) {
+        return [root: entry.toString(), exceptedRoots: []]
+    }
+
+    if (!entry.under || entry.exactly) {
+
+        throw new GradleException("forbidImport 'of' names a package root, or a "
+            + "layer as [under: root, except: subtrees]; got: ${entry}")
+    }
+
+    def root = entry.under.toString()
+
+    return [root: root, exceptedRoots: readExceptedRoots('forbidImport', entry, root)]
 }
 
 // Filled by the consuming build through the task's own `forbidImport`, so it
@@ -135,6 +183,7 @@ def forbiddenEdges = []
 def enforcePackageLayering = tasks.register('enforcePackageLayering') {
 
     group = 'verification'
+
     // Bracketed for the same reason as the message above: without it the leading '+' is a
     // statement of its own, and this one fails at configuration time in every consumer.
     description = ('Fails the build when a package root imports one the '
@@ -155,6 +204,7 @@ def enforcePackageLayering = tasks.register('enforcePackageLayering') {
                 + "it, or 'exactly' for that one package - not both; "
                 + "got: ${edge}")
         }
+
         def closedRoot = edge.under ?: edge.exactly
 
         if (!closedRoot || !edge.of) {
@@ -164,30 +214,34 @@ def enforcePackageLayering = tasks.register('enforcePackageLayering') {
                 + "it, or 'exactly' for that one package - and 'of' (the "
                 + "package root it may not import); got: ${edge}")
         }
-        // 'of' takes one package root or a list of them. A root is usually
-        // closed to several at once - the siblings it must not reach into - and
-        // spelling one declaration per pair states the closed side over and over
-        // for a rule a reader holds as one.
-        def forbiddenImports = edge.of instanceof Collection ? edge.of : [edge.of]
+
+        // 'of' takes one layer or a list of them. A root is usually closed to
+        // several at once - the siblings it must not reach into - and spelling
+        // one declaration per pair states the closed side over and over for a
+        // rule a reader holds as one. A single map is one layer, not a list.
+        def forbiddenEntries = edge.of instanceof Collection ? edge.of : [edge.of]
         def exceptedRoots = readExceptedRoots('forbidImport', edge, closedRoot)
 
-        // The label carries the width and the left-out subtrees into every
+        // The labels carry the width and the left-out subtrees into every
         // message the edge produces, including the input-property snapshot
         // below: each is a different rule over the same pair of roots, so a run
         // cleared under one must not read as UP-TO-DATE under another.
-        def closedSideLabel = edge.exactly
-            ? "${closedRoot} itself"
-            : closedRoot
-        if (!exceptedRoots.isEmpty()) {
-            closedSideLabel = "${closedSideLabel} except ${exceptedRoots.join(', ')}"
-        }
-        forbiddenImports.each { forbiddenImport ->
+        def closedSideLabel = describeLayer(
+            edge.exactly ? "${closedRoot} itself".toString() : closedRoot,
+            exceptedRoots)
+
+        forbiddenEntries.each { forbiddenEntry ->
+
+            def forbiddenLayer = readForbiddenLayer(forbiddenEntry)
+
             forbiddenEdges << [
                 closedRoot: closedRoot,
                 isClosedExactly: edge.exactly as boolean,
                 exceptedRoots: exceptedRoots,
                 closedSideLabel: closedSideLabel,
-                of: forbiddenImport,
+                forbiddenRoot: forbiddenLayer.root,
+                forbiddenExceptedRoots: forbiddenLayer.exceptedRoots,
+                forbiddenSideLabel: describeLayer(forbiddenLayer.root, forbiddenLayer.exceptedRoots),
             ]
         }
     }
@@ -218,7 +272,7 @@ def enforcePackageLayering = tasks.register('enforcePackageLayering') {
     inputs.property('forbiddenEdges', providers.provider {
 
         forbiddenEdges
-            .collect { "${it.closedSideLabel} !-> ${it.of}".toString() }
+            .collect { "${it.closedSideLabel} !-> ${it.forbiddenSideLabel}".toString() }
             .sort()
     })
 
@@ -227,6 +281,7 @@ def enforcePackageLayering = tasks.register('enforcePackageLayering') {
         if (forbiddenEdges.isEmpty()) {
             return
         }
+
         def violations = []
 
         scannedSources.each { sourceFile ->

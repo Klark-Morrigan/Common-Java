@@ -23,6 +23,7 @@ class EnforcePackageLayeringGateIntegrationTests {
     private static final String SECOND_FORBIDDEN_PACKAGE_ROOT = "example.otherfeature";
 
     private static final String NO_EDGE_DECLARED = "";
+
     private static final String CLOSED_TO_THE_FEATURE = buildEdgeDeclaration(
         "under: '" + CLOSED_PACKAGE_ROOT + "', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
 
@@ -50,6 +51,22 @@ class EnforcePackageLayeringGateIntegrationTests {
     private static final String CLOSED_EXCEPT_A_PACKAGE_OUTSIDE_THE_ROOT = buildEdgeDeclaration(
         "under: '" + CLOSED_PACKAGE_ROOT + "', except: '" + FORBIDDEN_PACKAGE_ROOT
             + ".render', of: '" + FORBIDDEN_PACKAGE_ROOT + "'");
+
+    // The imported side as a layer: a subtree closed to the rest of the root it
+    // sits in, its own imports left free.
+    private static final String KINDS_PACKAGE_ROOT = CLOSED_PACKAGE_ROOT + ".kinds";
+
+    private static final String KINDS_CLOSED_TO_THE_REST_OF_THE_FRAMEWORK = buildEdgeDeclaration(
+        "under: '" + KINDS_PACKAGE_ROOT + "', of: [under: '" + CLOSED_PACKAGE_ROOT
+            + "', except: '" + KINDS_PACKAGE_ROOT + "']");
+
+    private static final String IMPORTED_LAYER_EXCEPT_A_PACKAGE_OUTSIDE_ITS_ROOT = buildEdgeDeclaration(
+        "under: '" + KINDS_PACKAGE_ROOT + "', of: [under: '" + CLOSED_PACKAGE_ROOT
+            + "', except: '" + FORBIDDEN_PACKAGE_ROOT + ".render']");
+
+    // An imported layer with no root, which leaves nothing for the edge to close.
+    private static final String IMPORTED_LAYER_WITHOUT_ITS_ROOT = buildEdgeDeclaration(
+        "under: '" + KINDS_PACKAGE_ROOT + "', of: [except: '" + KINDS_PACKAGE_ROOT + "']");
 
     // An edge naming only the closed root, which says nothing about what it is
     // closed to - the shape a misspelt or forgotten 'of:' takes.
@@ -224,8 +241,48 @@ class EnforcePackageLayeringGateIntegrationTests {
         var result = runGateExpectingFailure(projectDir, CLOSED_EXCEPT_A_PACKAGE_OUTSIDE_THE_ROOT);
 
         assertThat(result.getOutput())
-            .contains("forbidImport 'except' names a package strictly beneath the closed root "
+            .contains("forbidImport 'except' names a package strictly beneath its root "
                 + "example.framework; got: example.feature.render");
+    }
+
+    @Test
+    void failsWhenASubtreeImportsTheRestOfTheLayerItIsClosedTo(@TempDir Path projectDir) {
+
+        // The parent's own top-level classes are the part a list of sibling
+        // subtrees cannot name, so the case imports one of those.
+        writeJavaSource(projectDir, "src/main/java", "kinds-importing-the-framework");
+
+        var result = runGateExpectingFailure(projectDir, KINDS_CLOSED_TO_THE_REST_OF_THE_FRAMEWORK);
+
+        assertThat(result.getOutput())
+            .contains("example.framework.kinds may not import example.framework except "
+                + "example.framework.kinds: example.framework.FrameworkRoot");
+    }
+
+    @Test
+    void failsWhenTheImportedLayerLeavesOutAPackageOutsideItsRoot(@TempDir Path projectDir) {
+
+        // Held to the closed side's terms: an exemption that can never apply is
+        // refused where it is written.
+        writeJavaSource(projectDir, "src/main/java", "kinds-importing-its-own-kind");
+
+        var result = runGateExpectingFailure(projectDir, IMPORTED_LAYER_EXCEPT_A_PACKAGE_OUTSIDE_ITS_ROOT);
+
+        assertThat(result.getOutput())
+            .contains("forbidImport 'except' names a package strictly beneath its root "
+                + "example.framework; got: example.feature.render");
+    }
+
+    @Test
+    void failsWhenTheImportedLayerNamesNoRoot(@TempDir Path projectDir) {
+
+        writeJavaSource(projectDir, "src/main/java", "kinds-importing-its-own-kind");
+
+        var result = runGateExpectingFailure(projectDir, IMPORTED_LAYER_WITHOUT_ITS_ROOT);
+
+        assertThat(result.getOutput())
+            .contains("forbidImport 'of' names a package root, or a layer as "
+                + "[under: root, except: subtrees]");
     }
 
     @Test
@@ -278,6 +335,19 @@ class EnforcePackageLayeringGateIntegrationTests {
         writeJavaSource(projectDir, "src/main/java", "framework-importing-the-feature");
 
         var result = runGateExpectingSuccess(projectDir, CLOSED_EXCEPT_THE_RENDER_SUBTREE);
+
+        assertThat(result.task(GATE.taskPath()).getOutcome())
+            .isEqualTo(TaskOutcome.SUCCESS);
+    }
+
+    @Test
+    void passesWhenASubtreeImportsOnlyItselfFromTheLayerItIsClosedTo(@TempDir Path projectDir) {
+
+        // The whole reason the imported side takes 'except': closed to its
+        // whole parent, the subtree would be closed to its own static imports.
+        writeJavaSource(projectDir, "src/main/java", "kinds-importing-its-own-kind");
+
+        var result = runGateExpectingSuccess(projectDir, KINDS_CLOSED_TO_THE_REST_OF_THE_FRAMEWORK);
 
         assertThat(result.task(GATE.taskPath()).getOutcome())
             .isEqualTo(TaskOutcome.SUCCESS);

@@ -52,15 +52,15 @@ ext.isAtOrUnderPackageRoot = { String dottedName, String packageRoot ->
     return dottedName == packageRoot || dottedName.startsWith(packageRoot + '.')
 }
 
-// The subtrees a closed root leaves out, read off a declaration's 'except' - one
-// package or a list, empty when the declaration names none.
+// The subtrees a layer leaves out of its root, read off a declaration's
+// 'except' - one package or a list, empty when the declaration names none.
 //
-// Each must sit strictly beneath the closed root, and anything else is refused
-// where it is written: one outside the root exempts nothing the rule reaches,
-// and the root itself exempts everything, so either reads in the build as a
-// rule while enforcing a different one. 'exactly' takes none, since a package
-// closed alone has no subtree to leave out.
-ext.readExceptedRoots = { String declaringCall, Map declaration, String closedRoot ->
+// Each must sit strictly beneath the root, and anything else is refused where it
+// is written: one outside the root exempts nothing the rule reaches, and the
+// root itself exempts everything, so either reads in the build as a rule while
+// enforcing a different one. 'exactly' takes none, since a package closed alone
+// has no subtree to leave out.
+ext.readExceptedRoots = { String declaringCall, Map declaration, String layerRoot ->
 
     if (declaration.except == null) {
         return []
@@ -79,10 +79,10 @@ ext.readExceptedRoots = { String declaringCall, Map declaration, String closedRo
 
     exceptedRoots.each { exceptedRoot ->
 
-        if (exceptedRoot == closedRoot || !isAtOrUnderPackageRoot(exceptedRoot, closedRoot)) {
+        if (exceptedRoot == layerRoot || !isAtOrUnderPackageRoot(exceptedRoot, layerRoot)) {
 
             throw new GradleException("${declaringCall} 'except' names a package "
-                + "strictly beneath the closed root ${closedRoot}; got: ${exceptedRoot}")
+                + "strictly beneath its root ${layerRoot}; got: ${exceptedRoot}")
         }
     }
     return exceptedRoots
