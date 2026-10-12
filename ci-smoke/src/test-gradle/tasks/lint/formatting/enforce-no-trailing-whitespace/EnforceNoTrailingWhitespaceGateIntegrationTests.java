@@ -36,7 +36,7 @@ class EnforceNoTrailingWhitespaceGateIntegrationTests {
             .runExpectingGateToFail();
 
         assertThat(result.getOutput())
-            .contains("Sample.java:4: line ends in whitespace");
+            .contains("Sample.java:5: line ends in whitespace");
     }
 
     @Test
@@ -47,7 +47,7 @@ class EnforceNoTrailingWhitespaceGateIntegrationTests {
             .runExpectingGateToFail();
 
         assertThat(result.getOutput())
-            .contains("Sample.java:2: line ends in whitespace");
+            .contains("Sample.java:3: line ends in whitespace");
     }
 
     @Test
@@ -59,7 +59,7 @@ class EnforceNoTrailingWhitespaceGateIntegrationTests {
             .runExpectingGateToFail();
 
         assertThat(result.getOutput())
-            .contains("Sample.java:2: line ends in whitespace");
+            .contains("Sample.java:3: line ends in whitespace");
     }
 
     @Test

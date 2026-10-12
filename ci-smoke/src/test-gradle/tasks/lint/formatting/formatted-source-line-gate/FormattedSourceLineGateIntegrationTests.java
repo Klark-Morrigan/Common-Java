@@ -32,7 +32,7 @@ class FormattedSourceLineGateIntegrationTests {
     private static final String CLEAN_CRLF_SOURCE = "class Sample {\r\n\r\n    int value;\r\n}\r\n";
 
     // The line each gate's violating fixture is rejected at.
-    private static final int INDENTED_BLANK_LINE = 4;
+    private static final int INDENTED_BLANK_LINE = 5;
     private static final int SECOND_CONSECUTIVE_BLANK_LINE = 5;
 
     /**
