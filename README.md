@@ -178,9 +178,9 @@ Both need the `java` plugin, which the conventions apply.
 
 ### Markdown gates
 
-`enforceDocLinksResolve` and `enforceIdCasing` read every `.md` file in the project,
+`enforceDocLinksResolve`, `enforceIdCasing` and `enforceNoForbiddenPhrases` read every `.md` file in the project,
 not only those under `src/`, because a repository's longest prose is its root README.
-Both skip directories named in `authoredScanExcludedDirectoryNames`.
+All three skip directories named in `authoredScanExcludedDirectoryNames`.
 Its defaults are version-control and build-tool directories:
 `.git`, `.gradle`, `bin`, `build`, `out` and `node_modules`.
 A consumer whose own tooling writes Markdown adds that directory.
@@ -235,8 +235,10 @@ enforceNoForbiddenPhrases {
 
 Only prose is judged:
 a fenced block or an inline code span is a quoted sample, so a phrase inside one passes.
-A glob that matches no file checks nothing and does not fail,
-since a family's conventions may declare a rule for documents only some of its projects carry.
+A rule whose globs match no file fails the build:
+it forbids nothing, and a mistyped glob would read as a rule holding.
+Conventions shared by projects that carry the documents and projects that do not
+declare the rule only where the documents are.
 
 ### Test-tree gates
 
@@ -460,7 +462,7 @@ since its suite applies it alone.
 | [tasks/lint/source-scan.gradle](gradle/tasks/lint/source-scan.gradle) | lines stripped of comments and literals, and the class and `@Nested` group each line sits in |
 | [tasks/lint/package-roots.gradle](gradle/tasks/lint/package-roots.gradle) | package declarations, package roots, and layers with `except` |
 | [tasks/lint/word-scan.gradle](gradle/tasks/lint/word-scan.gradle) | text parted into words, and where a declared phrase is said |
-| [tasks/lint/markdown-scan.gradle](gradle/tasks/lint/markdown-scan.gradle) | the authored `.md` tree and the lines outside fenced blocks |
+| [tasks/lint/markdown-scan.gradle](gradle/tasks/lint/markdown-scan.gradle) | the authored `.md` tree, the lines outside fenced blocks, and those lines' prose with code spans blanked |
 | [tasks/format/formatted-source-sets.gradle](gradle/tasks/format/formatted-source-sets.gradle) | the source sets less `formatterExcludedSourceSets` |
 | [tasks/lint/formatting/formatted-source-line-gate.gradle](gradle/tasks/lint/formatting/formatted-source-line-gate.gradle) | the line-by-line body of the two formatting gates |
 | [tasks/lint/naming/tests/double-naming-scan.gradle](gradle/tasks/lint/naming/tests/double-naming-scan.gradle) | a test double's holder, for the fake and mock gates |

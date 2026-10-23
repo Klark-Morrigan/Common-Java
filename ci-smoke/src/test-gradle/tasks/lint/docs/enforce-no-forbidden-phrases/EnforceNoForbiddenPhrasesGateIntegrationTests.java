@@ -23,6 +23,7 @@ class EnforceNoForbiddenPhrasesGateIntegrationTests {
     private static final String GUIDE_PATH = "docs/guide.md";
 
     private static final String FORBIDDEN_LINE = "Kept as the manual says.\n";
+    private static final String CLEAN_LINE = "Kept for what the word means.\n";
 
     private static final String MANUAL_RULE = GateProject.buildConfigurationBlock(
         EXTENSION,
@@ -81,6 +82,20 @@ class EnforceNoForbiddenPhrasesGateIntegrationTests {
 
             assertThat(result.getOutput())
                 .contains("forbidPhrase pattern is not a regular expression: (unclosed");
+        }
+
+        // A mistyped glob would otherwise read as a rule holding while the documents it meant go unjudged.
+        @Test
+        void failsWhenARuleMatchesNoFile(@TempDir Path projectDir) {
+
+            var result = GateProject
+                .driving(GATE, projectDir)
+                .configuringTheGate(MANUAL_RULE)
+                .holdingText(GUIDE_PATH, CLEAN_LINE)
+                .runExpectingGateToFail();
+
+            assertThat(result.getOutput())
+                .contains("[docs/reference/*.md]: forbidPhrase matches no file, so it forbids nothing");
         }
 
         @Test
@@ -179,6 +194,7 @@ class EnforceNoForbiddenPhrasesGateIntegrationTests {
             GateProject
                 .driving(GATE, projectDir)
                 .configuringTheGate(MANUAL_RULE)
+                .holdingText(REFERENCE_PATH, CLEAN_LINE)
                 .holdingText(GUIDE_PATH, FORBIDDEN_LINE)
                 .runExpectingGateToPass();
         }
@@ -189,16 +205,7 @@ class EnforceNoForbiddenPhrasesGateIntegrationTests {
             GateProject
                 .driving(GATE, projectDir)
                 .configuringTheGate(MANUAL_RULE)
-                .holdingText(REFERENCE_PATH, "Kept for what the word means.\n")
-                .runExpectingGateToPass();
-        }
-
-        @Test
-        void passesWhenThereAreNoMarkdownFiles(@TempDir Path projectDir) {
-
-            GateProject
-                .driving(GATE, projectDir)
-                .configuringTheGate(MANUAL_RULE)
+                .holdingText(REFERENCE_PATH, CLEAN_LINE)
                 .runExpectingGateToPass();
         }
     }
@@ -241,6 +248,7 @@ class EnforceNoForbiddenPhrasesGateIntegrationTests {
                     EXTENSION,
                     "forbidPhrase pattern: /as the manual says/, inFiles: '**/*.md', reason: 'cites the manual'"))
                 .holdingText("build/docs/terms.md", FORBIDDEN_LINE)
+                .holdingText(GUIDE_PATH, CLEAN_LINE)
                 .runExpectingGateToPass();
         }
     }
@@ -254,7 +262,7 @@ class EnforceNoForbiddenPhrasesGateIntegrationTests {
             var project = GateProject
                 .driving(GATE, projectDir)
                 .configuringTheGate(MANUAL_RULE)
-                .holdingText(REFERENCE_PATH, "Kept for what the word means.\n");
+                .holdingText(REFERENCE_PATH, CLEAN_LINE);
 
             project.runExpectingGateToPass();
 

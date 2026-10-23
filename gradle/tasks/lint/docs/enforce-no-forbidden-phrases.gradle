@@ -18,6 +18,10 @@
 // 'inFiles' takes one project-relative glob or a list of them, matched against the project's authored
 // Markdown. 'reason' ends each finding, so a developer reads why the phrase is out as well as where.
 //
+// A rule whose globs match no file fails the build. It forbids nothing, and a mistyped glob would otherwise
+// read as a rule holding while the documents it meant go unjudged. A build that carries the documents in
+// some projects only declares the rule where they are.
+//
 // Only prose is read. A fenced block or an inline code span is sample text, so a phrase quoted in one is
 // shown rather than said.
 
@@ -30,9 +34,7 @@ def findForbiddenPhrases = { File markdownFile, String reportedPath, List applic
 
     def found = []
 
-    visitLinesOutsideFences(markdownFile) { String line, int lineNumber ->
-
-        def prose = blankMarkdownCodeSpans(line)
+    visitProseLines(markdownFile) { String prose, int lineNumber ->
 
         applicablePhrases.each { phrase ->
 
@@ -101,6 +103,8 @@ def enforceNoForbiddenPhrases = tasks.register('enforceNoForbiddenPhrases') { ga
             [phrase: phrase, spec: new PatternSet().include(phrase.inFiles).asSpec]
         }
 
+        def matchedPhrases = [] as Set
+
         scannedMarkdown.visit { FileVisitDetails details ->
 
             if (details.directory) {
@@ -112,8 +116,16 @@ def enforceNoForbiddenPhrases = tasks.register('enforceNoForbiddenPhrases') { ga
                 *.phrase
 
             if (!applicablePhrases.isEmpty()) {
+
+                matchedPhrases.addAll(applicablePhrases)
                 violations.addAll(findForbiddenPhrases(details.file, details.path, applicablePhrases))
             }
+        }
+
+        // A rule judging no file is dead config: it forbids nothing, and the documents it was written for
+        // go unjudged the moment they come back under another path.
+        forbiddenPhrases.findAll { !(it in matchedPhrases) }.each {
+            violations << "${it.inFiles}: forbidPhrase matches no file, so it forbids nothing: '${it.pattern.pattern()}'"
         }
 
         failOnViolations('Forbidden phrases found', violations)
