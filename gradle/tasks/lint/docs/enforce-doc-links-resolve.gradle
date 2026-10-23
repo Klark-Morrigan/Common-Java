@@ -87,9 +87,9 @@ def readInScopeLinks = { File markdownFile, Path scanRoot, Path realScanRoot ->
 
     def links = []
 
-    visitLinesOutsideFences(markdownFile) { String line, int lineNumber ->
+    visitProseLines(markdownFile) { String prose, int lineNumber ->
 
-        def linkMatcher = markdownInlineLinkPattern.matcher(blankMarkdownCodeSpans(line))
+        def linkMatcher = markdownInlineLinkPattern.matcher(prose)
 
         while (linkMatcher.find()) {
 

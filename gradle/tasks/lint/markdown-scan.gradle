@@ -1,8 +1,8 @@
 // The Markdown scan the gates reading a project's docs are made of: which .md files are authored, and which
 // of their lines sit outside a fenced code block or an inline code span.
 //
-// enforceDocLinksResolve and enforceIdCasing both judge a project's Markdown, so both read the fences and
-// spans from here.
+// enforceDocLinksResolve, enforceIdCasing and enforceNoForbiddenPhrases all judge a project's Markdown, so
+// they read the fences and spans from here.
 
 apply from: new File(buildscript.sourceFile.parentFile, 'lint-gate.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, 'authored-files.gradle')
@@ -57,5 +57,15 @@ ext.visitLinesOutsideFences = { File markdownFile, Closure visitLine ->
         if (openFenceCharacter == null) {
             visitLine(line, lineNumber)
         }
+    }
+}
+
+// Hands each prose line of a Markdown file to visitProse with its 1-based number: every line outside a fenced
+// block, with its inline code spans blanked. Stated once, so the gates judging what a document says agree on
+// what is said and what is only quoted.
+ext.visitProseLines = { File markdownFile, Closure visitProse ->
+
+    visitLinesOutsideFences(markdownFile) { String line, int lineNumber ->
+        visitProse(blankMarkdownCodeSpans(line), lineNumber)
     }
 }
