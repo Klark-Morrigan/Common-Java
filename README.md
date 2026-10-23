@@ -16,6 +16,8 @@ It is the generic tier that downstream projects build on.
     `enforceNoTrailingWhitespace`, `enforceSingleBlankLines`
   - [Markdown gates](#markdown-gates) -
     `enforceDocLinksResolve`, `enforceIdCasing`
+    - [Forbidden phrases](#forbidden-phrases) -
+      `enforceNoForbiddenPhrases`
   - [Test-tree gates](#test-tree-gates) -
     `enforceCamelCaseTestNames`, `enforceSuffixOnFakes`, `enforceSuffixOnMocks`, `enforceSuffixOnSuites`,
     `enforceTestNamesOmitGroup`, `enforceTestsNested`
@@ -131,6 +133,7 @@ A gate is skipped as up to date while its inputs and rules are unchanged.
 | `enforceDocLinksResolve` | every `.md` file in the project | a relative link points at a file that exists, spelt in the same case |
 | `enforceIdCasing` | every `.md` file, and Java and Kotlin comments under `src/` | prose spells the abbreviation `ID`, not `id` |
 | `enforceMethodsOrderedByVisibility` | Java and Kotlin under `src/main` | methods in a type run most-public-first |
+| `enforceNoForbiddenPhrases` | the `.md` files each rule names | prose does not say a phrase the build rules out of those files |
 | `enforceNoMagicLiteralsKotlin` | Kotlin in every source set but `test` | numbers are named constants |
 | `enforceNoTestVocabulary` | Java, Kotlin and `.md` under `src/`, test trees exempt | production sources do not use the words of a test suite |
 | `enforceNoTrailingWhitespace` | Java and Kotlin in the formatted source sets | no line ends in whitespace |
@@ -149,9 +152,11 @@ The test trees are `src/test` and `src/testFixtures`.
 
 ### Declarations and allowances
 
-Four gates check nothing until a consumer declares rules:
-`enforcePackageLayering`, `enforcePackageVocabulary`, `enforceRestrictedCalls` and `enforceReferencedTypes`.
-Which package may reach which, and which words or calls it may use, is a per-project fact this repo cannot know.
+Five gates check nothing until a consumer declares rules:
+`enforcePackageLayering`, `enforcePackageVocabulary`, `enforceRestrictedCalls`, `enforceReferencedTypes`
+and `enforceNoForbiddenPhrases`.
+Which package may reach which, which words or calls it may use, and which phrases its documents may say,
+is a per-project fact this repo cannot know.
 
 A declaration takes named arguments and states a whole rule in one call.
 A malformed declaration fails where it is written.
@@ -204,6 +209,34 @@ enforceIdCasing {
 ```
 
 An `exemptPath` matching no file fails the build.
+
+#### Forbidden phrases
+
+`enforceNoForbiddenPhrases` keeps a phrase out of the documents a consumer names.
+It fits a habit of writing a reviewer keeps striking,
+such as a stock justification that points at the wrong source,
+which no compiler or test would ever report.
+
+```groovy
+enforceNoForbiddenPhrases {
+    forbidPhrase pattern: /(?i)\bas the manual says\b/,
+        inFiles: 'docs/reference/*.md',
+        reason: 'cites the manual as the reason'
+}
+```
+
+- `pattern:` is a regular expression, matched against one line at a time.
+  Flags such as `(?i)` go inside it.
+  A pattern that does not compile fails where it is declared.
+- `inFiles:` takes one project-relative glob or a list.
+  It is matched against the authored Markdown the other Markdown gates read.
+- `reason:` is written into each finding,
+  between the file and line and the phrase found.
+
+Only prose is judged:
+a fenced block or an inline code span is a quoted sample, so a phrase inside one passes.
+A glob that matches no file checks nothing and does not fail,
+since a family's conventions may declare a rule for documents only some of its projects carry.
 
 ### Test-tree gates
 

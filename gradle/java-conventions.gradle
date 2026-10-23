@@ -180,6 +180,7 @@ apply from: new File(
     'tasks/diagnostics/report-awt-environment.gradle')
 
 apply from: new File(lintTasksDir, 'docs/enforce-doc-links-resolve.gradle')
+apply from: new File(lintTasksDir, 'docs/enforce-no-forbidden-phrases.gradle')
 apply from: new File(lintTasksDir, 'formatting/enforce-no-trailing-whitespace.gradle')
 apply from: new File(lintTasksDir, 'formatting/enforce-single-blank-lines.gradle')
 apply from: new File(lintTasksDir, 'literals/enforce-no-magic-literals-kotlin.gradle')

@@ -1,0 +1,123 @@
+// Forbidden-phrase gate: a phrase a consuming build has ruled out of some of its documents is not written
+// in them.
+//
+// It exists for a habit of writing rather than a fact about code. A reasoning shape that keeps coming back
+// in prose a reviewer has already struck - a sentence form, a stock justification - compiles nothing and
+// breaks nothing, so only a gate keeps it out.
+//
+// Which phrases, in which files, and why, are the consumer's: a phrase is wrong in one kind of document and
+// right in another, so this repo states none.
+//
+//     enforceNoForbiddenPhrases {
+//         forbidPhrase pattern: /(?i)\bas the manual says\b/,
+//             inFiles: 'docs/reference/*.md',
+//             reason: 'cites the manual as the reason'
+//     }
+//
+// 'pattern' is a regular expression, matched against one line at a time; flags such as (?i) go inside it.
+// 'inFiles' takes one project-relative glob or a list of them, matched against the project's authored
+// Markdown. 'reason' ends each finding, so a developer reads why the phrase is out as well as where.
+//
+// Only prose is read. A fenced block or an inline code span is sample text, so a phrase quoted in one is
+// shown rather than said.
+
+apply from: new File(buildscript.sourceFile.parentFile, '../markdown-scan.gradle')
+
+def forbiddenPhrases = []
+
+// Reports one message per forbidden phrase a file says, given the rules whose globs match it.
+def findForbiddenPhrases = { File markdownFile, String reportedPath, List applicablePhrases ->
+
+    def found = []
+
+    visitLinesOutsideFences(markdownFile) { String line, int lineNumber ->
+
+        def prose = blankMarkdownCodeSpans(line)
+
+        applicablePhrases.each { phrase ->
+
+            def matcher = phrase.pattern.matcher(prose)
+            if (matcher.find()) {
+                found << "${reportedPath}:${lineNumber}: ${phrase.reason}: '${matcher.group()}'"
+            }
+        }
+    }
+
+    return found
+}
+
+def enforceNoForbiddenPhrases = tasks.register('enforceNoForbiddenPhrases') { gate ->
+
+    description = 'Fails the build when a document says a phrase the consuming build forbids in it.'
+    group = 'verification'
+
+    ext.forbidPhrase = { Map declaration ->
+
+        def inFiles = readOneOrMany(declaration.inFiles)
+
+        if (!declaration.pattern || inFiles.isEmpty() || !declaration.reason) {
+
+            throw new GradleException("forbidPhrase needs 'pattern' (the regular expression ruled out), " +
+                "'inFiles' (the project-relative globs of the documents it is ruled out of) and 'reason' " +
+                "(why, for the finding to say); got: ${declaration}")
+        }
+
+        def pattern
+
+        try {
+            pattern = java.util.regex.Pattern.compile(declaration.pattern.toString())
+
+        } catch (java.util.regex.PatternSyntaxException syntaxException) {
+
+            throw new GradleException("forbidPhrase pattern is not a regular expression: " +
+                "${declaration.pattern} (${syntaxException.description})")
+        }
+
+        forbiddenPhrases << [
+            pattern: pattern,
+            // Sorted so the rule snapshot does not turn on declaration order.
+            inFiles: inFiles.collect { it.toString() }.sort(),
+            reason: declaration.reason.toString(),
+        ]
+    }
+
+    def scannedMarkdown = declareMarkdownFiles(gate, 'scannedMarkdown')
+
+    declareRuleSnapshot(gate, 'forbiddenPhrases') {
+        forbiddenPhrases.collect { "${it.pattern.pattern()} in ${it.inFiles}: ${it.reason}" }
+    }
+
+    doLast {
+
+        if (forbiddenPhrases.isEmpty()) {
+            return
+        }
+
+        def violations = []
+
+        // Matched by the same Ant globbing a fileTree include uses, so a glob means what it would mean
+        // anywhere else in the build.
+        def phraseSpecs = forbiddenPhrases.collect { phrase ->
+            [phrase: phrase, spec: new PatternSet().include(phrase.inFiles).asSpec]
+        }
+
+        scannedMarkdown.visit { FileVisitDetails details ->
+
+            if (details.directory) {
+                return
+            }
+
+            def applicablePhrases = phraseSpecs
+                .findAll { it.spec.isSatisfiedBy(details) }
+                *.phrase
+
+            if (!applicablePhrases.isEmpty()) {
+                violations.addAll(findForbiddenPhrases(details.file, details.path, applicablePhrases))
+            }
+        }
+
+        failOnViolations('Forbidden phrases found', violations)
+    }
+}
+
+installLintGate(enforceNoForbiddenPhrases)
