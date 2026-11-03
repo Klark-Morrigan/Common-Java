@@ -15,8 +15,8 @@ class EnforceCommentLineWidthGateIntegrationTests {
     @Test
     void passesWhenEveryCommentFitsTheLimit(@TempDir Path projectDir) {
 
-        // A comment at exactly the limit, and longer lines whose '//' and '/*' sit in a string or
-        // that hold no comment at all: code layout is its author's.
+        // A comment at exactly the limit, and longer lines holding no comment: a '//' or '/*' in a
+        // string or a text block, and code straight after a block comment closes.
         project(projectDir)
             .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "comments-within-the-limit")
             .runExpectingGateToPass();

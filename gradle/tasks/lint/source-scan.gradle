@@ -1,5 +1,5 @@
-// The source-text scan the structure and naming gates are made of: each line of a Java or Kotlin
-// file with its comments and literals gone, and the class it sits in.
+// The source-text scan the gates reading code are made of: each line of a Java or Kotlin file with
+// its comments and literals gone, whether it held a comment, and the class it sits in.
 //
 // No bytecode-level tool sees a source file's shape cleanly across Java and Kotlin, so the gates
 // reading it are source-text passes. None of them can trust a token or a brace until comments and
