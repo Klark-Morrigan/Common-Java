@@ -34,6 +34,7 @@ class FormattedSourceLineGateIntegrationTests {
     // The line each gate's violating fixture is rejected at.
     private static final int INDENTED_BLANK_LINE = 5;
     private static final int SECOND_CONSECUTIVE_BLANK_LINE = 5;
+    private static final int LONG_COMMENT_LINE = 3;
 
     /**
      * A gate built on the helper, with a sample it rejects. The fixture is filed under both java/
@@ -50,6 +51,11 @@ class FormattedSourceLineGateIntegrationTests {
     static Stream<LineGate> readLineGates() {
 
         return Stream.of(
+            new LineGate(
+                new GateUnderTest("enforceCommentLineWidth", "lint/formatting/enforce-comment-line-width"),
+                "line-comment-past-the-limit",
+                LONG_COMMENT_LINE,
+                "comment line is 121 columns"),
             new LineGate(
                 new GateUnderTest("enforceNoTrailingWhitespace", "lint/formatting/enforce-no-trailing-whitespace"),
                 "blank-line-carrying-indent",

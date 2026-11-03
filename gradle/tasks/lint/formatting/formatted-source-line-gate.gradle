@@ -1,6 +1,9 @@
 // The shared body of the gates that judge source text line by line: which files they read, and
 // how they walk them. Each gate keeps only its rule.
 //
+// A rule judging each line on its own, or against the line before it, takes the line gate. A rule
+// that needs state carried further, such as an open block comment, takes the file gate.
+//
 // They read every source set the project declares, rather than a list of tree names. The rules
 // are about how code reads, which does not depend on which tree it sits in, and a gate naming its
 // trees silently stops covering a source set the moment one is added. Held out where the formatter
@@ -23,10 +26,38 @@ apply from: new File(
 // so a Windows checkout's carriage return never reaches a rule.
 ext.configureFormattedSourceLineGate = { Task gate, String heading, Closure findLineViolation ->
 
+    configureFormattedSourceFileGate(gate, heading) { File sourceFile ->
+
+        def findings = []
+        def previousLine = null
+
+        sourceFile.eachLine(sourceEncoding) { line, lineNumber ->
+
+            def finding = findLineViolation(line, previousLine)
+            if (finding != null) {
+                findings << [line: lineNumber, finding: finding]
+            }
+
+            previousLine = line
+        }
+
+        return findings
+    }
+}
+
+// The same gate for a rule that carries state from one line to the next, such as whether a block
+// comment is still open: the rule walks each file itself.
+//
+// findFileViolations is handed one file and answers its findings in line order, each a map of the
+// 1-based line number and the finding's text: [line: 12, finding: '...']. Every finding in every
+// file is reported in the one run, so a single build locates them all.
+ext.configureFormattedSourceFileGate = { Task gate, String heading, Closure findFileViolations ->
+
     // Checked when the gate is configured rather than when this is applied, so a build may apply
     // the java plugin after the gate. Refused in the terms of what the gate needs, rather than
     // left to surface as a missing property from inside the scan.
     if (!gate.project.pluginManager.hasPlugin('java')) {
+
         throw new GradleException("${gate.name} needs the java plugin: it reads " +
             "the project's source sets to find the trees it scans.")
     }
@@ -42,17 +73,8 @@ ext.configureFormattedSourceLineGate = { Task gate, String heading, Closure find
 
         scannedFiles.each { sourceFile ->
 
-            def previousLine = null
-
-            sourceFile.eachLine(sourceEncoding) { line, lineNumber ->
-
-                def finding = findLineViolation(line, previousLine)
-
-                if (finding != null) {
-                    violations << "${sourceFile}:${lineNumber}: ${finding}"
-                }
-
-                previousLine = line
+            findFileViolations(sourceFile).each { violation ->
+                violations << "${sourceFile}:${violation.line}: ${violation.finding}"
             }
         }
 

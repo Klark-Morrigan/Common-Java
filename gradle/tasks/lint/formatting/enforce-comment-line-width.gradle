@@ -1,0 +1,86 @@
+// Comment-width gate.
+//
+// The convention: no line holding comment text runs past 120 columns, indent and markup included.
+// Editors do not soft-wrap code, so a longer comment is read by scrolling sideways, and a diff or a
+// review pane cuts it off. Code lines are left to their author: a long expression is a layout
+// choice, where a long comment is only ever a missed line break.
+//
+// A line counts when any part of it is comment: a whole-line comment, a line inside a block
+// comment, or code with a trailing comment. A '//' or '/*' inside a string literal opens no comment.
+//
+// Width is what an editor draws, not the character count: Chinese, Japanese and Korean text, and
+// fullwidth punctuation, take two columns a character.
+apply from: new File(buildscript.sourceFile.parentFile, 'formatted-source-line-gate.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../source-scan.gradle')
+
+def maximumCommentLineWidth = 120
+def singleWidthColumns = 1
+def doubleWidthColumns = 2
+
+def doubleWidthScripts = [
+    Character.UnicodeScript.HAN,
+    Character.UnicodeScript.HANGUL,
+    Character.UnicodeScript.HIRAGANA,
+    Character.UnicodeScript.KATAKANA] as Set
+
+// The ideographic space, comma and full stop, and the brackets written with CJK text.
+def cjkSymbolsAndPunctuation = 0x3000..0x303F
+
+// The halfwidth and fullwidth forms block holds both: halfwidth katakana and Hangul are drawn one
+// column wide even though their scripts are otherwise double width.
+def fullwidthForms = [0xFF01..0xFF60, 0xFFE0..0xFFE6]
+def halfwidthForms = 0xFF61..0xFFDC
+def isDrawnDoubleWidth = { int codePoint ->
+
+    if (codePoint in halfwidthForms) {
+        return false
+    }
+
+    return Character.UnicodeScript.of(codePoint) in doubleWidthScripts
+        || codePoint in cjkSymbolsAndPunctuation
+        || fullwidthForms.any { codePoint in it }
+}
+
+def measureDisplayWidth = { String line ->
+
+    return line
+        .codePoints()
+        .map { int codePoint ->
+
+            return isDrawnDoubleWidth(codePoint)
+                ? doubleWidthColumns
+                : singleWidthColumns
+        }
+        .sum()
+}
+
+def enforceCommentLineWidth = tasks.register('enforceCommentLineWidth') {
+
+    description = "Fails the build when a line holding a comment runs past ${maximumCommentLineWidth} columns."
+    group = 'verification'
+
+    def heading = 'Comment-width convention violated'
+
+    configureFormattedSourceFileGate(it, heading) { File sourceFile ->
+
+        def findings = []
+
+        eachSourceLine(sourceFile) { String line, Map stripped, int lineNumber ->
+
+            if (!stripped.hasComment) {
+                return
+            }
+
+            def displayWidth = measureDisplayWidth(line)
+            if (displayWidth > maximumCommentLineWidth) {
+
+                findings << [line: lineNumber,
+                    finding: "comment line is ${displayWidth} columns; the limit is ${maximumCommentLineWidth}"]
+            }
+        }
+
+        return findings
+    }
+}
+
+installLintGate(enforceCommentLineWidth)

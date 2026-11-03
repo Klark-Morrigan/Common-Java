@@ -1,0 +1,8 @@
+class Sample {
+
+    // The first long comment: words of filler words of filler words of filler words of filler words of filler words of fille
+    int count;
+
+    // The second long comment: words of filler words of filler words of filler words of filler words of filler words of filler words o
+    int total;
+}
