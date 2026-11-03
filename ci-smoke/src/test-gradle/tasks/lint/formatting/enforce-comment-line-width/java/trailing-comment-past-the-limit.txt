@@ -1,0 +1,4 @@
+class Sample {
+
+    int count = 0; // a trailing comment that runs on: words of filler words of filler words of filler words of filler words of fi
+}

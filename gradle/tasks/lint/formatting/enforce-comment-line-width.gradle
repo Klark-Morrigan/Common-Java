@@ -1,0 +1,38 @@
+// Comment-width gate.
+//
+// The convention: no line holding comment text runs past 120 columns, indent and markup included.
+// Editors do not soft-wrap code, so a longer comment is read by scrolling sideways, and a diff or a
+// review pane cuts it off. Code lines are left to their author: a long expression is a layout
+// choice, where a long comment is only ever a missed line break.
+//
+// A line counts when any part of it is comment: a whole-line comment, a line inside a block
+// comment, or code with a trailing comment. A '//' or '/*' inside a string literal opens no comment.
+apply from: new File(buildscript.sourceFile.parentFile, 'formatted-source-line-gate.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../source-scan.gradle')
+
+def maximumCommentLineWidth = 120
+def enforceCommentLineWidth = tasks.register('enforceCommentLineWidth') {
+
+    description = "Fails the build when a line holding a comment runs past ${maximumCommentLineWidth} columns."
+    group = 'verification'
+
+    def heading = 'Comment-width convention violated'
+
+    configureFormattedSourceFileGate(it, heading) { File sourceFile ->
+
+        def findings = []
+
+        eachSourceLine(sourceFile) { String line, Map stripped, int lineNumber ->
+
+            if (stripped.hasComment && line.length() > maximumCommentLineWidth) {
+
+                findings << [line: lineNumber,
+                    finding: "comment line is ${line.length()} columns; the limit is ${maximumCommentLineWidth}"]
+            }
+        }
+
+        return findings
+    }
+}
+
+installLintGate(enforceCommentLineWidth)

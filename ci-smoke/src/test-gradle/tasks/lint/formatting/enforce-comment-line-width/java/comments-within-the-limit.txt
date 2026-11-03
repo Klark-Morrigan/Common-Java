@@ -1,0 +1,8 @@
+class Sample {
+
+    // A comment that fits exactly: words of filler words of filler words of filler words of filler words of filler word
+    String address = "a string holding // and /* is no comment: words of filler words of filler words of filler words of filler words of fil";
+
+    int total = first + second + third + fourth + fifth + sixth + seventh + eighth + ninth + tenth + eleventh + words of filler wo
+        twelfth;
+}

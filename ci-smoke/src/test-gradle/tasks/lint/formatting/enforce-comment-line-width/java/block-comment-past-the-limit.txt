@@ -1,0 +1,7 @@
+class Sample {
+
+    /**
+     * A doc comment line that runs on: words of filler words of filler words of filler words of filler words of filler words of f
+     */
+    int count;
+}

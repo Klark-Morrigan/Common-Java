@@ -13,7 +13,7 @@ It is the generic tier that downstream projects build on.
 - [Lint gates](#lint-gates)
   - [Declarations and allowances](#declarations-and-allowances)
   - [Formatting gates](#formatting-gates) -
-    `enforceNoTrailingWhitespace`, `enforceSingleBlankLines`
+    `enforceCommentLineWidth`, `enforceNoTrailingWhitespace`, `enforceSingleBlankLines`
   - [Markdown gates](#markdown-gates) -
     `enforceDocLinksResolve`, `enforceIdCasing`
     - [Forbidden phrases](#forbidden-phrases) -
@@ -130,6 +130,7 @@ A gate is skipped as up to date while its inputs and rules are unchanged.
 | Task | Reads | Rule |
 | --- | --- | --- |
 | `enforceCamelCaseTestNames` | test trees | methods are named in camelCase, not snake_case |
+| `enforceCommentLineWidth` | Java and Kotlin in the formatted source sets | no line holding a comment runs past 120 columns |
 | `enforceDocLinksResolve` | every `.md` file in the project | a relative link points at a file that exists, spelt in the same case |
 | `enforceIdCasing` | every `.md` file, and Java and Kotlin comments under `src/` | prose spells the abbreviation `ID`, not `id` |
 | `enforceMethodsOrderedByVisibility` | Java and Kotlin under `src/main` | methods in a type run most-public-first |
@@ -171,10 +172,17 @@ and the text it was written for is unguarded again the moment it returns under a
 
 ### Formatting gates
 
-`enforceNoTrailingWhitespace` and `enforceSingleBlankLines` read the Java and Kotlin of every source set,
+`enforceCommentLineWidth`, `enforceNoTrailingWhitespace` and `enforceSingleBlankLines`
+read the Java and Kotlin of every source set,
 less those named in [`formatterExcludedSourceSets`](#excluded-source-sets).
 A line holding only whitespace counts as blank.
-Both need the `java` plugin, which the conventions apply.
+All three need the `java` plugin, which the conventions apply.
+
+`enforceCommentLineWidth` counts indent and markup in a line's width.
+A line counts as comment when any part of it is:
+a whole-line comment, a line inside a block comment, or code with a trailing comment.
+A long code line with no comment is left to its author.
+One run reports every long comment line, each as `file:line`.
 
 ### Markdown gates
 
@@ -459,12 +467,12 @@ since its suite applies it alone.
 | --- | --- |
 | [tasks/source-text.gradle](gradle/tasks/source-text.gradle) | `jvmSourceIncludes` and `sourceEncoding`, shared by the gates and the formatter |
 | [tasks/lint/lint-gate.gradle](gradle/tasks/lint/lint-gate.gradle) | `installLintGate`, `failOnViolations`, `declareScannedFiles`, `declareRuleSnapshot`, `readOneOrMany` |
-| [tasks/lint/source-scan.gradle](gradle/tasks/lint/source-scan.gradle) | lines stripped of comments and literals, and the class and `@Nested` group each line sits in |
+| [tasks/lint/source-scan.gradle](gradle/tasks/lint/source-scan.gradle) | lines stripped of comments and literals, whether each held a comment, and the class and `@Nested` group each line sits in |
 | [tasks/lint/package-roots.gradle](gradle/tasks/lint/package-roots.gradle) | package declarations, package roots, and layers with `except` |
 | [tasks/lint/word-scan.gradle](gradle/tasks/lint/word-scan.gradle) | text parted into words, and where a declared phrase is said |
 | [tasks/lint/markdown-scan.gradle](gradle/tasks/lint/markdown-scan.gradle) | the authored `.md` tree, the lines outside fenced blocks, and those lines' prose with code spans blanked |
 | [tasks/format/formatted-source-sets.gradle](gradle/tasks/format/formatted-source-sets.gradle) | the source sets less `formatterExcludedSourceSets` |
-| [tasks/lint/formatting/formatted-source-line-gate.gradle](gradle/tasks/lint/formatting/formatted-source-line-gate.gradle) | the line-by-line body of the two formatting gates |
+| [tasks/lint/formatting/formatted-source-line-gate.gradle](gradle/tasks/lint/formatting/formatted-source-line-gate.gradle) | the line-by-line body of the three formatting gates |
 | [tasks/lint/naming/tests/double-naming-scan.gradle](gradle/tasks/lint/naming/tests/double-naming-scan.gradle) | a test double's holder, for the fake and mock gates |
 | [tasks/diagnostics/cause-chain.gradle](gradle/tasks/diagnostics/cause-chain.gradle) | a throwable's cause chain, for the reports that name a real fault |
 | [tasks/diagnostics/report-test-outcomes.gradle](gradle/tasks/diagnostics/report-test-outcomes.gradle) | `reportTestOutcomesOf`, the [test run report](#test-run-report) |
