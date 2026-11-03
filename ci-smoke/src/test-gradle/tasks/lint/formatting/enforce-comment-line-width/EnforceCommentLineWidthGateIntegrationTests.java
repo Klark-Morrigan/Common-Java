@@ -15,8 +15,9 @@ class EnforceCommentLineWidthGateIntegrationTests {
     @Test
     void passesWhenEveryCommentFitsTheLimit(@TempDir Path projectDir) {
 
-        // A comment at exactly the limit, and longer lines holding no comment: a '//' or '/*' in a
-        // string or a text block, and code straight after a block comment closes.
+        // A comment at exactly the limit, in plain and in halfwidth characters, and longer lines
+        // holding no comment: a '//' or '/*' in a string or a text block, and code straight after
+        // a block comment closes.
         project(projectDir)
             .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "comments-within-the-limit")
             .runExpectingGateToPass();
@@ -54,6 +55,19 @@ class EnforceCommentLineWidthGateIntegrationTests {
 
         assertThat(result.getOutput())
             .contains("Sample.java:3: comment line is 130 columns; the limit is 120");
+    }
+
+    @Test
+    void countsWideCharactersAsTwoColumns(@TempDir Path projectDir) {
+
+        // 67 characters, 60 of them Chinese text and a fullwidth comma, which an editor draws
+        // two columns wide each.
+        var result = project(projectDir)
+            .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "wide-characters-past-the-limit")
+            .runExpectingGateToFail();
+
+        assertThat(result.getOutput())
+            .contains("Sample.java:3: comment line is 127 columns; the limit is 120");
     }
 
     @Test

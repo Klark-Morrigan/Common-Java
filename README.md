@@ -179,6 +179,8 @@ A line holding only whitespace counts as blank.
 All three need the `java` plugin, which the conventions apply.
 
 `enforceCommentLineWidth` counts indent and markup in a line's width.
+Width is what an editor draws:
+Chinese, Japanese and Korean text, and fullwidth punctuation, take two columns a character.
 A line counts as comment when any part of it is:
 a whole-line comment, a line inside a block comment, or code with a trailing comment.
 A long code line with no comment is left to its author.

@@ -22,6 +22,129 @@ ext.testSourceRoots = ['src/test', 'src/testFixtures']
 // test-double gates read it to tell a suite over a double from the double itself.
 ext.suiteSuffix = 'Tests'
 
+def lineCommentOpening = '//'
+def blockCommentOpening = '/*'
+def blockCommentClosing = '*/'
+def rawStringQuote = '"""'
+def backtick = '`'
+def literalQuotes = ['"', "'"]
+def escapeCharacter = '\\'
+
+// Copies literal text into the kept text when the caller keeps literal bodies.
+def keepLiteralText = { Map scan, String text ->
+
+    if (scan.keepsLiterals) {
+        scan.keptText.append(text)
+    }
+}
+
+// Skips the open block comment up to and past its closing, or to the end of the line when it runs on.
+def skipBlockComment = { Map scan ->
+
+    def closing = scan.raw.indexOf(blockCommentClosing, scan.position)
+    if (closing < 0) {
+
+        scan.position = scan.raw.length()
+        return
+    }
+
+    scan.position = closing + blockCommentClosing.length()
+    scan.isInBlockComment = false
+}
+
+// Reads the open raw string up to and past its closing quotes, or to the end of the line when it runs on.
+def readRawString = { Map scan ->
+
+    def closing = scan
+        .raw
+        .indexOf(rawStringQuote, scan.position)
+
+    def end = closing < 0
+        ? scan.raw.length()
+        : closing + rawStringQuote.length()
+
+    keepLiteralText(
+        scan,
+        scan.raw.substring(scan.position, end))
+
+    scan.position = end
+    scan.isInRawString = closing < 0
+}
+
+// Skips a Kotlin backtick-quoted identifier, such as a test name like `does not bill a null facility`.
+// Its body can hold quotes, apostrophes and braces that are not code. Kotlin processes no escapes inside,
+// and the identifier cannot span lines, so it ends at the next backtick or with the line.
+def skipBacktickIdentifier = { Map scan ->
+
+    def closing = scan
+        .raw
+        .indexOf(backtick, scan.position + backtick.length())
+
+    scan.position = closing < 0
+        ? scan.raw.length()
+        : closing + backtick.length()
+}
+
+// Reads a string or char literal, stepping over escapes so an escaped quote does not end it. A literal
+// left open ends with the line.
+def readQuotedLiteral = { Map scan ->
+
+    def raw = scan.raw
+    def quote = raw[scan.position]
+    def end = scan.position + 1
+
+    while (end < raw.length() && raw[end] != quote) {
+
+        end += raw[end] == escapeCharacter
+            ? 2
+            : 1
+    }
+
+    end = Math.min(end + 1, raw.length())
+
+    keepLiteralText(scan, raw.substring(scan.position, end))
+    scan.position = end
+}
+
+// Reads one token of code: a comment or literal opening, or one character kept as code.
+def readCodeToken = { Map scan ->
+
+    def raw = scan.raw
+    def position = scan.position
+
+    if (raw.startsWith(lineCommentOpening, position)) {
+
+        scan.hasComment = true
+        scan.position = raw.length()
+
+    } else if (raw.startsWith(blockCommentOpening, position)) {
+
+        scan.hasComment = true
+        scan.isInBlockComment = true
+        scan.position += blockCommentOpening.length()
+
+    } else if (raw.startsWith(rawStringQuote, position)) {
+
+        keepLiteralText(scan, rawStringQuote)
+
+        scan.isInRawString = true
+        scan.position += rawStringQuote.length()
+
+    } else if (raw.startsWith(backtick, position)) {
+
+        skipBacktickIdentifier(scan)
+
+    } else if (raw[position] in literalQuotes) {
+
+        readQuotedLiteral(scan)
+
+    } else {
+
+        scan.keptText.append(raw[position])
+        scan.position += 1
+    }
+}
+
 // Removes comments from one line before any token or brace is read, and with them the bodies of
 // string and char literals and Kotlin's backtick-quoted identifiers. Block comments and Kotlin
 // triple-quoted strings span lines, so their open state is threaded back in by the caller.
@@ -33,135 +156,34 @@ ext.suiteSuffix = 'Tests'
 //
 // Known heuristic limit: a quote embedded in Kotlin '${...}' interpolation can end a literal early -
 // tolerated, as a heuristic gate can afford to be.
+//
+// The line is read as a scan: a map of the raw line, the text kept so far, the position reached,
+// and which multi-line construct is open. One reader per construct moves the position on.
 ext.stripSourceLine = { String raw, boolean inBlock, boolean inRaw, boolean keepsLiterals = false ->
 
-    def out = new StringBuilder()
-    def i = 0
-    def n = raw.length()
-    def block = inBlock
-    def rawString = inRaw
-    def hasComment = inBlock
+    def scan = [raw: raw,
+        keepsLiterals: keepsLiterals,
+        keptText: new StringBuilder(),
+        position: 0,
+        isInBlockComment: inBlock,
+        isInRawString: inRaw,
+        hasComment: inBlock]
 
-    // Copies one literal character when the caller keeps literal bodies.
-    def keepLiteralText = { String text ->
+    while (scan.position < raw.length()) {
 
-        if (keepsLiterals) {
-            out.append(text)
+        if (scan.isInBlockComment) {
+            skipBlockComment(scan)
+        } else if (scan.isInRawString) {
+            readRawString(scan)
+        } else {
+            readCodeToken(scan)
         }
     }
 
-    while (i < n) {
-
-        if (block) {
-
-            if (i + 1 < n && raw[i] == '*' && raw[i + 1] == '/') {
-
-                block = false
-                i += 2
-            } else {
-                i++
-            }
-
-            continue
-        }
-
-        if (rawString) {
-
-            if (i + 3 <= n && raw.substring(i, i + 3) == '"""') {
-
-                keepLiteralText('"""')
-                rawString = false
-                i += 3
-
-            } else {
-
-                keepLiteralText(raw[i])
-                i++
-            }
-
-            continue
-        }
-
-        def two = (i + 1 < n)
-            ? raw.substring(i, i + 2)
-            : ''
-
-        if (two == '//') {
-
-            hasComment = true
-            break
-        }
-
-        if (two == '/*') {
-
-            block = true
-            hasComment = true
-            i += 2
-            continue
-        }
-
-        if (i + 3 <= n && raw.substring(i, i + 3) == '"""') {
-
-            keepLiteralText('"""')
-            rawString = true
-            i += 3
-            continue
-        }
-
-        def c = raw[i]
-
-        // Kotlin backtick-escaped identifier (e.g. a test name like `does not bill a null
-        // facility`). Its body can hold quotes, apostrophes, and braces that are not code, so skip
-        // to the closing backtick. Kotlin processes no escapes inside, and the identifier cannot
-        // span lines, so no cross-line state is kept.
-        if (c == '`') {
-
-            i++
-
-            while (i < n && raw[i] != '`') {
-                i++
-            }
-
-            if (i < n) {
-                i++
-            }
-
-            continue
-        }
-
-        if (c == '"' || c == '\'') {
-
-            def quote = c
-            def literalStart = i
-
-            i++
-
-            while (i < n) {
-
-                if (raw[i] == '\\') {
-
-                    i += 2
-                    continue
-                }
-
-                if (raw[i] == quote) {
-
-                    i++
-                    break
-                }
-
-                i++
-            }
-
-            keepLiteralText(raw.substring(literalStart, Math.min(i, n)))
-            continue
-        }
-
-        out.append(c)
-        i++
-    }
-
-    [text: out.toString(), inBlock: block, inRaw: rawString, hasComment: hasComment]
+    return [text: scan.keptText.toString(),
+        inBlock: scan.isInBlockComment,
+        inRaw: scan.isInRawString,
+        hasComment: scan.hasComment]
 }
 
 // Hands each line of a source file to visitLine as its raw text, what stripSourceLine answered for
