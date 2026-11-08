@@ -25,6 +25,8 @@ It is the generic tier that downstream projects build on.
     `enforceMethodsOrderedByVisibility`, `enforceNoMagicLiteralsKotlin`
   - [Test vocabulary](#test-vocabulary) -
     `enforceNoTestVocabulary`
+  - [Final classes](#final-classes) -
+    `enforceFinalClasses`
   - [Package layering](#package-layering) -
     `enforcePackageLayering`
   - [Package vocabulary](#package-vocabulary) -
@@ -132,6 +134,7 @@ A gate is skipped as up to date while its inputs and rules are unchanged.
 | `enforceCamelCaseTestNames` | test trees | methods are named in camelCase, not snake_case |
 | `enforceCommentLineWidth` | Java and Kotlin in the formatted source sets | no line holding a comment runs past 120 columns |
 | `enforceDocLinksResolve` | every `.md` file in the project | a relative link points at a file that exists, spelt in the same case |
+| `enforceFinalClasses` | compiled classes under `build/classes` | a concrete public class under a declared root is final |
 | `enforceIdCasing` | every `.md` file, and Java and Kotlin comments under `src/` | prose spells the abbreviation `ID`, not `id` |
 | `enforceMethodsOrderedByVisibility` | Java and Kotlin under `src/main` | methods in a type run most-public-first |
 | `enforceNoForbiddenPhrases` | the `.md` files each rule names | prose does not say a phrase the build rules out of those files |
@@ -153,10 +156,11 @@ The test trees are `src/test` and `src/testFixtures`.
 
 ### Declarations and allowances
 
-Five gates check nothing until a consumer declares rules:
-`enforcePackageLayering`, `enforcePackageVocabulary`, `enforceRestrictedCalls`, `enforceReferencedTypes`
-and `enforceNoForbiddenPhrases`.
-Which package may reach which, which words or calls it may use, and which phrases its documents may say,
+Six gates check nothing until a consumer declares rules:
+`enforceFinalClasses`, `enforcePackageLayering`, `enforcePackageVocabulary`, `enforceRestrictedCalls`,
+`enforceReferencedTypes` and `enforceNoForbiddenPhrases`.
+Which package may reach which, which words or calls it may use, which classes must be final,
+and which phrases its documents may say,
 is a per-project fact this repo cannot know.
 
 A declaration takes named arguments and states a whole rule in one call.
@@ -317,6 +321,80 @@ enforceNoTestVocabulary {
 An allowance fails the build when its file is not scanned, sits in an exempt tree,
 or its word is no banned entry.
 
+### Final classes
+
+`enforceFinalClasses` keeps a project's classes closed to extension from another JAR.
+On a plain classpath everything public is reachable,
+so a public class that is not final can be subclassed by code the project never sees,
+and every later change to it can break that subclass.
+
+The `final` keyword is the mechanism;
+the gate is what makes it hold.
+Java leaves a class open unless it says otherwise,
+so the keyword has to be remembered on every class,
+and forgetting it is silent:
+the compiler accepts the class,
+every test passes,
+and nothing inside the project extends it,
+so nothing inside the project can notice.
+The cost lands later and somewhere else -
+another JAR subclasses the class,
+and an internal refactor breaks that JAR in play with no build anywhere failing.
+The gate moves that failure to the commit that left the keyword off,
+and makes every class that must stay open a reviewed line carrying its reason.
+
+`final` closes subclassing and nothing more.
+Another JAR can still call every public method and implement every public interface;
+keeping those internal is the job of package-private visibility,
+and of whatever register the project publishes.
+
+```groovy
+enforceFinalClasses {
+    requireFinal under: 'example.app', except: 'example.app.api', inSourceSets: ['main'],
+        reason: 'only example.app.api is published to build on'
+    allowExtendableClass type: 'example.app.terrain.BaseTerrain',
+        reason: 'its sibling terrains extend it'
+}
+```
+
+- `requireFinal under:` names the root whose public classes must be final.
+  `except:` leaves out subtrees, on the same terms as in [package layering](#package-layering),
+  which is where a project keeps what it publishes for others to extend.
+  `inSourceSets:` takes one name or a list and limits the rule to those trees;
+  left out, the rule holds in every tree.
+  A source set the build does not have fails the build.
+  `reason:` is optional:
+  the project's own stake, written into each of the rule's findings after a semicolon.
+- Several rules may be declared.
+  A class two rules hold is reported once, carrying the first rule's reason.
+- `allowExtendableClass type: reason:` lets one class stay open, and both are required.
+  The type is in source spelling, with `$` before a nested class's name, as in `example.app.Outer$Inner`.
+
+It reads compiled classes, not source, since the access flags are what the compiler made of every modifier:
+a record or a Kotlin class is final with no `final` written, and a Kotlin `open` class is not.
+A finding is a class that is public and neither final, abstract, an interface, an enum, an annotation nor synthetic.
+An enum is passed even when a constant's body leaves it unmarked final, its constructor being private to it.
+A nested class carries its own flags, so a final outer class closes nothing nested in it.
+
+A failure opens on why the gate exists,
+since its reader is usually someone who left the keyword off by accident and sees no harm in it.
+Each finding then names the class by the source file it was compiled from,
+`src/<source set>/<language>/<package>/<file>`,
+so it opens where the keyword goes,
+and in the spelling an allowance takes, with `$` before a nested class's name.
+The file name comes from the class file's own record of it,
+and the path is printed only once confirmed on disk;
+a class it cannot place, such as generated code or a source set rooted elsewhere,
+is named by its class file instead.
+The finding ends with the two ways to settle it:
+mark the class final, or allow it with a reason.
+
+An allowance whose class is not an open public class any rule holds fails the build,
+as does one naming a class nothing compiles.
+Allowances are judged only once a rule has read a class.
+A class the gate cannot parse fails the build ahead of any finding.
+The gate depends on every compile task, Kotlin's included.
+
 ### Package layering
 
 `enforcePackageLayering` reads the imports of every Java and Kotlin file under `src/`, test code included.
@@ -454,7 +532,7 @@ Package allowances are not judged this way.
 Classes compiled into the namespace itself are exempt.
 A finding names the class and the type, with no line number.
 A class the gate cannot parse fails the build ahead of any finding;
-the fix is a constant-pool tag added to the gate.
+the fix is a constant-pool tag added to [class-file-scan.gradle](gradle/tasks/lint/class-file-scan.gradle).
 
 The gate depends on every compile task, Kotlin's included.
 
@@ -471,6 +549,7 @@ since its suite applies it alone.
 | [tasks/lint/lint-gate.gradle](gradle/tasks/lint/lint-gate.gradle) | `installLintGate`, `failOnViolations`, `declareScannedFiles`, `declareRuleSnapshot`, `readOneOrMany` |
 | [tasks/lint/source-scan.gradle](gradle/tasks/lint/source-scan.gradle) | lines stripped of comments and literals, whether each held a comment, and the class and `@Nested` group each line sits in |
 | [tasks/lint/package-roots.gradle](gradle/tasks/lint/package-roots.gradle) | package declarations, package roots, and layers with `except` |
+| [tasks/lint/class-file-scan.gradle](gradle/tasks/lint/class-file-scan.gradle) | a class file's text constants, access flags and recorded source file name, the class and tree a file under `build/classes` holds, the source file it was compiled from, and the wiring that reads those trees after compilation |
 | [tasks/lint/word-scan.gradle](gradle/tasks/lint/word-scan.gradle) | text parted into words, and where a declared phrase is said |
 | [tasks/lint/markdown-scan.gradle](gradle/tasks/lint/markdown-scan.gradle) | the authored `.md` tree, the lines outside fenced blocks, and those lines' prose with code spans blanked |
 | [tasks/format/formatted-source-sets.gradle](gradle/tasks/format/formatted-source-sets.gradle) | the source sets less `formatterExcludedSourceSets` |

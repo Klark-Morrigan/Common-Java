@@ -1,0 +1,7 @@
+package example.app.api;
+
+/**
+ * Open on purpose: the published root is where a project keeps what others extend.
+ */
+public class Published {
+}

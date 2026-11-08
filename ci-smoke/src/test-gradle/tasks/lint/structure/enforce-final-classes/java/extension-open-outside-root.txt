@@ -1,0 +1,4 @@
+package example.other;
+
+public class Outside {
+}

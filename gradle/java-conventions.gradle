@@ -192,6 +192,7 @@ apply from: new File(lintTasksDir, 'naming/tests/enforce-suffix-on-fakes.gradle'
 apply from: new File(lintTasksDir, 'naming/tests/enforce-suffix-on-mocks.gradle')
 apply from: new File(lintTasksDir, 'naming/tests/enforce-suffix-on-suites.gradle')
 apply from: new File(lintTasksDir, 'naming/tests/enforce-test-names-omit-group.gradle')
+apply from: new File(lintTasksDir, 'structure/enforce-final-classes.gradle')
 apply from: new File(lintTasksDir, 'structure/enforce-methods-ordered-by-visibility.gradle')
 apply from: new File(lintTasksDir, 'structure/enforce-package-layering.gradle')
 apply from: new File(lintTasksDir, 'structure/enforce-package-vocabulary.gradle')

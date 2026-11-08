@@ -1,0 +1,7 @@
+package example.app;
+
+/**
+ * Public, concrete and not final: the class another JAR can extend.
+ */
+public class OpenClass {
+}

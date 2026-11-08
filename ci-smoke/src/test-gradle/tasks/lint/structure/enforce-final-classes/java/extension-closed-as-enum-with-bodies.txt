@@ -1,0 +1,16 @@
+package example.app;
+
+/**
+ * A constant with a body leaves the enum unmarked final, though nothing outside can extend it.
+ */
+public enum Kind {
+
+    PLAIN,
+
+    SPECIAL {
+        @Override
+        public String toString() {
+            return "special";
+        }
+    }
+}

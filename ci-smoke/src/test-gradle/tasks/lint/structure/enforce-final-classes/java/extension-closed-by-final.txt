@@ -1,0 +1,4 @@
+package example.app;
+
+public final class FinalClass {
+}

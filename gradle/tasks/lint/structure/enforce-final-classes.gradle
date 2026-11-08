@@ -1,0 +1,259 @@
+// Final-classes gate: a concrete public class under a declared root is final, unless the consuming
+// build allowed it to be extended and said why.
+//
+// It guards a project whose JAR other code loads beside its own with no module system in between. On
+// a plain classpath everything public is reachable, so a public class that is not final can be
+// subclassed from another JAR, and every later change to it can break that subclass. A root left out
+// with 'except' is where a project keeps what it publishes for others to extend.
+//
+// The 'final' keyword is the mechanism, and this gate is what makes it hold. Java leaves a class open
+// unless it says otherwise, so the keyword has to be remembered on every class, and forgetting it is
+// silent: the compiler accepts the class, every test passes, and nothing in the project ever extends
+// it, so nothing inside the project can notice. The cost lands later and somewhere else - another JAR
+// subclasses the class, and an internal refactor breaks that JAR in play with no build anywhere
+// failing. The gate moves that failure to the commit that left the keyword off, and turns every class
+// that must stay open into a reviewed line carrying its reason.
+//
+// What 'final' closes is subclassing alone. Another JAR can still call every public method and
+// implement every public interface; keeping those internal is package-private visibility's job, and
+// the job of whatever register the project publishes.
+//
+//     enforceFinalClasses {
+//         requireFinal under: 'example.app', except: 'example.app.api', inSourceSets: ['main'],
+//             reason: 'only example.app.api is published to build on'
+//         allowExtendableClass type: 'example.app.terrain.BaseTerrain',
+//             reason: 'its sibling terrains extend it'
+//     }
+//
+// A finding names the source file a class was compiled from, so it opens where the keyword goes, and
+// falls back to the class-file name where no source file can be placed. A rule's 'reason' is the
+// project's own stake, written into each of its findings after a semicolon; the generic one fits any
+// project, so a reader who left the keyword off by accident meets why this project cares.
+//
+// It reads class files rather than source, because the access flags are what the compiler made of
+// every modifier: a record or a Kotlin class is final with no 'final' written, and a Kotlin 'open'
+// class is not. Several rules may be declared; a class two rules hold is reported once. 'inSourceSets'
+// limits a rule to the trees it names, and left out the rule holds in every tree.
+//
+// An allowance names one class in source spelling with '$' before a nested class's name, as in
+// 'example.app.Outer$Inner', and gives the reason the class has to stay open.
+
+apply from: new File(buildscript.sourceFile.parentFile, '../class-file-scan.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../package-roots.gradle')
+
+// The class access flags this gate reads, as the class-file format numbers them.
+def ACC_PUBLIC = 0x0001
+def ACC_FINAL = 0x0010
+def ACC_INTERFACE = 0x0200
+def ACC_ABSTRACT = 0x0400
+def ACC_SYNTHETIC = 0x1000
+def ACC_ANNOTATION = 0x2000
+def ACC_ENUM = 0x4000
+def ACC_MODULE = 0x8000
+
+// Any of these and the class cannot be extended from outside, or is not a class at all. An enum's
+// constants may have bodies, which leaves the enum itself unmarked final, yet its constructor is
+// private to it.
+// Opens the findings with the gap the gate closes, since the reader is usually someone who left the
+// keyword off by accident and sees no harm in it: nothing in their project extends the class.
+def FINDINGS_HEADING = 'Classes open to extension (Java leaves a class open unless it is marked final, ' +
+    'and nothing but this gate reports one left open)'
+
+def FLAGS_CLOSING_EXTENSION = ACC_FINAL |
+    ACC_INTERFACE |
+    ACC_ABSTRACT |
+    ACC_SYNTHETIC |
+    ACC_ANNOTATION |
+    ACC_ENUM |
+    ACC_MODULE
+
+// Answers whether access flags describe a class another JAR can extend.
+def isExtendableFromOutside = { int accessFlags ->
+
+    return (accessFlags & ACC_PUBLIC) != 0 &&
+        (accessFlags & FLAGS_CLOSING_EXTENSION) == 0
+}
+
+// Answers whether a compiled class sits inside a rule's layer and in a tree the rule holds.
+def isHeldByRule = { Map compiledClass, Map finalRule ->
+
+    def dottedName = compiledClass.binaryName.replace('/', '.')
+
+    return isInsideLayer(dottedName, finalRule.root, finalRule.exceptedRoots) &&
+        (finalRule.sourceSets.isEmpty() || compiledClass.sourceSet in finalRule.sourceSets)
+}
+
+// One finding: the class by its source file where that can be placed, the gap, the rule's own stake
+// when it states one, and the two ways to settle it.
+def describeOpenClass = { Map compiledClass, String sourcePath, String ruleReason ->
+
+    def sourceSpelling = compiledClass.binaryName.replace('/', '.')
+    def subject = sourcePath
+        ? "${sourcePath}: ${sourceSpelling}"
+        : "${compiledClass.binaryName}${compiledClass.compiledFrom}"
+
+    def stake = ruleReason
+        ? "; ${ruleReason}"
+        : ''
+
+    return "${subject} is public and neither final nor abstract, so code in another JAR can extend it" +
+        "${stake}. Mark it final, or declare it with allowExtendableClass and the reason it has to stay open"
+}
+
+// Reads every compiled class a rule holds. Answers the extendable classes no allowance covers, the
+// classes the walk could not follow, the extendable classes allowances do cover, and whether any rule
+// read a class.
+def scanCompiledClasses = { List finalRules, Map allowancesByType, Iterable classFiles, File classesDir,
+        File projectDirectory ->
+
+    def scan = [
+        violations: [],
+        unreadableClasses: [],
+        allowedOpenTypes: [] as Set,
+        hasReadAnyClass: false,
+    ]
+
+    classFiles.each { classFile ->
+
+        def compiledClass = readCompiledClass(classFile, classesDir)
+
+        // Settled before the file is opened, so a class every rule passes over is never read. The
+        // first rule holding it is the one whose reason a finding carries.
+        def holdingRule = finalRules.find { isHeldByRule(compiledClass, it) }
+        if (holdingRule == null) {
+            return
+        }
+
+        def classFileRead = readClassFile(classFile)
+        if (classFileRead == null) {
+            scan.unreadableClasses << compiledClass.binaryName
+            return
+        }
+
+        scan.hasReadAnyClass = true
+
+        if (!isExtendableFromOutside(classFileRead.accessFlags)) {
+            return
+        }
+
+        // An allowance is spelt with dots, a class file's name with slashes; '$' is the same in both.
+        def sourceSpelling = compiledClass.binaryName.replace('/', '.')
+        if (allowancesByType.containsKey(sourceSpelling)) {
+            scan.allowedOpenTypes << sourceSpelling
+            return
+        }
+
+        def sourcePath = findSourcePath(compiledClass, classFileRead.sourceFileName, projectDirectory)
+
+        scan.violations << describeOpenClass(compiledClass, sourcePath, holdingRule.reason)
+    }
+
+    return scan
+}
+
+// An allowance whose class is not an extendable one any rule holds exempts nothing, and pre-approves
+// the next class to take that name. Judged only once a rule read a class: with nothing compiled in
+// its trees, every allowance would read as stale.
+def findStaleAllowances = { Map allowancesByType, Map scan ->
+
+    if (!scan.hasReadAnyClass) {
+        return []
+    }
+
+    return allowancesByType
+        .keySet()
+        .findAll { !(it in scan.allowedOpenTypes) }
+        .collect { allowedType ->
+
+            "${allowedType} is allowed to be extended and is no public, non-final, concrete class " +
+                'any rule holds here, so the allowance exempts nothing'
+        }
+}
+
+def finalRules = []
+
+// Keyed by the class in source spelling, so a scan looks one up per class rather than walking them.
+def allowancesByType = [:]
+
+// Where a finding's source path is confirmed. Taken while the script is applied, since the gate's
+// action reads no project state when it runs.
+def projectDirectory = project.projectDir
+
+def enforceFinalClasses = tasks.register('enforceFinalClasses') { gate ->
+
+    group = 'verification'
+    description = 'Fails the build when a concrete public class under a root the consuming build ' +
+        'declared is not final, outside the classes it allowed to be extended - Java leaves a ' +
+        'class open by default, so a forgotten final is otherwise reported by nothing.'
+
+    ext.requireFinal = { Map finalRule ->
+
+        if (!finalRule.under) {
+
+            throw new GradleException("requireFinal needs 'under' (the package root whose " +
+                "public classes must be final); got: ${finalRule}")
+        }
+
+        def root = finalRule.under.toString()
+
+        finalRules << [
+            root: root,
+            exceptedRoots: readExceptedRoots('requireFinal', finalRule, root),
+            // Empty means every source set.
+            sourceSets: readOneOrMany(finalRule.inSourceSets).collect { it.toString() }.sort(),
+            // Optional: the project's own stake, carried by each finding this rule makes.
+            reason: finalRule.reason?.toString(),
+        ]
+    }
+
+    ext.allowExtendableClass = { Map allowance ->
+
+        // The reason is required: an allowance is a line a reviewer reads, and one with no reason
+        // gives them nothing to judge it by.
+        if (!allowance.type || !allowance.reason) {
+
+            throw new GradleException("allowExtendableClass needs 'type' (the class, with '\$' " +
+                "before a nested class's name) and 'reason' (why it has to stay open); " +
+                "got: ${allowance}")
+        }
+
+        allowancesByType[allowance.type.toString()] = allowance.reason.toString()
+    }
+
+    // Compilation has to happen first.
+    def scannedClasses = declareScannedClasses(gate)
+
+    declareRuleSnapshot(gate, 'finalRules') {
+
+        finalRules.collect {
+            "final under ${describeLayer(it.root, it.exceptedRoots)} in ${it.sourceSets} because ${it.reason ?: ''}"
+        } +
+            allowancesByType.collect { type, reason -> "open ${type} because ${reason}" }
+    }
+
+    def sourceSetNames = declareSourceSetNames(gate)
+
+    doLast {
+
+        if (finalRules.isEmpty()) {
+            return
+        }
+
+        failOnUnknownSourceSets(finalRules, sourceSetNames.get()) { "requireFinal under '${it.root}'" }
+
+        def scan = scanCompiledClasses(
+            finalRules,
+            allowancesByType,
+            scannedClasses,
+            compiledClassesRoot.get().asFile,
+            projectDirectory)
+
+        failOnUnreadableClasses(scan.unreadableClasses)
+        failOnViolations(
+            FINDINGS_HEADING,
+            (scan.violations + findStaleAllowances(allowancesByType, scan))*.toString().sort())
+    }
+}
+
+installLintGate(enforceFinalClasses)

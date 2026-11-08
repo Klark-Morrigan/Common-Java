@@ -1,0 +1,329 @@
+// The class-file reading the gates judging compiled code are made of: a class file's text constants
+// and access flags, which class a file under the build's class trees holds and which tree it was
+// compiled from, and the wiring that has a gate read those trees after compilation.
+//
+// A gate reads class files where a source-text pass cannot be trusted: a class records type names its
+// source never spells, and its access flags state what the compiler made of every modifier, Java's
+// and Kotlin's alike. The walk over a class file and the layout of the class trees are the same
+// whichever rule a gate then states over them, so they are held once, here.
+
+apply from: new File(buildscript.sourceFile.parentFile, 'lint-gate.gradle')
+
+// Constant-pool tags. Only the Utf8 entries are read; the rest are stepped over, a pool being a
+// sequence of variable-width entries with no index to seek by.
+def CONSTANT_UTF8 = 1
+def CONSTANT_INTEGER = 3
+def CONSTANT_FLOAT = 4
+def CONSTANT_LONG = 5
+def CONSTANT_DOUBLE = 6
+def CONSTANT_CLASS = 7
+def CONSTANT_STRING = 8
+def CONSTANT_FIELDREF = 9
+def CONSTANT_METHODREF = 10
+def CONSTANT_INTERFACE_METHODREF = 11
+def CONSTANT_NAME_AND_TYPE = 12
+def CONSTANT_METHOD_HANDLE = 15
+def CONSTANT_METHOD_TYPE = 16
+def CONSTANT_DYNAMIC = 17
+def CONSTANT_INVOKE_DYNAMIC = 18
+def CONSTANT_MODULE = 19
+def CONSTANT_PACKAGE = 20
+
+// The bytes after each fixed-width tag.
+def CONSTANT_PAYLOAD_BYTES = [
+    (CONSTANT_INTEGER): 4,
+    (CONSTANT_FLOAT): 4,
+    (CONSTANT_LONG): 8,
+    (CONSTANT_DOUBLE): 8,
+    (CONSTANT_CLASS): 2,
+    (CONSTANT_STRING): 2,
+    (CONSTANT_FIELDREF): 4,
+    (CONSTANT_METHODREF): 4,
+    (CONSTANT_INTERFACE_METHODREF): 4,
+    (CONSTANT_NAME_AND_TYPE): 4,
+    (CONSTANT_METHOD_HANDLE): 3,
+    (CONSTANT_METHOD_TYPE): 2,
+    (CONSTANT_DYNAMIC): 4,
+    (CONSTANT_INVOKE_DYNAMIC): 4,
+    (CONSTANT_MODULE): 2,
+    (CONSTANT_PACKAGE): 2,
+]
+
+// The eight-byte constants take two pool slots each, which the pool's numbering depends on.
+def DOUBLE_WIDTH_CONSTANTS = [CONSTANT_LONG, CONSTANT_DOUBLE]
+
+// What precedes the constant pool: the magic number (4 bytes), the minor version (2), the major (2).
+def CLASS_FILE_HEADER_BYTES = 8
+
+// How many unreadable classes a failure names; the cause is a class-file version, so it tends to
+// hold for everything compiled.
+def UNREADABLE_CLASSES_NAMED = 5
+
+// What a field or method opens with before its attributes: access flags, name index and descriptor
+// index, two bytes each.
+def MEMBER_HEADER_BYTES = 6
+
+// The class attribute naming the file a class was compiled from.
+def SOURCE_FILE_ATTRIBUTE = 'SourceFile'
+
+// Steps over a run of bytes. Looped because a stream may skip fewer bytes than it was asked to, and
+// an attribute's length can run past what one skip covers.
+def skipBytesFully = { DataInputStream classBytes, long byteCount ->
+
+    def remainingBytes = byteCount
+
+    while (remainingBytes > 0) {
+
+        def skippedBytes = classBytes.skipBytes((int) Math.min(remainingBytes, Integer.MAX_VALUE))
+        if (skippedBytes <= 0) {
+            throw new EOFException("class file ended inside an attribute")
+        }
+
+        remainingBytes -= skippedBytes
+    }
+}
+
+// Steps over a table of attributes: a count, then each one's name index and four-byte length.
+def skipAttributes = { DataInputStream classBytes ->
+
+    int attributeCount = classBytes.readUnsignedShort()
+
+    attributeCount.times {
+
+        classBytes.readUnsignedShort()
+        skipBytesFully(classBytes, classBytes.readInt() & 0xFFFFFFFFL)
+    }
+}
+
+// Steps over the fields or the methods: a count, then each one's header and attributes.
+def skipClassMembers = { DataInputStream classBytes ->
+
+    int memberCount = classBytes.readUnsignedShort()
+
+    memberCount.times {
+
+        skipBytesFully(classBytes, MEMBER_HEADER_BYTES)
+        skipAttributes(classBytes)
+    }
+}
+
+// The file name a class's SourceFile attribute records, read off the class attributes past every
+// field and method, or null where the compiler wrote none. Read only by name: every other class
+// attribute is stepped over.
+def readSourceFileName = { DataInputStream classBytes, Map utf8ByIndex ->
+
+    // This class, its superclass, and the interfaces it implements, two bytes each.
+    classBytes.readUnsignedShort()
+    classBytes.readUnsignedShort()
+    skipBytesFully(classBytes, 2L * classBytes.readUnsignedShort())
+
+    skipClassMembers(classBytes)
+    skipClassMembers(classBytes)
+
+    String sourceFileName = null
+    int attributeCount = classBytes.readUnsignedShort()
+
+    attributeCount.times {
+
+        def attributeName = utf8ByIndex[classBytes.readUnsignedShort()]
+        def attributeLength = classBytes.readInt() & 0xFFFFFFFFL
+
+        if (attributeName == SOURCE_FILE_ATTRIBUTE && sourceFileName == null) {
+
+            sourceFileName = utf8ByIndex[classBytes.readUnsignedShort()]
+            skipBytesFully(classBytes, attributeLength - 2)
+
+        } else {
+
+            skipBytesFully(classBytes, attributeLength)
+        }
+    }
+
+    return sourceFileName
+}
+
+// Every text constant in a class file, which is where every type name in it lives, the class's access
+// flags, which follow the pool, and the file name the class says it was compiled from. A class
+// constant holds a name itself, and a descriptor spells its types inside a signature.
+//
+// Answers null for a file the pool walk cannot follow, so the caller can fail over it rather than read
+// it as naming nothing and declaring nothing. A class whose attributes end early still answers, with
+// no source file name: the texts and flags it was read for are whole by then.
+ext.readClassFile = { File classFile ->
+
+    def texts = []
+
+    // Kept by pool index as well, since an attribute names its texts by where they sit in the pool.
+    def utf8ByIndex = [:]
+
+    return classFile.withDataInputStream { classBytes ->
+
+        classBytes.skipBytes(CLASS_FILE_HEADER_BYTES)
+
+        int poolEntryCount = classBytes.readUnsignedShort()
+
+        // Numbered from one, and the count is one past the last entry.
+        for (int entry = 1; entry < poolEntryCount; entry++) {
+
+            int tag = classBytes.readUnsignedByte()
+
+            if (tag == CONSTANT_UTF8) {
+
+                def text = classBytes.readUTF()
+
+                texts << text
+                utf8ByIndex[entry] = text
+                continue
+            }
+
+            def payloadBytes = CONSTANT_PAYLOAD_BYTES[tag]
+
+            // A tag this walk does not know. Stepping on blindly would report whatever the
+            // misalignment spells.
+            if (payloadBytes == null) {
+                return null
+            }
+
+            classBytes.skipBytes(payloadBytes)
+
+            if (tag in DOUBLE_WIDTH_CONSTANTS) {
+                entry++
+            }
+        }
+
+        def accessFlags = classBytes.readUnsignedShort()
+        String sourceFileName = null
+
+        try {
+            sourceFileName = readSourceFileName(classBytes, utf8ByIndex)
+        } catch (EOFException ignored) {
+            // A class file cut short after its flags still answers what was read of it.
+        }
+
+        return [texts: texts, accessFlags: accessFlags, sourceFileName: sourceFileName]
+    }
+}
+
+// The class a file holds: its binary name with nesting kept, and the tree it was compiled from.
+// Everything under the class trees is <language>/<source set>/<binary name>.
+ext.readCompiledClass = { File classFile, File classesDir ->
+
+    def compiledPath = classesDir
+        .toPath()
+        .relativize(classFile.toPath())
+        .toString()
+        .replace(File.separator, '/')
+        .replaceFirst(/\.class$/, '')
+
+    def pathSegments = compiledPath.split('/')
+
+    if (pathSegments.length <= 2) {
+        return [binaryName: compiledPath, compiledFrom: '', sourceSet: '', language: '']
+    }
+
+    return [
+        binaryName: pathSegments[2..-1].join('/'),
+        sourceSet: pathSegments[1],
+        language: pathSegments[0],
+        // One class name can be compiled from more than one tree.
+        compiledFrom: " in ${pathSegments[0]}/${pathSegments[1]}",
+    ]
+}
+
+// The source file a class was compiled from, as a path from the project directory, or null where it
+// cannot be placed: the class records no source file name, or the conventional path does not hold
+// one, as for a source set rooted elsewhere or generated code. Placed by the conventional layout,
+// src/<source set>/<language>/<package directories>/<file>, and confirmed on disk, so a path a finding
+// prints always opens.
+ext.findSourcePath = { Map compiledClass, String sourceFileName, File projectDirectory ->
+
+    if (!sourceFileName || !compiledClass.language) {
+        return null
+    }
+
+    def lastSlash = compiledClass.binaryName.lastIndexOf('/')
+    def packagePath = lastSlash < 0
+        ? ''
+        : compiledClass.binaryName.substring(0, lastSlash + 1)
+
+    def sourcePath = "src/${compiledClass.sourceSet}/${compiledClass.language}/${packagePath}${sourceFileName}"
+
+    return new File(projectDirectory, sourcePath).isFile()
+        ? sourcePath.toString()
+        : null
+}
+
+// A misspelt source set matches no compiled tree, so its rule would check nothing and pass. Each rule
+// carries its source sets as 'sourceSets'; describeRule names it the way its declaration reads.
+ext.failOnUnknownSourceSets = { List rules, List knownSourceSets, Closure describeRule ->
+
+    rules.each { rule ->
+
+        def unknownSourceSets = rule
+            .sourceSets
+            .findAll { !(it in knownSourceSets) }
+
+        if (!unknownSourceSets.isEmpty()) {
+
+            throw new GradleException("${describeRule(rule)} names " +
+                "source set(s) ${unknownSourceSets} this build does not have; " +
+                "it has ${knownSourceSets}")
+        }
+    }
+}
+
+// A class the walk cannot follow was checked for nothing, which looks like a pass. The cause is a
+// constant-pool tag the walk does not know yet, so this is raised before the findings, which are
+// incomplete while it holds.
+ext.failOnUnreadableClasses = { List unreadableClasses ->
+
+    if (!unreadableClasses.isEmpty()) {
+
+        throw new GradleException("Classes this gate could not read, so nothing in them was" +
+            " checked - each carries a constant-pool tag the walk does not know, which is a" +
+            " tag to add to it rather than anything in the code:\n  " +
+            "${unreadableClasses.size()} class(es), including " +
+            "${unreadableClasses.sort().take(UNREADABLE_CLASSES_NAMED)}")
+    }
+}
+
+// Everything the build compiles, taken as the directory the language plugins write into rather than
+// from the source sets: a consumer declares its own source sets after the conventions apply a gate,
+// and the directory is also what the JAR is built from.
+ext.compiledClassesRoot = layout.buildDirectory.dir('classes')
+
+// Has a gate read the class trees after compilation, and answers those trees' class files as its
+// scanned input.
+//
+// Compilation is matched live and two ways, so a consumer's other languages are covered without this
+// script naming them: by type for Gradle's own compile tasks, by name for Kotlin's, which are not
+// AbstractCompile.
+ext.declareScannedClasses = { Task gate ->
+
+    gate.dependsOn tasks.withType(AbstractCompile)
+    gate.dependsOn tasks.matching { it.name.startsWith('compile') && it.name.endsWith('Kotlin') }
+
+    return declareScannedFiles(gate, compiledClassesRoot, ['**/*.class'], 'scannedClasses')
+}
+
+// The build's source set names, read when the gate runs, since a consumer declares its own source
+// sets after a gate is applied. Declared an input too, so a source set added later re-runs the gate
+// against the rules naming it.
+ext.declareSourceSetNames = { Task gate ->
+
+    def sourceSetNames = gate.project.providers.provider {
+
+        gate.project
+            .extensions
+            .findByName('sourceSets')
+            ?.names
+            ?.toList()
+            ?.sort()
+            ?: []
+    }
+
+    gate.inputs
+        .property('sourceSetNames', sourceSetNames)
+
+    return sourceSetNames
+}
