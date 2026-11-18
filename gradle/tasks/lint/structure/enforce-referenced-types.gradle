@@ -30,103 +30,8 @@
 // A finding names the class and the type with no line: a class file records which types a method
 // touches, not where the source wrote them.
 
+apply from: new File(buildscript.sourceFile.parentFile, '../class-file-scan.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
-
-// Constant-pool tags. Only the Utf8 entries are read; the rest are stepped over, a pool being a
-// sequence of variable-width entries with no index to seek by.
-def CONSTANT_UTF8 = 1
-def CONSTANT_INTEGER = 3
-def CONSTANT_FLOAT = 4
-def CONSTANT_LONG = 5
-def CONSTANT_DOUBLE = 6
-def CONSTANT_CLASS = 7
-def CONSTANT_STRING = 8
-def CONSTANT_FIELDREF = 9
-def CONSTANT_METHODREF = 10
-def CONSTANT_INTERFACE_METHODREF = 11
-def CONSTANT_NAME_AND_TYPE = 12
-def CONSTANT_METHOD_HANDLE = 15
-def CONSTANT_METHOD_TYPE = 16
-def CONSTANT_DYNAMIC = 17
-def CONSTANT_INVOKE_DYNAMIC = 18
-def CONSTANT_MODULE = 19
-def CONSTANT_PACKAGE = 20
-
-// The bytes after each fixed-width tag.
-def CONSTANT_PAYLOAD_BYTES = [
-    (CONSTANT_INTEGER): 4,
-    (CONSTANT_FLOAT): 4,
-    (CONSTANT_LONG): 8,
-    (CONSTANT_DOUBLE): 8,
-    (CONSTANT_CLASS): 2,
-    (CONSTANT_STRING): 2,
-    (CONSTANT_FIELDREF): 4,
-    (CONSTANT_METHODREF): 4,
-    (CONSTANT_INTERFACE_METHODREF): 4,
-    (CONSTANT_NAME_AND_TYPE): 4,
-    (CONSTANT_METHOD_HANDLE): 3,
-    (CONSTANT_METHOD_TYPE): 2,
-    (CONSTANT_DYNAMIC): 4,
-    (CONSTANT_INVOKE_DYNAMIC): 4,
-    (CONSTANT_MODULE): 2,
-    (CONSTANT_PACKAGE): 2,
-]
-
-// The eight-byte constants take two pool slots each, which the pool's numbering depends on.
-def DOUBLE_WIDTH_CONSTANTS = [CONSTANT_LONG, CONSTANT_DOUBLE]
-
-// What precedes the constant pool: the magic number (4 bytes), the minor version (2), the major (2).
-def CLASS_FILE_HEADER_BYTES = 8
-
-// How many unreadable classes a failure names; the cause is a class-file version, so it tends to
-// hold for everything compiled.
-def UNREADABLE_CLASSES_NAMED = 5
-
-// Every text constant in a class file, which is where every type name in it lives: a class constant
-// holds the name itself, and a descriptor spells its types inside a signature. Only the pool is read;
-// it holds every name the class can refer to.
-//
-// Answers null for a file the walk cannot follow, so the caller can fail over it rather than read it
-// as naming nothing.
-def readTextConstants = { File classFile ->
-
-    def texts = []
-    def isUnreadable = classFile.withDataInputStream { classBytes ->
-
-        classBytes.skipBytes(CLASS_FILE_HEADER_BYTES)
-
-        int poolEntryCount = classBytes.readUnsignedShort()
-
-        // Numbered from one, and the count is one past the last entry.
-        for (int entry = 1; entry < poolEntryCount; entry++) {
-
-            int tag = classBytes.readUnsignedByte()
-
-            if (tag == CONSTANT_UTF8) {
-                texts << classBytes.readUTF()
-                continue
-            }
-
-            def payloadBytes = CONSTANT_PAYLOAD_BYTES[tag]
-
-            // A tag this walk does not know. Stepping on blindly would report whatever the
-            // misalignment spells.
-            if (payloadBytes == null) {
-                return true
-            }
-
-            classBytes.skipBytes(payloadBytes)
-
-            if (tag in DOUBLE_WIDTH_CONSTANTS) {
-                entry++
-            }
-        }
-
-        return false
-    }
-
-    return isUnreadable ? null : texts
-}
 
 // Answers whether a binary type name is the outer type or a type nested in it.
 def isTypeOrNestedIn = { String type, String outerType ->
@@ -178,47 +83,6 @@ def isTypeAllowed = { String referencedType, Map namespaceRule ->
         namespaceRule.allowedTypes.any { isTypeOrNestedIn(referencedType, it) }
 }
 
-// The class a file holds: its binary name with nesting kept, and the tree it was compiled from.
-// Everything under the class trees is <language>/<source set>/<binary name>.
-def readCompiledClass = { File classFile, File classesDir ->
-
-    def compiledPath = classesDir
-        .toPath()
-        .relativize(classFile.toPath())
-        .toString()
-        .replace(File.separator, '/')
-        .replaceFirst(/\.class$/, '')
-
-    def pathSegments = compiledPath.split('/')
-
-    if (pathSegments.length <= 2) {
-        return [binaryName: compiledPath, compiledFrom: '', sourceSet: '']
-    }
-
-    return [
-        binaryName: pathSegments[2..-1].join('/'),
-        sourceSet: pathSegments[1],
-        // One class name can be compiled from more than one tree.
-        compiledFrom: " in ${pathSegments[0]}/${pathSegments[1]}",
-    ]
-}
-
-// A misspelt source set matches no compiled tree, so its rule would check nothing and pass.
-def failOnUnknownSourceSets = { List namespaceRules, List knownSourceSets ->
-
-    namespaceRules.each { namespaceRule ->
-
-        def unknownSourceSets = namespaceRule.sourceSets.findAll { !(it in knownSourceSets) }
-
-        if (!unknownSourceSets.isEmpty()) {
-
-            throw new GradleException("restrictReferences for '${namespaceRule.namespace}' names " +
-                "source set(s) ${unknownSourceSets} this build does not have; " +
-                "it has ${knownSourceSets}")
-        }
-    }
-}
-
 // Reads every compiled class the rules apply to. Answers the references no rule allows, the classes
 // the walk could not follow, the types each rule saw named, and the rules that read any class.
 def scanCompiledClasses = { List namespaceRules, Iterable classFiles, File classesDir ->
@@ -244,12 +108,13 @@ def scanCompiledClasses = { List namespaceRules, Iterable classFiles, File class
             return
         }
 
-        def texts = readTextConstants(classFile)
-
-        if (texts == null) {
+        def classFileRead = readClassFile(classFile)
+        if (classFileRead == null) {
             scan.unreadableClasses << compiledClass.binaryName
             return
         }
+
+        def texts = classFileRead.texts
 
         applicableRules.each { namespaceRule ->
 
@@ -298,27 +163,7 @@ def findUnusedTypeAllowances = { List namespaceRules, Map scan ->
         }
 }
 
-// A class the walk cannot follow was checked for nothing, which looks like a pass. The cause is a
-// constant-pool tag the walk does not know yet, so this is raised before the findings, which are
-// incomplete while it holds.
-def failOnUnreadableClasses = { List unreadableClasses ->
-
-    if (!unreadableClasses.isEmpty()) {
-
-        throw new GradleException("Classes this gate could not read, so nothing in them was" +
-            " checked - each carries a constant-pool tag the walk does not know, which is a" +
-            " tag to add to it rather than anything in the code:\n  " +
-            "${unreadableClasses.size()} class(es), including " +
-            "${unreadableClasses.sort().take(UNREADABLE_CLASSES_NAMED)}")
-    }
-}
-
 def namespaceRules = []
-
-// Everything the build compiles, taken as the directory the language plugins write into rather than
-// from the source sets: a consumer declares its own source sets after the conventions apply this,
-// and the directory is also what the jar is built from.
-def classesRoot = layout.buildDirectory.dir('classes')
 
 def enforceReferencedTypes = tasks.register('enforceReferencedTypes') { gate ->
 
@@ -358,13 +203,8 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') { gate ->
         ]
     }
 
-    def scannedClasses = declareScannedFiles(gate, classesRoot, ['**/*.class'], 'scannedClasses')
-
-    // Compilation has to happen first. Matched live and two ways, so a consumer's other languages are
-    // covered without this script naming them: by type for Gradle's own compile tasks, by name for
-    // Kotlin's, which are not AbstractCompile.
-    dependsOn tasks.withType(AbstractCompile)
-    dependsOn tasks.matching { it.name.startsWith('compile') && it.name.endsWith('Kotlin') }
+    // Compilation has to happen first.
+    def scannedClasses = declareScannedClasses(gate)
 
     declareRuleSnapshot(gate, 'namespaceRules') {
         namespaceRules.collect {
@@ -373,13 +213,7 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') { gate ->
         }
     }
 
-    // Read when the gate runs, since a consumer declares its own source sets after this is applied.
-    // An input too, so a source set added later re-runs the gate against the rules naming it.
-    def sourceSetNames = providers.provider {
-        project.extensions.findByName('sourceSets')?.names?.toList()?.sort() ?: []
-    }
-
-    inputs.property('sourceSetNames', sourceSetNames)
+    def sourceSetNames = declareSourceSetNames(gate)
 
     doLast {
 
@@ -387,9 +221,9 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') { gate ->
             return
         }
 
-        failOnUnknownSourceSets(namespaceRules, sourceSetNames.get())
+        failOnUnknownSourceSets(namespaceRules, sourceSetNames.get()) { "restrictReferences for '${it.namespace}'" }
 
-        def scan = scanCompiledClasses(namespaceRules, scannedClasses, classesRoot.get().asFile)
+        def scan = scanCompiledClasses(namespaceRules, scannedClasses, compiledClassesRoot.get().asFile)
 
         failOnUnreadableClasses(scan.unreadableClasses)
         failOnViolations(

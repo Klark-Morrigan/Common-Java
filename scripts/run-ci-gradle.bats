@@ -9,7 +9,7 @@
 readonly CI_FLAGS='--no-daemon --console=plain --warning-mode all'
 
 setup() {
-    unset COMMON_JAVA_TARGET_REPO
+    unset CONSUMER_REPO_PATH
     export COMMON_AUTOMATION_ROOT="${BATS_TEST_TMPDIR}/absent-common-automation"
 
     FAKE_COMMON_JAVA="${BATS_TEST_TMPDIR}/Common-Java"
@@ -18,8 +18,8 @@ setup() {
     cp "${BATS_TEST_DIRNAME}"/imports/*.sh "${FAKE_COMMON_JAVA}/scripts/imports/"
     SCRIPT="${FAKE_COMMON_JAVA}/scripts/run-ci-gradle.sh"
 
-    TARGET="${BATS_TEST_TMPDIR}/consumer"
-    mkdir -p "${TARGET}"
+    CONSUMER="${BATS_TEST_TMPDIR}/consumer"
+    mkdir -p "${CONSUMER}"
 }
 
 # Writes a gradlew into <dir> that reports where it ran and with what, then
@@ -36,26 +36,26 @@ STUB
     chmod +x "${dir}/gradlew"
 }
 
-@test "a target run builds the target's gradlew with the given tasks and CI's flags" {
-    create_gradlew_stub "${TARGET}"
-    COMMON_JAVA_TARGET_REPO="${TARGET}" run bash "${SCRIPT}" coverage jar
+@test "a consumer run builds the consumer's gradlew with the given tasks and CI's flags" {
+    create_gradlew_stub "${CONSUMER}"
+    CONSUMER_REPO_PATH="${CONSUMER}" run bash "${SCRIPT}" coverage jar
     [ "${status}" -eq 0 ]
-    [[ "${output}" == *"gradlew ran in ${TARGET} with: coverage jar ${CI_FLAGS}"* ]]
+    [[ "${output}" == *"gradlew ran in ${CONSUMER} with: coverage jar ${CI_FLAGS}"* ]]
     [[ "${output}" == *"Gradle build passed."* ]]
 }
 
-@test "a target run with no tasks fails before building" {
-    create_gradlew_stub "${TARGET}"
-    COMMON_JAVA_TARGET_REPO="${TARGET}" run bash "${SCRIPT}"
+@test "a consumer run with no tasks fails before building" {
+    create_gradlew_stub "${CONSUMER}"
+    CONSUMER_REPO_PATH="${CONSUMER}" run bash "${SCRIPT}"
     [ "${status}" -eq 2 ]
-    [[ "${output}" == *"No Gradle tasks given for ${TARGET}"* ]]
+    [[ "${output}" == *"No Gradle tasks given for ${CONSUMER}"* ]]
     [[ "${output}" != *"gradlew ran"* ]]
 }
 
-@test "a target without gradlew fails naming the directory" {
-    COMMON_JAVA_TARGET_REPO="${TARGET}" run bash "${SCRIPT}" build
+@test "a consumer without gradlew fails naming the directory" {
+    CONSUMER_REPO_PATH="${CONSUMER}" run bash "${SCRIPT}" build
     [ "${status}" -eq 1 ]
-    [[ "${output}" == *"No gradlew in ${TARGET}"* ]]
+    [[ "${output}" == *"No gradlew in ${CONSUMER}"* ]]
 }
 
 @test "a self run builds the ci-smoke project with build by default" {
@@ -79,8 +79,8 @@ STUB
 }
 
 @test "a failing build fails the run with Gradle's exit code" {
-    create_gradlew_stub "${TARGET}" 3
-    COMMON_JAVA_TARGET_REPO="${TARGET}" run bash "${SCRIPT}" build
+    create_gradlew_stub "${CONSUMER}" 3
+    CONSUMER_REPO_PATH="${CONSUMER}" run bash "${SCRIPT}" build
     [ "${status}" -eq 3 ]
     [[ "${output}" != *"Gradle build passed."* ]]
 }

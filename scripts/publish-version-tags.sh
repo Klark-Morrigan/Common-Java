@@ -3,7 +3,7 @@
 # floating major vX - on the tip of origin/master, so consumers can pin this
 # repo's reusable workflows by tag. Thin shim to Common-Automation's
 # publish-version-tags.sh, which holds the engine. The engine works on the
-# current git repo's origin/master rather than on COMMON_AUTOMATION_TARGET_REPO,
+# current git repo's origin/master rather than on CONSUMER_REPO_PATH,
 # so this cds into this repo first and forwards the version argument ("$@"; the
 # engine prompts when it is omitted).
 set -euo pipefail

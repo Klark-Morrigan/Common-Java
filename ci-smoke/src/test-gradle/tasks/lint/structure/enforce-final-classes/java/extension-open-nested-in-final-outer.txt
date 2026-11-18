@@ -1,0 +1,13 @@
+package example.app;
+
+/**
+ * Final itself, holding one nested class open to extension and one only its outer class can reach.
+ */
+public final class Outer {
+
+    public static class Inner {
+    }
+
+    private static class Hidden {
+    }
+}
