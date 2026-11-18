@@ -3,13 +3,13 @@
 # Local mirror of _ci-gradle.yml: runs a Gradle build/test with the same
 # flags the reusable workflow uses, so a green local run means a green CI run.
 #
-# Target-aware, the JVM counterpart to Common-Automation's
+# Consumer-aware, the JVM counterpart to Common-Automation's
 # run-ci-yaml-and-bash.sh:
 #   - A consumer repo ships a same-named run-ci-gradle.sh shim that sets
-#     COMMON_JAVA_TARGET_REPO and execs this with its tasks; the build runs at
+#     CONSUMER_REPO_PATH and execs this with its tasks; the build runs at
 #     that repo's root (its gradlew). The tasks are required: only the
 #     consumer knows which ones its own ci-gradle.yml runs.
-#   - With no target this runs against Common-Java itself. Common-Java's only
+#   - With no consumer this runs against Common-Java itself. Common-Java's only
 #     Gradle project is the CI smoke project under ci-smoke/, which exercises
 #     the shared Gradle scripts - the same build ci-gradle.yml runs - so the
 #     self-run builds that (default: build), a local mirror of that CI gate.
@@ -35,9 +35,9 @@ common_java_root="$(cd "${script_dir}/.." && pwd)"
 # shellcheck source=scripts/imports/_hold-window.sh
 source "${script_dir}/imports/_hold-window.sh"
 
-if [[ -n "${COMMON_JAVA_TARGET_REPO:-}" ]]; then
-    # Consumer build: the Gradle project is at the target repo's root.
-    build_dir="${COMMON_JAVA_TARGET_REPO}"
+if [[ -n "${CONSUMER_REPO_PATH:-}" ]]; then
+    # Consumer build: the Gradle project is at the consumer repo's root.
+    build_dir="${CONSUMER_REPO_PATH}"
     if [[ "$#" -eq 0 ]]; then
         echo "No Gradle tasks given for ${build_dir}; pass the tasks its ci-gradle.yml runs." >&2
         exit 2

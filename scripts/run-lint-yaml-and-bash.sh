@@ -9,7 +9,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/imports/_common-automation-root.sh
 source "${script_dir}/imports/_common-automation-root.sh"
-# shellcheck source=scripts/imports/_target-repo.sh
-source "${script_dir}/imports/_target-repo.sh"
+# shellcheck source=scripts/imports/_consumer-repo.sh
+source "${script_dir}/imports/_consumer-repo.sh"
 
 exec "${common_automation_root}/scripts/_run-lint-yaml-and-bash.sh"

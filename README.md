@@ -682,13 +682,13 @@ It skips the fixes when Common-Automation is not checked out.
 Each `.sh` has a `.bat` launcher for an Explorer double-click.
 The shims find Common-Automation through `COMMON_AUTOMATION_ROOT`,
 which defaults to the `Common-Automation` folder beside this repo.
-They work on the repo `COMMON_JAVA_TARGET_REPO` names, which defaults to Common-Java.
+They work on the repo `CONSUMER_REPO_PATH` names, which defaults to Common-Java.
 `publish-version-tags.sh` always tags this repo.
 
 `run-ci-gradle.sh` is Common-Java's own engine.
-A consumer repo calls it with `COMMON_JAVA_TARGET_REPO` set,
+A consumer repo calls it with `CONSUMER_REPO_PATH` set,
 and must then pass the tasks its CI runs.
-Without a target, it runs in `ci-smoke/` and defaults to `build`.
+Without one, it runs in `ci-smoke/` and defaults to `build`.
 
 A consumer JVM repo's pre-commit hook reads `executable-paths.sh` and `trimmed-file-types.sh`
 from `../Common-Java/.github/lib/`,

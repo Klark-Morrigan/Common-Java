@@ -1,7 +1,7 @@
 @echo off
 setlocal
 rem Explorer-double-click launcher for scripts/run-ci-gradle.sh. With no
-rem COMMON_JAVA_TARGET_REPO set it builds Common-Java's ci-smoke project (the
+rem CONSUMER_REPO_PATH set it builds Common-Java's ci-smoke project (the
 rem local mirror of ci-gradle.yml's gate). Resolves Git Bash via
 rem Common-Automation's _find-bash.bat, then runs the script with the engine
 rem pause suppressed (this .bat self-pauses below). Common-Automation is
