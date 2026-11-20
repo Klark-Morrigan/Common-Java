@@ -1,7 +1,6 @@
 #!/usr/bin/env bats
-# Tests for executable-paths.sh - the JVM tier's +x set, declared once and read
-# in two forms: the ERE a pre-commit hook passes and the git pathspecs
-# fix-permissions.sh passes.
+# Tests for executable-paths.sh - the JVM tier's +x paths, declared once and
+# read by every JVM repo's pre-commit hook and by fix-permissions.sh.
 # Run with: bats .github/lib/executable-paths.bats
 
 setup() {
@@ -14,36 +13,16 @@ setup() {
     [ "${EXECUTABLE_PATHSPECS[*]}" = "gradlew */gradlew" ]
 }
 
-@test "the regex matches every path that must carry +x" {
+@test "the pathspecs widen a set already declared rather than replace it" {
 
-    local path
+    EXECUTABLE_PATHSPECS=('*.sh')
 
-    for path in run.sh scripts/imports/_x.sh gradlew ci-smoke/gradlew a/b/gradlew .githooks/pre-commit; do
+    source "${BATS_TEST_DIRNAME}/executable-paths.sh"
 
-        grep -qE "${EXECUTABLE_PATHSPEC_REGEX}" <<< "${path}" || {
-
-            echo "not matched: ${path}"
-            return 1
-        }
-    done
-}
-
-@test "the regex leaves every other path alone" {
-
-    local path
-
-    for path in gradlew.bat mygradlew gradlew/settings.gradle README.md run.shx .githooks/.gitignore; do
-
-        if grep -qE "${EXECUTABLE_PATHSPEC_REGEX}" <<< "${path}"; then
-
-            echo "matched: ${path}"
-            return 1
-        fi
-    done
+    [ "${EXECUTABLE_PATHSPECS[*]}" = "*.sh gradlew */gradlew" ]
 }
 
 @test "sourcing leaves no working variables behind" {
 
     [ -z "${executable_file_name+set}" ]
-    [ -z "${executable_name_alternation+set}" ]
 }

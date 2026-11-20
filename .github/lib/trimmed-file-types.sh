@@ -20,7 +20,8 @@
 # appending '*.gradle' for themselves is four places to edit the day a fifth
 # type joins it.
 #
-# Sourced only, after the engine - it appends to an array the engine declares.
-# Executing it on its own does nothing and is not an error.
+# Sourced only, through Common-Automation's source_tier_declarations, which
+# loads the family-wide set first, so this widens it rather than standing in
+# for it. Executing it on its own does nothing and is not an error.
 
 WHITESPACE_TRIMMED_TYPES+=('*.gradle')

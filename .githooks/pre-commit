@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
+#
 # Auto-fixes what this repo's commits need fixing: the executable bit on staged
 # files that must carry it, and trailing whitespace in staged Markdown and Gradle
 # scripts.
 #
 # Which fixes a commit gets, and the order they run in, live in
-# Common-Automation's .github/lib/run-pre-commit-fixes.sh (sibling checkout),
+# Common-Automation's .github/lib/fixes/run-pre-commit-fixes.sh (sibling checkout),
 # shared so every repo in the family fixes a commit the same way. What stays
 # here is only what this repo alone knows: where that sibling is, and which
 # tier it belongs to.
@@ -15,7 +16,7 @@ set -euo pipefail
 
 hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${hook_dir}/.." && pwd)"
-shared_fixes="${repo_root}/../Common-Automation/.github/lib/run-pre-commit-fixes.sh"
+shared_fixes="${repo_root}/../Common-Automation/.github/lib/fixes/run-pre-commit-fixes.sh"
 
 # Skipped rather than fatal when the sibling is not checked out. These fixes
 # are conveniences: a hook that aborted here would block every commit in a repo
@@ -31,9 +32,6 @@ source "${shared_fixes}"
 
 # This tier's own declarations, which this repo owns and every JVM repo reads:
 # the paths that must carry +x, and .gradle as a text type to trim.
-# shellcheck source=.github/lib/executable-paths.sh
-source "${repo_root}/.github/lib/executable-paths.sh"
-
 run_pre_commit_fixes \
-    "${EXECUTABLE_PATHSPEC_REGEX}" \
+    "${repo_root}/.github/lib/executable-paths.sh" \
     "${repo_root}/.github/lib/trimmed-file-types.sh"
