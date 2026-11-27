@@ -1,0 +1,10 @@
+package example.app;
+
+/**
+ * Package-private itself, so the public class nested in it can be named by no other JAR.
+ */
+class Hideaway {
+
+    public static class Exposed {
+    }
+}

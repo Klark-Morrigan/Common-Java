@@ -28,112 +28,98 @@ apply from: new File(buildscript.sourceFile.parentFile, '../word-scan.gradle')
 def scannedFileIncludes = jvmSourceIncludes + ['**/*.md']
 
 // Reports one message per forbidden phrase this file says, at the line its first word is on.
-def findForbiddenWords = { File sourceFile, String reportedPath, List applicableRules ->
+def findForbiddenWords = {
+    File sourceFile,
+    String reportedPath,
+    List applicableRules ->
 
-    def words = readNameWords(sourceFile)
+        def words = readNameWords(sourceFile)
 
-    return applicableRules.collectMany { rule ->
+        return applicableRules.collectMany { rule ->
 
-        findSpokenPhrases(words, rule.phrases).collect { spoken ->
-            "${reportedPath}:${spoken.line}: ${rule.closedSideLabel} may not say \"${spoken.phrase.declared}\""
+            findSpokenPhrases(words, rule.phrases).collect { spoken ->
+                "${reportedPath}:${spoken.line}: " +
+                "${rule.closedSideLabel} may not say \"${spoken.phrase.declared}\""
+            }
         }
     }
-}
 
 def vocabularyRules = []
 def allowances = []
 
 // Why an allowance answers no rule, or null when it answers one.
-def findStrandedReason = { Map allowance, Map forbiddenPhrasesByPath ->
+def findStrandedReason = {
+    Map allowance,
+    Map forbiddenPhrasesByPath ->
 
-    if (!forbiddenPhrasesByPath.containsKey(allowance.inFile)) {
-        return 'names a file this gate does not scan, so it allows nothing'
+        if (!forbiddenPhrasesByPath.containsKey(allowance.inFile)) {
+            return 'names a file this gate does not scan, so it allows nothing'
+        }
+
+        if (!(allowance.words in forbiddenPhrasesByPath[allowance.inFile])) {
+            return 'names a word no rule forbids in that file, so it allows nothing'
+        }
+
+        return null
     }
-
-    if (!(allowance.words in forbiddenPhrasesByPath[allowance.inFile])) {
-        return 'names a word no rule forbids in that file, so it allows nothing'
-    }
-
-    return null
-}
 
 def enforcePackageVocabulary = tasks.register('enforcePackageVocabulary') { gate ->
 
     group = 'verification'
-    description = 'Fails the build when a package root uses a word the ' +
+    description =
+        'Fails the build when a package root uses a word the ' +
         'consuming build declared it closed to.'
 
     ext.forbidWords = { Map declaration ->
 
-        if (!declaration.under || !declaration.words) {
+        failOnUnknownDeclarationKeys(
+            'forbidWords',
+            declaration,
+            ['under', 'except', 'words'])
 
-            throw new GradleException("forbidWords needs both 'under' (the " +
+        if (!declaration.under
+                || !declaration.words) {
+
+            throw new GradleException(
+                "forbidWords needs both 'under' (the " +
                 "package root that is closed) and 'words' (the words it " +
                 "may not say); got: ${declaration}")
         }
 
-        def exceptedRoots = readExceptedRoots('forbidWords', declaration, declaration.under)
+        def exceptedRoots = readExceptedRoots(
+            'forbidWords',
+            declaration,
+            declaration.under)
 
         vocabularyRules << [
             under: declaration.under,
             exceptedRoots: exceptedRoots,
             closedSideLabel: describeLayer(declaration.under, exceptedRoots),
-            phrases: readOneOrMany(declaration.words).collect { readDeclaredPhrase('forbidWords', it.toString()) },
+            phrases: readOneOrMany(declaration.words).collect {
+                readDeclaredPhrase('forbidWords', it.toString()) },
         ]
     }
 
-    // Lets one file say one phrase. Declared in the build rather than as a marker in the file, so
-    // an exemption is a line a reviewer reads in the diff. The path is project-relative, as on disk.
-    def addAllowance = { String declaringCall, Object word, Object inFile ->
-
-        def phrase = readDeclaredPhrase(declaringCall, word.toString())
-
-        allowances << [word: phrase.declared, words: phrase.words, inFile: inFile.toString()]
-    }
-
-    ext.allowWord = { Map exemption ->
-
-        if (!exemption.word || !exemption.inFile) {
-
-            throw new GradleException("allowWord needs both 'word' (the word " +
-                "being let through) and 'inFile' (the project-relative " +
-                "path it is allowed in); got: ${exemption}")
-        }
-
-        addAllowance('allowWord', exemption.word, exemption.inFile)
-    }
-
-    // Several words in one file: the shape a README explaining a rule takes, which has to name
-    // every word the rule bans.
-    ext.allowWords = { Map exemption ->
-
-        if (!exemption.words || !exemption.inFile) {
-
-            throw new GradleException("allowWords needs both 'words' (the " +
-                "words being let through) and 'inFile' (the " +
-                "project-relative path they are allowed in); got: ${exemption}")
-        }
-
-        readOneOrMany(exemption.words).each { addAllowance('allowWords', it, exemption.inFile) }
-    }
+    declareWordAllowances(gate, allowances)
 
     // Every source set under src/: a dev-tooling or fixture tree is prose nobody sweeps, which is
     // where the words a sweep missed collect.
-    def scannedSources = declareScannedFiles(gate, 'src', scannedFileIncludes)
+    def scannedSources = declareScannedFiles(
+        gate,
+        'src',
+        scannedFileIncludes)
 
     declareRuleSnapshot(gate, 'vocabularyRules') {
         vocabularyRules.collect { "${it.closedSideLabel} !- ${it.phrases*.declared.sort()}" }
     }
 
     declareRuleSnapshot(gate, 'allowances') {
-        allowances.collect { "${it.word} in ${it.inFile}" }
+        allowances.collect { "${it.declared} in ${it.inFile}" }
     }
 
-    doLast {
+    skipWithoutRules(gate, vocabularyRules)
 
-        if (vocabularyRules.isEmpty()) {
-            return
-        }
+    doLast {
 
         def violations = []
 
@@ -150,7 +136,7 @@ def enforcePackageVocabulary = tasks.register('enforcePackageVocabulary') { gate
             // Project-relative with forward slashes, so an allowance reads the same on every machine.
             def reportedPath = 'src/' + details.path
 
-            def allowedPhrases = allowances.findAll { it.inFile == reportedPath }*.words
+            def allowedPhrases = findAllowedPhrases(allowances, reportedPath)
             def pathPackage = readPathPackage(details.relativePath.segments as List)
             def rulesOverFile = vocabularyRules.findAll { isInsideLayer(pathPackage, it.under, it.exceptedRoots) }
 
@@ -166,18 +152,19 @@ def enforcePackageVocabulary = tasks.register('enforcePackageVocabulary') { gate
                 .findAll { !it.phrases.isEmpty() }
 
             if (!applicableRules.isEmpty()) {
-                violations.addAll(findForbiddenWords(details.file, reportedPath, applicableRules))
+                violations.addAll(findForbiddenWords(
+                    details.file,
+                    reportedPath,
+                    applicableRules))
             }
         }
 
-        // An allowance that answers no rule exempts nothing, and its word is loose again the moment
-        // the file or rule it meant comes back under another name.
         allowances.each { allowance ->
 
             def reason = findStrandedReason(allowance, forbiddenPhrasesByPath)
 
             if (reason != null) {
-                violations << "${allowance.inFile}: allowWord ${reason}: \"${allowance.word}\""
+                violations << describeStrandedAllowance(allowance, reason)
             }
         }
 

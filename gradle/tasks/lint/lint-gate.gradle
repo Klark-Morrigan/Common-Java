@@ -29,7 +29,9 @@
 // and the assignments below simply overwrite identical closures.
 
 // The file types and encoding every gate reads source in.
-apply from: new File(buildscript.sourceFile.parentFile, '../source-text.gradle')
+apply from: new File(
+    buildscript.sourceFile.parentFile,
+    '../source-text.gradle')
 
 // Gives a gate an output so Gradle can skip it while the sources it reads are
 // unchanged.
@@ -42,7 +44,9 @@ apply from: new File(buildscript.sourceFile.parentFile, '../source-text.gradle')
 // leaves no stamp behind and therefore runs again next time.
 ext.declareLintGateStamp = { taskProvider ->
 
-    def stampFile = layout.buildDirectory.file("lint/${taskProvider.name}.stamp")
+    def stampFile = layout
+        .buildDirectory
+        .file("lint/${taskProvider.name}.stamp")
 
     taskProvider.configure {
 
@@ -58,9 +62,14 @@ ext.declareLintGateStamp = { taskProvider ->
         // when the check throws, this never runs and the gate stays out of date.
         doLast {
 
-            def stamp = stampFile.get().asFile
+            def stamp = stampFile
+                .get()
+                .asFile
 
-            stamp.parentFile.mkdirs()
+            stamp
+                .parentFile
+                .mkdirs()
+
             stamp.text = "${taskProvider.name} passed\n"
         }
     }
@@ -101,7 +110,9 @@ ext.readOneOrMany = { value ->
         return []
     }
 
-    return value instanceof Collection ? value as List : [value]
+    return value instanceof Collection
+        ? value as List
+        : [value]
 }
 
 // Declares the files a gate reads as its inputs, and answers them as one tree
@@ -113,16 +124,25 @@ ext.readOneOrMany = { value ->
 // reads code. Paths are compared relative to the project, so a cached pass
 // carries over to the same sources checked out anywhere else. A gate reading two
 // trees names each, since one input property name holds one tree.
-ext.declareScannedFiles = { Task gate, Object roots, List includes, String propertyName = 'scannedFiles' ->
+ext.declareScannedFiles = {
+    Task gate,
+    Object roots,
+    List includes,
+    String propertyName = 'scannedFiles' ->
 
-    def scannedFiles = gate.project.files(roots).asFileTree.matching { include includes }
+        def scannedFiles = gate
+            .project
+            .files(roots)
+            .asFileTree
+            .matching { include includes }
 
-    gate.inputs.files(scannedFiles)
-        .withPropertyName(propertyName)
-        .withPathSensitivity(PathSensitivity.RELATIVE)
+        gate.inputs
+            .files(scannedFiles)
+            .withPropertyName(propertyName)
+            .withPathSensitivity(PathSensitivity.RELATIVE)
 
-    return scannedFiles
-}
+        return scannedFiles
+    }
 
 // Declares the rules a consuming build stated as an input of the gate.
 //
@@ -131,12 +151,31 @@ ext.declareScannedFiles = { Task gate, Object roots, List includes, String prope
 // under. Read through a provider because the rules are declared after the gate
 // is registered, and snapshotted as sorted plain strings, since an input
 // property's value has to be serialisable and must not turn on declaration order.
-ext.declareRuleSnapshot = { Task gate, String propertyName, Closure readRuleDescriptions ->
+ext.declareRuleSnapshot = {
+    Task gate,
+    String propertyName,
+    Closure readRuleDescriptions ->
 
-    gate.inputs.property(propertyName, gate.project.providers.provider {
-        readRuleDescriptions().collect { it.toString() }.sort()
-    })
-}
+        gate.inputs.property(
+            propertyName,
+            gate.project.providers.provider {
+
+                readRuleDescriptions()
+                    .collect { it.toString() }
+                    .sort()
+            })
+    }
+
+// Skips a gate whose consuming build declared no rule, which is every gate the conventions apply that a
+// project has no use for. Skipped rather than run to an early return, so it does not fingerprint the
+// tree it would scan; the reason is logged at info level.
+ext.skipWithoutRules = {
+    Task gate,
+    Collection rules ->
+
+        gate.onlyIf('the build declares a rule for it') {
+            !rules.isEmpty() }
+    }
 
 // Fails the gate when it found anything, one finding per line under its heading.
 //
@@ -145,9 +184,48 @@ ext.declareRuleSnapshot = { Task gate, String propertyName, Closure readRuleDesc
 // because an applied script has no Gradle API on its classpath - a known tooling
 // false positive, not a defect, so do not "fix" it by swapping in a java.lang
 // exception.
-ext.failOnViolations = { String heading, Collection violations ->
+ext.failOnViolations = {
+    String heading,
+    Collection violations ->
 
-    if (!violations.isEmpty()) {
-        throw new GradleException("${heading}:\n  " + violations.join('\n  '))
+        failOnViolationSections([(heading): violations])
+    }
+
+// Fails the gate when it found anything, each heading over its own findings, for a gate whose findings
+// ask for different fixes. A heading with no findings is left out.
+ext.failOnViolationSections = { Map violationsByHeading ->
+
+    def sections = violationsByHeading
+        .findAll { heading, violations -> !violations.isEmpty() }
+        .collect { heading, violations -> "${heading}:\n  " + violations.join('\n  ') }
+
+    if (!sections.isEmpty()) {
+        throw new GradleException(sections.join('\n'))
     }
 }
+
+// Refuses a declaration naming a key its declaration does not take. Every value is optional to Groovy,
+// so a misspelt key is otherwise dropped in silence: 'inSourceSet' for 'inSourceSets' widens a rule to
+// every tree, and a misspelt allowance closes what it meant to open.
+ext.failOnUnknownDeclarationKeys = {
+    String declarationName,
+    Map declaration,
+    List acceptedKeys ->
+
+        def unknownKeys = declaration
+            .keySet()
+            .collect { it.toString() }
+            .findAll { !(it in acceptedKeys) }
+            .sort()
+
+        def quoteKeys = { Collection keys -> keys
+            .collect { "'${it}'" }
+            .join(', ') }
+
+        if (!unknownKeys.isEmpty()) {
+
+            throw new GradleException(
+                "${declarationName} does not take ${quoteKeys(unknownKeys)}; " +
+                "it takes ${quoteKeys(acceptedKeys)}")
+        }
+    }

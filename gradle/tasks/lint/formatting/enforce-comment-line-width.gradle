@@ -41,7 +41,31 @@ def isDrawnDoubleWidth = { int codePoint ->
         || fullwidthForms.any { codePoint in it }
 }
 
+// No character below this is drawn two columns wide: Hangul starts here, and every other double-width
+// script and block above it.
+def FIRST_DOUBLE_WIDTH_CANDIDATE = 0x1100 as char
+
+// Answers whether a line holds only characters drawn one column wide, which makes it as wide as it is
+// long without asking any character's script.
+def isSingleWidthThroughout = { String line ->
+
+    for (int index = 0;
+            index < line.length();
+            index++) {
+
+        if (line.charAt(index) >= FIRST_DOUBLE_WIDTH_CANDIDATE) {
+            return false
+        }
+    }
+
+    return true
+}
+
 def measureDisplayWidth = { String line ->
+
+    if (isSingleWidthThroughout(line)) {
+        return line.length()
+    }
 
     return line
         .codePoints()
@@ -65,9 +89,15 @@ def enforceCommentLineWidth = tasks.register('enforceCommentLineWidth') {
 
         def findings = []
 
-        eachSourceLine(sourceFile) { String line, Map stripped, int lineNumber ->
+        eachSourceLine(sourceFile) {
+                String line, stripped,
+                int lineNumber ->
 
-            if (!stripped.hasComment) {
+            // No character is drawn wider than two columns, so a line this short is within the limit
+            // whatever it holds.
+            if (!stripped.hasComment
+                    || line.length() * doubleWidthColumns <= maximumCommentLineWidth) {
+
                 return
             }
 

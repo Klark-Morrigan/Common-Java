@@ -1,4 +1,5 @@
 import org.gradle.testkit.runner.TaskOutcome;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -38,86 +39,131 @@ class EnforceNoMagicLiteralsKotlinGateIntegrationTests {
     private static final String INLINE_NUMBER_FINDING = "Sample.kt:2:";
     private static final String MAGIC_NUMBER_RULE = "[MagicNumber]";
 
-    @Test
-    void failsOnAnInlineMagicNumber(@TempDir Path projectDir) {
+    @Nested
+    class EnforceNoMagicLiteralsKotlin {
 
-        var result = project(projectDir)
-            .withBuildPreamble(KOTLIN_TREE_ON_MAIN_SOURCE_SET)
-            .holdingKotlinSample(GateProject.MAIN_KOTLIN_ROOT, "inline-number-is-flagged")
-            .runExpectingGateToFail();
+        @Test
+        void failsOnAnInlineMagicNumber(@TempDir Path projectDir) {
 
-        assertThat(result.getOutput())
-            .contains(INLINE_NUMBER_FINDING)
-            .contains(MAGIC_NUMBER_RULE);
-    }
+            // ARRANGE
+            var project = project(projectDir)
+                .withBuildPreamble(KOTLIN_TREE_ON_MAIN_SOURCE_SET)
+                .holdingKotlinSample(
+                    GateProject.MAIN_KOTLIN_ROOT,
+                    "inline-number-is-flagged");
 
-    @Test
-    void passesWhenNumbersAreNamed(@TempDir Path projectDir) {
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
 
-        project(projectDir)
-            .withBuildPreamble(KOTLIN_TREE_ON_MAIN_SOURCE_SET)
-            .holdingKotlinSample(GateProject.MAIN_KOTLIN_ROOT, "named-numbers-pass")
-            .runExpectingGateToPass();
-    }
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(INLINE_NUMBER_FINDING)
+                .contains(MAGIC_NUMBER_RULE);
+        }
 
-    @Test
-    void skipsAProjectWithNoKotlin(@TempDir Path projectDir) {
+        @Test
+        void passesWhenNumbersAreNamed(@TempDir Path projectDir) {
 
-        var result = project(projectDir)
-            .runExpectingSuccess();
+            // ARRANGE
+            var project = project(projectDir)
+                .withBuildPreamble(KOTLIN_TREE_ON_MAIN_SOURCE_SET)
+                .holdingKotlinSample(
+                    GateProject.MAIN_KOTLIN_ROOT,
+                    "named-numbers-pass");
 
-        assertThat(result.task(GATE.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SKIPPED);
-    }
+            // ACT
+            project.runExpectingGateToPass();
+        }
 
-    @Test
-    void leavesTheTestSourceSetUnjudged(@TempDir Path projectDir) {
+        @Test
+        void skipsAProjectWithNoKotlin(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var expectedOutcome = TaskOutcome.SKIPPED;
+            var project = project(projectDir);
+
+            // ACT
+            var actualResult = project.runExpectingSuccess();
+
+            // ASSERT
+            assertThat(actualResult.task(GATE.taskPath()).getOutcome())
+                .isEqualTo(expectedOutcome);
+        }
 
         // A clean main sample, so detekt runs and is seen to pass over the test tree's number.
-        project(projectDir)
-            .withBuildPreamble(KOTLIN_TREE_ON_MAIN_SOURCE_SET + KOTLIN_TREE_ON_TEST_SOURCE_SET)
-            .holdingKotlinSample(GateProject.MAIN_KOTLIN_ROOT, "named-numbers-pass")
-            .holdingKotlinSample(GateProject.TEST_KOTLIN_ROOT, "inline-number-is-flagged")
-            .runExpectingGateToPass();
-    }
+        @Test
+        void leavesTheTestSourceSetUnjudged(@TempDir Path projectDir) {
 
-    @Test
-    void judgesKotlinFiledUnderTheJavaTree(@TempDir Path projectDir) {
+            // ARRANGE
+            var project = project(projectDir)
+                .withBuildPreamble(KOTLIN_TREE_ON_MAIN_SOURCE_SET + KOTLIN_TREE_ON_TEST_SOURCE_SET)
+                .holdingKotlinSample(
+                    GateProject.MAIN_KOTLIN_ROOT,
+                    "named-numbers-pass")
+                .holdingKotlinSample(
+                    GateProject.TEST_KOTLIN_ROOT,
+                    "inline-number-is-flagged");
+
+            // ACT
+            project.runExpectingGateToPass();
+        }
 
         // A source set's Kotlin is judged wherever the source set keeps it, not only under kotlin/.
-        var result = project(projectDir)
-            .holdingKotlinSample(GateProject.MAIN_JAVA_ROOT, "inline-number-is-flagged")
-            .runExpectingGateToFail();
+        @Test
+        void judgesKotlinFiledUnderTheJavaTree(@TempDir Path projectDir) {
 
-        assertThat(result.getOutput())
-            .contains(INLINE_NUMBER_FINDING)
-            .contains(MAGIC_NUMBER_RULE);
-    }
+            // ARRANGE
+            var project = project(projectDir)
+                .holdingKotlinSample(
+                    GateProject.MAIN_JAVA_ROOT,
+                    "inline-number-is-flagged");
 
-    @Test
-    void judgesKotlinInASourceSetTheBuildDeclares(@TempDir Path projectDir) {
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
 
-        var result = project(projectDir)
-            .configuringTheGate(DECLARES_A_TOOLING_SOURCE_SET)
-            .holdingKotlinSample(TOOLING_KOTLIN_ROOT, "inline-number-is-flagged")
-            .runExpectingGateToFail();
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(INLINE_NUMBER_FINDING)
+                .contains(MAGIC_NUMBER_RULE);
+        }
 
-        assertThat(result.getOutput())
-            .contains(INLINE_NUMBER_FINDING)
-            .contains(MAGIC_NUMBER_RULE);
-    }
+        @Test
+        void judgesKotlinInASourceSetTheBuildDeclares(@TempDir Path projectDir) {
 
-    @Test
-    void refusesABuildWithoutTheJavaPlugin(@TempDir Path projectDir) {
+            // ARRANGE
+            var project = project(projectDir)
+                .configuringTheGate(DECLARES_A_TOOLING_SOURCE_SET)
+                .holdingKotlinSample(
+                    TOOLING_KOTLIN_ROOT,
+                    "inline-number-is-flagged");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(INLINE_NUMBER_FINDING)
+                .contains(MAGIC_NUMBER_RULE);
+        }
 
         // Refused before the gate can run, so there is no gate outcome to read: only the message.
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .withBuildPreamble(DECLARES_MAVEN_CENTRAL)
-            .runExpectingFailure();
+        @Test
+        void refusesABuildWithoutTheJavaPlugin(@TempDir Path projectDir) {
 
-        assertThat(result.getOutput())
-            .contains("enforceNoMagicLiteralsKotlin needs the java plugin");
+            // ARRANGE
+            var expectedMessage = "enforceNoMagicLiteralsKotlin needs the java plugin";
+
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .withBuildPreamble(DECLARES_MAVEN_CENTRAL);
+
+            // ACT
+            var actualResult = project.runExpectingFailure();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
     }
 
     private static GateProject project(Path projectDir) {

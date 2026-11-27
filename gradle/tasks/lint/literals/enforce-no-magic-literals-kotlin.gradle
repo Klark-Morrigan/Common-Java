@@ -6,12 +6,14 @@
 // stable line tops out at Gradle 8; the CLI is a plain jar and so runs under any
 // Gradle. The shared rule config lives at gradle/detekt.yml, three levels up.
 //
-// Scope: the Kotlin of every source set except test, whose data and fixtures are
-// literal-heavy by nature. Checkstyle's MagicNumber draws the same line for Java.
+// Scope: the Kotlin of every source set except the test ones (test, testFixtures,
+// integrationTest and the like), whose data and fixtures are literal-heavy by
+// nature. Checkstyle's MagicNumber draws the same line for Java.
 // A project with no Kotlin skips the JVM launch entirely. mavenCentral, needed to
 // resolve the CLI, is the consuming build's to declare; java-conventions does.
 
 apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../test-sources.gradle')
 
 // The detekt CLI and its transitive deps, kept in their own configuration so
 // the lint tool never leaks onto a compile classpath or into the project's jar.
@@ -26,32 +28,48 @@ dependencies {
 def kotlinSourceIncludes = ['**/*.kt']
 
 def enforceNoMagicLiteralsKotlin = tasks.register('enforceNoMagicLiteralsKotlin', JavaExec) {
+
     description = 'Fails the build when a Kotlin source uses a magic number ' +
-            'instead of a named constant.'
+        'instead of a named constant.'
+
     group = 'verification'
 
     // Refused in the terms of what the gate needs, rather than left to surface as a
     // missing property from inside the scan.
-    if (!project.pluginManager.hasPlugin('java')) {
+    if (!project
+            .pluginManager
+            .hasPlugin('java')) {
+
         throw new GradleException('enforceNoMagicLiteralsKotlin needs the java plugin: it reads ' +
             "the project's source sets to find the Kotlin it judges.")
     }
 
     // Lazy, because a project declares its own source sets after this script is applied.
     def judgedSources = project.provider {
-        sourceSets.toList()
-            .findAll { sourceSet -> sourceSet.name != SourceSet.TEST_SOURCE_SET_NAME }
+
+        sourceSets
+            .toList()
+            .findAll { sourceSet -> !isTestTreeName(sourceSet.name) }
             .collect { sourceSet -> sourceSet.allSource }
     }
 
     // Declared as inputs so an unchanged tree lets Gradle skip the JVM launch.
-    def kotlinFiles = declareScannedFiles(it, judgedSources, kotlinSourceIncludes)
+    def kotlinFiles = declareScannedFiles(
+        it,
+        judgedSources,
+        kotlinSourceIncludes)
 
     // Resolve the shared rule config relative to THIS script, not the
     // consumer's rootDir, so it holds for every consumer alike.
-    def detektConfig = new File(buildscript.sourceFile.parentFile, '../../../detekt.yml')
+    def detektConfig = new File(
+        buildscript
+            .sourceFile
+            .parentFile,
+        '../../../detekt.yml')
 
-    inputs.files(detektConfig).withPropertyName('detektConfig')
+    inputs
+        .files(detektConfig)
+        .withPropertyName('detektConfig')
 
     onlyIf { !kotlinFiles.isEmpty() }
 
@@ -63,7 +81,9 @@ def enforceNoMagicLiteralsKotlin = tasks.register('enforceNoMagicLiteralsKotlin'
     // JavaExec - the gate's verdict. The source directories rather than the
     // files, so a large tree cannot outgrow a command line.
     argumentProviders.add({
-        def judgedDirectories = judgedSources.get()
+
+        def judgedDirectories = judgedSources
+            .get()
             .collectMany { sources -> sources.srcDirs }
             .findAll { directory -> directory.exists() }
 

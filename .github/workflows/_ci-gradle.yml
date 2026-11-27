@@ -188,6 +188,29 @@ jobs:
           java-version: ${{ inputs.java-version }}
           distribution: temurin
 
+      # Restores Gradle's caches - downloaded dependencies, and the build
+      # cache that --build-cache below fills - then saves them after the
+      # build, so a run reuses the work of the run before it. It also checks
+      # every Gradle wrapper JAR in the checkout against Gradle's published
+      # checksums, failing on one it does not know.
+      #
+      # v5, not v6: v6 moved the caching into a closed-source component with
+      # its own terms of use, which upgrading to it accepts.
+      #
+      # The action saves only on the default branch by default, so a gate
+      # run on pull requests would never save at all. GitHub scopes a cache
+      # saved from a pull request to that pull request, so saving there
+      # cannot reach, or poison, any other branch's cache. A self-hosted
+      # runner keeps its Gradle home between jobs, so it skips the cache
+      # rather than upload what is already on its own disk.
+      - name: Set up Gradle
+        # SHA-pinned; v5 line (Node 24), same runner requirement as the
+        # checkout step above.
+        uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
+        with:
+          cache-read-only: false
+          cache-disabled: ${{ runner.environment == 'self-hosted' }}
+
       # gradlew can land mode 0644 when authored on Windows; restore +x so
       # the invocation below works regardless of how the file was committed.
       - name: Make Gradle wrapper executable
@@ -201,6 +224,9 @@ jobs:
       # A clean build prints nothing extra, so this costs no noise and makes the
       # next deprecation visible in the run that introduces it.
       #
+      # --build-cache lets a task whose inputs have not changed take its
+      # outputs from an earlier run instead of running again.
+      #
       # The task list reaches the shell through env rather than an inline
       # expression, so a value carrying shell syntax is data, never code. It
       # is split on whitespace into one argument per task; read -a does that
@@ -211,7 +237,8 @@ jobs:
           GRADLE_TASKS: ${{ inputs.gradle-tasks }}
         run: |
           read -r -a gradle_tasks <<< "${GRADLE_TASKS}"
-          ./gradlew "${gradle_tasks[@]}" --no-daemon --console=plain --warning-mode all
+          ./gradlew "${gradle_tasks[@]}" --no-daemon --console=plain --warning-mode all \
+            --build-cache
 
       # Gradle's failure message points at the HTML report by file:// path,
       # which on a self-hosted runner names a disk nobody reading the run can

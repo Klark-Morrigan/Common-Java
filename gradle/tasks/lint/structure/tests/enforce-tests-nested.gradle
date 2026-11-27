@@ -14,8 +14,10 @@
 //
 // Telling a top-level @Test from a nested one needs each annotation's enclosing class, which
 // source-scan.gradle reads for Kotlin as well as Java.
+
 apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, '../../source-scan.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../../test-sources.gradle')
 
 // The Kotlin 'inner' modifier on a class, which makes a @Nested group one JUnit runs.
 def innerModifier = ~/\binner\s+class\b/
@@ -41,17 +43,21 @@ def findNestingViolations = { File sourceFile ->
 
         def declared = line.declaredClass
 
-        if (declared == null || !declared.isNested) {
+        if (declared == null
+                || !declared.isNested) {
+
             return
         }
 
-        if (isKotlin && !innerModifier.matcher(line.text).find()) {
+        if (isKotlin
+                && !innerModifier.matcher(line.text).find()) {
 
             violations << "${sourceFile}:${line.number}: Kotlin @Nested class must be declared " +
                 "`inner class` (a plain nested class is skipped by JUnit5)"
         }
 
-        if (!isKotlin && staticModifier.matcher(line.text).find()) {
+        if (!isKotlin
+                && staticModifier.matcher(line.text).find()) {
 
             violations << "${sourceFile}:${line.number}: Java @Nested class must not be static " +
                 "(a static nested class is skipped by JUnit5)"
@@ -64,16 +70,23 @@ def findNestingViolations = { File sourceFile ->
 def enforceTestsNested = tasks.register('enforceTestsNested') {
 
     group = 'verification'
-    description = 'Fails the build when a @Test method is not enclosed in a ' +
+    description =
+        'Fails the build when a @Test method is not enclosed in a ' +
         '@Nested class.'
 
-    def scannedFiles = declareScannedFiles(it, testSourceRoots, jvmSourceIncludes)
+    def scannedFiles = declareScannedFiles(
+        it,
+        findTestSourceRoots,
+        jvmSourceIncludes)
 
     doLast {
 
-        def violations = scannedFiles.collectMany { sourceFile -> findNestingViolations(sourceFile) }
+        def violations = scannedFiles.collectMany {
+            sourceFile -> findNestingViolations(sourceFile) }
 
-        failOnViolations('Nested-test convention violated', violations)
+        failOnViolations(
+            'Nested-test convention violated',
+            violations)
     }
 }
 

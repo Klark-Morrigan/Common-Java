@@ -18,7 +18,7 @@
 //     }
 //
 // Each namespace is declared once. Both allowances take one name or a list; left out, the namespace
-// is closed outright, so a mistyped key closes it rather than opens it. A package allowance covers
+// is closed outright, and a misspelt key is refused. A package allowance covers
 // everything beneath it. A type allowance covers that type and the types nested in it, which are
 // declared, promised and renamed with it.
 //
@@ -33,15 +33,31 @@
 apply from: new File(buildscript.sourceFile.parentFile, '../class-file-scan.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
 
+// What a declaration of this gate may name.
+def RESTRICT_REFERENCES_KEYS = [
+    'namespace',
+    'allowingPackages',
+    'allowingTypes',
+    'inSourceSets',
+    'reason']
+
+// Apart from the references, since the fix is to delete the allowance rather than to change any code.
+def UNUSED_ALLOWANCES_HEADING = 'Type allowances nothing names'
+
 // Answers whether a binary type name is the outer type or a type nested in it.
-def isTypeOrNestedIn = { String type, String outerType ->
-    return type == outerType || type.startsWith(outerType + '$')
-}
+def isTypeOrNestedIn = {
+    String type,
+    String outerType ->
+        return type == outerType
+            || type.startsWith(outerType + '$')
+    }
 
 // Declared names in the binary spelling a class file uses, so the scan compares what it read
 // without converting per match. The declaration keeps source spelling, which is what a reader knows.
 def readBinaryNames = { names ->
-    return readOneOrMany(names).collect { it.toString().replace('.', '/') }.sort()
+    return readOneOrMany(names)
+        .collect { it.toString().replace('.', '/') }
+        .sort()
 }
 
 // Where a class file can spell a type of the namespace: as a whole text (a class constant), after a
@@ -54,128 +70,149 @@ def compileReferencePattern = { String namespacePath ->
 
 // The types a class names from this namespace, deduplicated. The name runs over the characters a
 // binary name is written in, so a descriptor's ';' and a signature's next type end it.
-def findReferencedTypes = { List<String> texts, Map namespaceRule ->
+def findReferencedTypes = {
+    List<String> texts,
+    Map namespaceRule ->
 
-    def referencedTypes = new TreeSet<String>()
+        def referencedTypes = new TreeSet<String>()
 
-    texts.each { text ->
+        texts.each { text ->
 
-        def matcher = namespaceRule.referencePattern.matcher(text)
+            def matcher = namespaceRule
+                .referencePattern
+                .matcher(text)
 
-        while (matcher.find()) {
-            referencedTypes << matcher.group(1)
+            while (matcher.find()) {
+                referencedTypes << matcher.group(1)
+            }
         }
-    }
 
-    return referencedTypes
-}
+        return referencedTypes
+    }
 
 // Answers whether a class compiled here is itself part of the namespace. Such a class is exempt: a
 // shim filed under a library's own package is written to that library's internals by definition.
-def isClassInsideNamespace = { String className, Map namespaceRule ->
-    return className.startsWith(namespaceRule.namespacePath + '/')
-}
+def isClassInsideNamespace = {
+    String className,
+    Map namespaceRule ->
+
+        return className.startsWith(namespaceRule.namespacePath + '/')
+    }
 
 // Answers whether a type is one the consuming build promised is stable.
-def isTypeAllowed = { String referencedType, Map namespaceRule ->
+def isTypeAllowed = {
+    String referencedType,
+    Map namespaceRule ->
 
-    return namespaceRule.allowedPackages.any { referencedType.startsWith(it + '/') } ||
-        namespaceRule.allowedTypes.any { isTypeOrNestedIn(referencedType, it) }
-}
+        return namespaceRule.allowedPackages.any { referencedType.startsWith(it + '/') }
+            || namespaceRule.allowedTypes.any { isTypeOrNestedIn(referencedType, it) }
+    }
 
 // Reads every compiled class the rules apply to. Answers the references no rule allows, the classes
 // the walk could not follow, the types each rule saw named, and the rules that read any class.
-def scanCompiledClasses = { List namespaceRules, Iterable classFiles, File classesDir ->
+def scanCompiledClasses = {
+    List namespaceRules,
+    Iterable classFiles,
+    File classesDir ->
 
-    def scan = [
-        violations: [],
-        unreadableClasses: [],
-        referencedTypesByNamespace: namespaceRules.collectEntries { [(it.namespace): new TreeSet<String>()] },
-        namespacesRead: [] as Set,
-    ]
+        def scan = [
+            violations: [],
+            unreadableClasses: [],
+            referencedTypesByNamespace: namespaceRules.collectEntries {
+                [(it.namespace): new TreeSet<String>()] },
+            namespacesRead: [] as Set,
+        ]
 
-    classFiles.each { classFile ->
+        classFiles.each { classFile ->
 
-        def compiledClass = readCompiledClass(classFile, classesDir)
+            def compiledClass = readCompiledClass(classFile, classesDir)
 
-        // Settled before the file is opened, so a class every rule passes over is never read.
-        def applicableRules = namespaceRules.findAll {
-            !isClassInsideNamespace(compiledClass.binaryName, it) &&
-                (it.sourceSets.isEmpty() || compiledClass.sourceSet in it.sourceSets)
-        }
+            // Settled before the file is opened, so a class every rule passes over is never read.
+            def applicableRules = namespaceRules.findAll {
+                !isClassInsideNamespace(compiledClass.binaryName, it)
+                    && (it.sourceSets.isEmpty() || compiledClass.sourceSet in it.sourceSets)
+            }
 
-        if (applicableRules.isEmpty()) {
-            return
-        }
+            if (applicableRules.isEmpty()) {
+                return
+            }
 
-        def classFileRead = readClassFile(classFile)
-        if (classFileRead == null) {
-            scan.unreadableClasses << compiledClass.binaryName
-            return
-        }
+            def classFileRead = readClassConstants(classFile)
+            if (classFileRead.unreadableReason) {
+                scan.unreadableClasses << describeUnreadableClass(compiledClass, classFileRead)
+                return
+            }
 
-        def texts = classFileRead.texts
+            def texts = classFileRead.texts
 
-        applicableRules.each { namespaceRule ->
+            applicableRules.each { namespaceRule ->
 
-            scan.namespacesRead << namespaceRule.namespace
+                scan.namespacesRead << namespaceRule.namespace
 
-            findReferencedTypes(texts, namespaceRule).each { referencedType ->
+                findReferencedTypes(texts, namespaceRule).each { referencedType ->
 
-                scan.referencedTypesByNamespace[namespaceRule.namespace] << referencedType
+                    scan.referencedTypesByNamespace[namespaceRule.namespace] << referencedType
 
-                if (!isTypeAllowed(referencedType, namespaceRule)) {
+                    if (!isTypeAllowed(referencedType, namespaceRule)) {
 
-                    def why = namespaceRule.reason ?:
-                        "${namespaceRule.namespace} does not promise to keep spelled that way"
+                        def why = namespaceRule.reason ?:
+                            "${namespaceRule.namespace} does not promise to keep spelled that way"
 
-                    scan.violations << "${compiledClass.binaryName}${compiledClass.compiledFrom}" +
-                        " references ${referencedType}, which ${why}"
+                        scan.violations << "${compiledClass.binaryName}${compiledClass.compiledFrom}" +
+                            " references ${referencedType}, which ${why}"
+                    }
                 }
             }
         }
-    }
 
-    return scan
-}
+        return scan
+    }
 
 // A type allowance nothing names reads as a dependency the project does not have, and pre-approves
 // the next reference to that type. Judged only for a rule that read a class: with nothing compiled
 // in its trees, every allowance would read as unused. A package allowance is a policy over a tree
 // and is not judged.
-def findUnusedTypeAllowances = { List namespaceRules, Map scan ->
+def findUnusedTypeAllowances = {
+    List namespaceRules,
+    Map scan ->
 
-    return namespaceRules
-        .findAll { it.namespace in scan.namespacesRead }
-        .collectMany { namespaceRule ->
+        return namespaceRules
+            .findAll { it.namespace in scan.namespacesRead }
+            .collectMany { namespaceRule ->
 
-            def referencedTypes = scan.referencedTypesByNamespace[namespaceRule.namespace]
+                def referencedTypes = scan.referencedTypesByNamespace[namespaceRule.namespace]
 
-            namespaceRule.allowedTypes
-                .findAll { allowedType -> !referencedTypes.any { isTypeOrNestedIn(it, allowedType) } }
-                .collect { allowedType ->
+                namespaceRule.allowedTypes
+                    .findAll { allowedType -> !referencedTypes.any { isTypeOrNestedIn(it, allowedType) } }
+                    .collect { allowedType ->
 
-                    // In source spelling, since the reader deletes a line written that way.
-                    "${allowedType.replace('/', '.')} is allowed for ${namespaceRule.namespace} " +
-                        'and nothing compiled here names it, so the allowance says a dependency ' +
-                        'exists where none does'
-                }
-        }
-}
+                        // In source spelling, since the reader deletes a line written that way.
+                        "${allowedType.replace('/', '.')} is allowed for ${namespaceRule.namespace} " +
+                            'and nothing compiled here names it, so the allowance says a dependency ' +
+                            'exists where none does'
+                    }
+            }
+    }
 
 def namespaceRules = []
-
 def enforceReferencedTypes = tasks.register('enforceReferencedTypes') { gate ->
 
     group = 'verification'
-    description = 'Fails the build when compiled code names a type from a restricted ' +
+    description =
+        'Fails the build when compiled code names a type from a restricted ' +
         'namespace outside what the consuming build declared allowed in it.'
 
     ext.restrictReferences = { Map namespaceRule ->
 
+        failOnUnknownDeclarationKeys(
+            'restrictReferences',
+            namespaceRule,
+            RESTRICT_REFERENCES_KEYS)
+
         if (!namespaceRule.namespace) {
 
-            throw new GradleException("restrictReferences needs 'namespace' " +
+            throw new GradleException(
+                "restrictReferences needs 'namespace' " +
                 "(the package root whose type names are restricted); " +
                 "got: ${namespaceRule}")
         }
@@ -184,7 +221,8 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') { gate ->
         // allowances against a merged set.
         if (namespaceRules.any { it.namespace == namespaceRule.namespace }) {
 
-            throw new GradleException("restrictReferences declares '${namespaceRule.namespace}' " +
+            throw new GradleException(
+                "restrictReferences declares '${namespaceRule.namespace}' " +
                 "a second time; state the whole rule for a namespace in one call")
         }
 
@@ -197,8 +235,7 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') { gate ->
             referencePattern: compileReferencePattern(namespacePath),
             allowedPackages: readBinaryNames(namespaceRule.allowingPackages),
             allowedTypes: readBinaryNames(namespaceRule.allowingTypes),
-            // Empty means every source set.
-            sourceSets: readOneOrMany(namespaceRule.inSourceSets).collect { it.toString() }.sort(),
+            sourceSets: readSourceSetNames(namespaceRule.inSourceSets),
             reason: namespaceRule.reason,
         ]
     }
@@ -215,20 +252,23 @@ def enforceReferencedTypes = tasks.register('enforceReferencedTypes') { gate ->
 
     def sourceSetNames = declareSourceSetNames(gate)
 
+    skipWithoutRules(gate, namespaceRules)
+
     doLast {
 
-        if (namespaceRules.isEmpty()) {
-            return
-        }
+        failOnUnknownSourceSets(namespaceRules, sourceSetNames.get()) {
+            "restrictReferences for '${it.namespace}'" }
 
-        failOnUnknownSourceSets(namespaceRules, sourceSetNames.get()) { "restrictReferences for '${it.namespace}'" }
-
-        def scan = scanCompiledClasses(namespaceRules, scannedClasses, compiledClassesRoot.get().asFile)
+        def scan = scanCompiledClasses(
+            namespaceRules,
+            scannedClasses,
+            compiledClassesRoot.get().asFile)
 
         failOnUnreadableClasses(scan.unreadableClasses)
-        failOnViolations(
-            'Restricted type references',
-            (scan.violations + findUnusedTypeAllowances(namespaceRules, scan))*.toString().sort())
+        failOnViolationSections([
+            'Restricted type references': scan.violations*.toString().sort(),
+            (UNUSED_ALLOWANCES_HEADING): findUnusedTypeAllowances(namespaceRules, scan)*.toString().sort(),
+        ])
     }
 }
 

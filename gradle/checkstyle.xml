@@ -20,12 +20,14 @@
     <!-- Checkstyle reads sources as UTF-8 to match the compiler's encoding. -->
     <property name="charset" value="UTF-8"/>
 
-    <!-- Magic numbers are not checked in the test source set: test data is
-         legitimately literal-heavy. The Kotlin gate draws the same line. Import
-         hygiene still applies to tests. -->
+    <!-- Magic numbers are not checked in test code: test data is legitimately
+         literal-heavy. The Kotlin gate draws the same line. Import hygiene still
+         applies to tests. Test code is every tree under src/ whose name says
+         test, at a word's start, as the lint gates read it (test-sources.gradle):
+         test, testFixtures, integrationTest, test-gradle. -->
     <module name="SuppressionSingleFilter">
         <property name="checks" value="MagicNumberCheck"/>
-        <property name="files" value="[\\/]src[\\/]test[\\/]"/>
+        <property name="files" value="[\\/]src[\\/](?:test|[^\\/]*Test|[^\\/]*[-_]test)[^\\/]*[\\/]"/>
     </module>
 
     <module name="TreeWalker">

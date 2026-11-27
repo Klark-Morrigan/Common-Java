@@ -4,8 +4,20 @@
 // wiring up the JUnit 5 + AssertJ test stack, or changes the Java target so
 // the smoke test no longer compiles/runs, this build goes red - giving the
 // conventions direct CI coverage in their own repo rather than letting a
-// regression surface first in a downstream mod.
+// regression surface first in a consumer's build.
 apply from: "${rootDir}/../gradle/java-conventions.gradle"
+
+// A task a gate script registers, by name, in either quote style. A line that is a comment is not
+// read: a script describing a registration is not making one.
+def registeredTaskPattern = ~/tasks\.register\(\s*['"]([^'"]+)['"]/
+
+def findRegisteredTaskNames = { File script ->
+
+    return script
+        .readLines('UTF-8')
+        .findAll { !it.trim().startsWith('//') }
+        .collectMany { line -> line.findAll(registeredTaskPattern) { match, taskName -> taskName } }
+}
 
 group = 'commonjava.smoke'
 
@@ -33,8 +45,13 @@ sourceSets {
             .files
             *.parentFile
             .unique()
-            .collect { projectDir.toPath().relativize(it.toPath()).toString().replace('\\', '/') }
+            .collect { projectDir
+                .toPath()
+                .relativize(it.toPath())
+                .toString()
+                .replace('\\', '/') }
             .sort()
+
         // The support root holds what every gate suite drives its gate through; it files no
         // fixtures, so it joins the sources alone.
         java.srcDirs = scriptTestDirs + 'src/test-gradle/support'
@@ -42,13 +59,6 @@ sourceSets {
         resources.srcDirs = scriptTestDirs
         resources.exclude '**/*.java'
     }
-}
-
-// The TestKit tree is a test tree that Gradle's default naming does not cover,
-// so the test-vocabulary gate has to be told: these are the gates' own tests,
-// and half of them are about the words mocks and suites are described in.
-enforceNoTestVocabulary {
-    exemptSourceSet name: 'test-gradle'
 }
 
 configurations {
@@ -75,6 +85,18 @@ def testGradle = tasks.register('testGradle', Test) {
     testLogging {
         events 'passed', 'skipped', 'failed'
     }
+
+    // Each case runs a whole Gradle build and waits on it, so the suites spread across forks. Half the
+    // cores, at most four: each fork drives a TestKit daemon of its own beside it.
+    maxParallelForks = Math.max(
+        1,
+        Math.min(
+            4,
+            Runtime
+                .runtime
+                .availableProcessors()
+                .intdiv(2)))
+
     // The same end-of-run report 'test' prints, so a failing gate test is named at the bottom of
     // the log rather than only where it ran.
     reportTestOutcomesOf(it)
@@ -85,7 +107,8 @@ def testGradle = tasks.register('testGradle', Test) {
     // UP-TO-DATE against a stale version. The whole tree rather than a list, so
     // a new script or helper is covered without anyone remembering to add it -
     // and it takes in detekt.yml, which the Kotlin literal gate reads by path.
-    inputs.files(fileTree('../gradle') { include '**/*.gradle', '**/*.yml', '**/*.xml' })
+    inputs
+        .files(fileTree('../gradle') { include '**/*.gradle', '**/*.yml', '**/*.xml' })
         .withPropertyName('scriptsUnderTest')
         .withPathSensitivity(PathSensitivity.RELATIVE)
 
@@ -137,9 +160,13 @@ def verifyEveryGateHasASuite = tasks.register('verifyEveryGateHasASuite') {
 
         gateScripts.visit { details ->
 
-            if (!details.directory && details.file.getText('UTF-8').contains('tasks.register(')) {
+            if (!details.directory
+                    && !findRegisteredTaskNames(details.file).isEmpty()) {
 
-                def scriptPath = details.relativePath.pathString.replaceFirst(/\.gradle$/, '')
+                def scriptPath = details
+                    .relativePath
+                    .pathString
+                    .replaceFirst(/\.gradle$/, '')
 
                 if (!(scriptPath in coveredScriptPaths)) {
                     uncovered << scriptPath
@@ -168,9 +195,9 @@ def verifyConventionsWireEveryGate = tasks.register('verifyConventionsWireEveryG
     description = 'Fails the build when java-conventions.gradle leaves a lint gate out of test or check.'
 
     def gateScripts = fileTree('../gradle/tasks/lint') { include '**/*.gradle' }
-    def registeredTaskPattern = ~/tasks\.register\('([^']+)'/
 
-    inputs.files(gateScripts)
+    inputs
+        .files(gateScripts)
         .withPropertyName('gateScripts')
         .withPathSensitivity(PathSensitivity.RELATIVE)
 
@@ -178,27 +205,38 @@ def verifyConventionsWireEveryGate = tasks.register('verifyConventionsWireEveryG
     // task depends on is read off its declared dependencies by name, so no gate is realised to answer.
     def readDependencyNames = { String lifecycleTaskName ->
 
-        tasks.named(lifecycleTaskName).get().dependsOn.collect { dependency ->
-            dependency instanceof TaskProvider || dependency instanceof Task ? dependency.name : dependency.toString()
-        } as Set
+        tasks
+            .named(lifecycleTaskName)
+            .get()
+            .dependsOn
+            .collect { dependency ->
+                dependency instanceof TaskProvider || dependency instanceof Task
+                    ? dependency.name
+                    : dependency.toString()
+            } as Set
     }
 
-    def lifecycleDependencyNames = ['test', 'check'].collectEntries { [(it): readDependencyNames(it)] }
+    def lifecycleDependencyNames = ['test', 'check']
+        .collectEntries { [(it): readDependencyNames(it)] }
 
     def unwiredGates = []
 
     gateScripts.each { script ->
 
-        script.getText('UTF-8').findAll(registeredTaskPattern) { match, taskName -> taskName }.each { taskName ->
+        findRegisteredTaskNames(script)
+            .each { taskName ->
 
-            def missingLifecycleTasks = lifecycleDependencyNames.findAll { !(taskName in it.value) }*.key
+                def missingLifecycleTasks = lifecycleDependencyNames
+                    .findAll { !(taskName in it.value) }
+                    *.key
 
-            if (!tasks.names.contains(taskName)) {
-                unwiredGates << "${taskName} (${script.name}): not applied"
-            } else if (!missingLifecycleTasks.isEmpty()) {
-                unwiredGates << "${taskName} (${script.name}): not run by ${missingLifecycleTasks.join(', ')}"
+                if (!tasks.names.contains(taskName)) {
+                    unwiredGates << "${taskName} (${script.name}): not applied"
+
+                } else if (!missingLifecycleTasks.isEmpty()) {
+                    unwiredGates << "${taskName} (${script.name}): not run by ${missingLifecycleTasks.join(', ')}"
+                }
             }
-        }
     }
 
     doLast {
@@ -214,6 +252,8 @@ def verifyConventionsWireEveryGate = tasks.register('verifyConventionsWireEveryG
 
 // Run with the rest of verification: 'check' covers 'build', which this repo's CI runs, and
 // 'coverage', which a consumer's CI runs.
-tasks.matching { it.name in ['check', 'coverage'] }.configureEach {
-    dependsOn testGradle, verifyEveryGateHasASuite, verifyConventionsWireEveryGate
-}
+tasks
+    .matching { it.name in ['check', 'coverage'] }
+    .configureEach {
+        dependsOn testGradle, verifyEveryGateHasASuite, verifyConventionsWireEveryGate
+    }

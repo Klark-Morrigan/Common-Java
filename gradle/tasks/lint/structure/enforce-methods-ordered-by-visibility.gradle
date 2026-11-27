@@ -42,29 +42,37 @@ def trailingName = ~/(\w+)\s*$/
 
 // The visibility a declaration prefix spells on a ladder, or the ladder's implicit one when it
 // spells none.
-def classifyVisibility = { String prefix, List ladder, String implicitVisibility ->
+def classifyVisibility = {
+    String prefix,
+    List ladder,
+    String implicitVisibility ->
 
-    def spelled = ladder.find { visibility -> modifierPatterns[visibility]?.matcher(prefix)?.find() }
+        def spelled = ladder
+            .find { visibility -> modifierPatterns[visibility]
+                ?.matcher(prefix)
+                ?.find() }
 
-    if (spelled != null) {
-        return [rank: ladder.indexOf(spelled), label: spelled]
+        if (spelled != null) {
+            return [
+                rank: ladder.indexOf(spelled),
+                label: spelled]
+        }
+
+        return [
+            rank: ladder.indexOf(implicitVisibility),
+            label: "${implicitVisibility} (implicit)"]
     }
-
-    return [rank: ladder.indexOf(implicitVisibility), label: "${implicitVisibility} (implicit)"]
-}
 
 // A Kotlin member function's visibility, or null when the line declares none. A 'fun' after '=' is
 // a function-expression property value, not a member.
 def readKotlinMemberVisibility = { String line ->
 
     def functionMatcher = kotlinFunction.matcher(line)
-
     if (!functionMatcher.find()) {
         return null
     }
 
     def prefix = line.substring(0, functionMatcher.start())
-
     if (prefix.contains('=')) {
         return null
     }
@@ -108,33 +116,49 @@ def readJavaMemberVisibility = { String line, Map frame ->
         return null
     }
 
-    def returnType = prefix.substring(0, nameMatcher.start()).trim()
+    def returnType = prefix
+        .substring(0, nameMatcher.start())
+        .trim()
 
-    if (returnType.isEmpty() || returnType.endsWith('.') || nameMatcher.group(1) == frame.name) {
+    if (returnType.isEmpty()
+            || returnType.endsWith('.')
+            || nameMatcher.group(1) == frame.name) {
+
         return null
     }
 
-    def implicitVisibility = frame.keyword == 'interface' ? 'public' : 'package-private'
+    def implicitVisibility = frame.keyword == 'interface'
+        ? 'public'
+        : 'package-private'
 
-    return classifyVisibility(prefix, javaVisibilityLadder, implicitVisibility)
+    return classifyVisibility(
+        prefix,
+        javaVisibilityLadder,
+        implicitVisibility)
 }
 
 // Holds a method against the most private one already seen in its type, kept on the type's frame,
 // and answers the violation when it climbs back up the ladder.
-def recordMemberVisibility = { Map frame, Map visibility, File sourceFile, int lineNumber ->
+def recordMemberVisibility = {
+    Map frame,
+    Map visibility,
+    File sourceFile,
+    int lineNumber ->
 
-    if (frame.maxRank != null && visibility.rank < frame.maxRank) {
+        if (frame.maxRank != null
+                && visibility.rank < frame.maxRank) {
 
-        return "${sourceFile}:${lineNumber}: ${visibility.label} method declared below a " +
-            "${frame.maxLabel} method (line ${frame.maxLine}); more-visible methods must come first"
+            return (
+                "${sourceFile}:${lineNumber}: ${visibility.label} method declared below a " +
+                "${frame.maxLabel} method (line ${frame.maxLine}); more-visible methods must come first")
+        }
+
+        frame.maxRank = visibility.rank
+        frame.maxLabel = visibility.label
+        frame.maxLine = lineNumber
+
+        return null
     }
-
-    frame.maxRank = visibility.rank
-    frame.maxLabel = visibility.label
-    frame.maxLine = lineNumber
-
-    return null
-}
 
 // Every ordering violation in one source file.
 //
@@ -165,7 +189,11 @@ def findVisibilityOrderViolations = { File sourceFile ->
 
             if (visibility != null) {
 
-                def violation = recordMemberVisibility(frame, visibility, sourceFile, line.number)
+                def violation = recordMemberVisibility(
+                    frame,
+                    visibility,
+                    sourceFile,
+                    line.number)
 
                 if (violation != null) {
                     violations << violation
@@ -184,18 +212,26 @@ def findVisibilityOrderViolations = { File sourceFile ->
 def enforceMethodsOrderedByVisibility = tasks.register('enforceMethodsOrderedByVisibility') {
 
     group = 'verification'
-    description = 'Fails the build when a more-visible method is declared below ' +
+    description =
+        'Fails the build when a more-visible method is declared below ' +
         'a less-visible one within the same type.'
 
-    // Production code only: test classes order setup methods (@BeforeEach) and helpers by role
-    // rather than visibility, so the ladder does not apply there.
-    def scannedFiles = declareScannedFiles(it, ['src/main'], jvmSourceIncludes)
+    // The tree a JAR ships from only: test classes order setup methods (@BeforeEach) and helpers by
+    // role rather than visibility, so the ladder does not apply there, and a tooling tree beside main
+    // is laid out by whoever runs it.
+    def scannedFiles = declareScannedFiles(
+        it,
+        ['src/main'],
+        jvmSourceIncludes)
 
     doLast {
 
-        def violations = scannedFiles.collectMany { sourceFile -> findVisibilityOrderViolations(sourceFile) }
+        def violations = scannedFiles.collectMany {
+            sourceFile -> findVisibilityOrderViolations(sourceFile) }
 
-        failOnViolations('Method-visibility ordering violated', violations)
+        failOnViolations(
+            'Method-visibility ordering violated',
+            violations)
     }
 }
 

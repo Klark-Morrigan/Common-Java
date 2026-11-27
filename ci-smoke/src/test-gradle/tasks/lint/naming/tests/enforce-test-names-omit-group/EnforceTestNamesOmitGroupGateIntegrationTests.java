@@ -1,3 +1,4 @@
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -12,97 +13,142 @@ import static org.assertj.core.api.Assertions.assertThat;
 class EnforceTestNamesOmitGroupGateIntegrationTests {
 
     private static final GateUnderTest GATE =
-        new GateUnderTest("enforceTestNamesOmitGroup", "lint/naming/tests/enforce-test-names-omit-group");
+        new GateUnderTest(
+            "enforceTestNamesOmitGroup",
+            "lint/naming/tests/enforce-test-names-omit-group");
 
     // The second root the gate reads: test code shared across suites.
 
-    // The second repeat sits below a parameterised test's source annotation, whose argument list
-    // reads like a call; the name judged is still the method's.
-    @Test
-    void failsWhenATestNameRepeatsItsGroupInJava(@TempDir Path projectDir) {
+    @Nested
+    class EnforceTestNamesOmitGroup {
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("group-prefixed-name-fails")
-            .runExpectingGateToFail();
+        // The second repeat sits below a parameterised test's source annotation, whose argument list
+        // reads like a call; the name judged is still the method's.
+        @Test
+        void failsWhenATestNameRepeatsItsGroupInJava(@TempDir Path projectDir) {
 
-        assertThat(result.getOutput())
-            .contains("Sample.java:12: test method 'readTotalIsZeroBeforeAnyEntryIsAdded' repeats its " +
-                "@Nested group 'ReadTotal'")
-            .contains("Sample.java:23: test method 'readLevelClampsAnOutOfRangeValue' repeats its " +
-                "@Nested group 'ReadLevel'");
-    }
+            // ARRANGE
+            var expectedTotalFinding =
+                "Sample.java:12: test method 'readTotalIsZeroBeforeAnyEntryIsAdded' " +
+                    "repeats its @Nested group 'ReadTotal'";
 
-    @Test
-    void passesWhenTestNamesStateTheOutcomeAloneInJava(@TempDir Path projectDir) {
+            var expectedLevelFinding =
+                "Sample.java:23: test method 'readLevelClampsAnOutOfRangeValue' repeats its @Nested group 'ReadLevel'";
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("outcome-and-condition-names-passes")
-            .runExpectingGateToPass();
-    }
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("group-prefixed-name-fails");
 
-    @Test
-    void passesWhenANameMerelySharesTheGroupsLeadingWordInJava(@TempDir Path projectDir) {
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("shared-leading-word-passes")
-            .runExpectingGateToPass();
-    }
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedTotalFinding)
+                .contains(expectedLevelFinding);
+        }
 
-    // A test named for its top-level class is not held to a group it does not sit in: that it sits
-    // in none is another gate's finding, and reporting it twice would name one fault two ways.
-    @Test
-    void passesWhenATestSitsOutsideAnyGroupInJava(@TempDir Path projectDir) {
+        @Test
+        void passesWhenTestNamesStateTheOutcomeAloneInJava(@TempDir Path projectDir) {
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("test-outside-a-group-passes")
-            .runExpectingGateToPass();
-    }
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("outcome-and-condition-names-passes");
 
-    @Test
-    void failsWhenATestNameRepeatsItsGroupInTestFixtures(@TempDir Path projectDir) {
+            // ACT
+            project.runExpectingGateToPass();
+        }
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaSample(GateProject.TEST_FIXTURES_JAVA_ROOT, "group-prefixed-name-fails")
-            .runExpectingGateToFail();
+        @Test
+        void passesWhenANameMerelySharesTheGroupsLeadingWordInJava(@TempDir Path projectDir) {
 
-        assertThat(result.getOutput())
-            .contains("Sample.java:12: test method 'readTotalIsZeroBeforeAnyEntryIsAdded'");
-    }
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("shared-leading-word-passes");
 
-    // A Kotlin group is an 'inner class', and its tests are declared with 'fun'; the rule reads
-    // both the same as their Java forms.
-    @Test
-    void failsWhenATestNameRepeatsItsGroupInKotlin(@TempDir Path projectDir) {
+            // ACT
+            project.runExpectingGateToPass();
+        }
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("group-prefixed-name-fails")
-            .runExpectingGateToFail();
+        // A test named for its top-level class is not held to a group it does not sit in: that it sits
+        // in none is another gate's finding, and reporting it twice would name one fault two ways.
+        @Test
+        void passesWhenATestSitsOutsideAnyGroupInJava(@TempDir Path projectDir) {
 
-        assertThat(result.getOutput())
-            .contains("Sample.kt:10: test method 'readTotalIsZeroBeforeAnyEntryIsAdded' repeats its " +
-                "@Nested group 'ReadTotal'");
-    }
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("test-outside-a-group-passes");
 
-    @Test
-    void passesWhenATestNameIsBacktickQuotedInKotlin(@TempDir Path projectDir) {
+            // ACT
+            project.runExpectingGateToPass();
+        }
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("backtick-name-under-a-group-passes")
-            .runExpectingGateToPass();
-    }
+        @Test
+        void failsWhenATestNameRepeatsItsGroupInTestFixtures(@TempDir Path projectDir) {
 
-    @Test
-    void passesWhenThereIsNoTestTree(@TempDir Path projectDir) {
+            // ARRANGE
+            var expectedMessage = "Sample.java:12: test method 'readTotalIsZeroBeforeAnyEntryIsAdded'";
 
-        GateProject
-            .driving(GATE, projectDir)
-            .runExpectingGateToPass();
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaSample(
+                    GateProject.TEST_FIXTURES_JAVA_ROOT,
+                    "group-prefixed-name-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
+
+        // A Kotlin group is an 'inner class', and its tests are declared with 'fun'; the rule reads
+        // both the same as their Java forms.
+        @Test
+        void failsWhenATestNameRepeatsItsGroupInKotlin(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var expectedMessage =
+                "Sample.kt:10: test method 'readTotalIsZeroBeforeAnyEntryIsAdded' " +
+                    "repeats its @Nested group 'ReadTotal'";
+
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("group-prefixed-name-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
+
+        @Test
+        void passesWhenATestNameIsBacktickQuotedInKotlin(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("backtick-name-under-a-group-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenThereIsNoTestTree(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir);
+
+            // ACT
+            project.runExpectingGateToPass();
+        }
     }
 }

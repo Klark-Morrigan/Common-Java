@@ -1,3 +1,4 @@
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -11,155 +12,226 @@ import static org.assertj.core.api.Assertions.assertThat;
 class EnforceTestsNestedGateIntegrationTests {
 
     private static final GateUnderTest GATE =
-        new GateUnderTest("enforceTestsNested", "lint/structure/tests/enforce-tests-nested");
+        new GateUnderTest(
+            "enforceTestsNested",
+            "lint/structure/tests/enforce-tests-nested");
 
     // The second root the gate reads: test code shared across suites.
 
-    @Test
-    void passesWhenTestIsNestedInJava(@TempDir Path projectDir) {
+    @Nested
+    class EnforceTestsNested {
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("nested-test-passes")
-            .runExpectingGateToPass();
-    }
+        @Test
+        void passesWhenTestIsNestedInJava(@TempDir Path projectDir) {
 
-    @Test
-    void failsWhenTestIsAtTopLevelInJava(@TempDir Path projectDir) {
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("nested-test-passes");
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("top-level-test-fails")
-            .runExpectingGateToFail();
+            // ACT
+            project.runExpectingGateToPass();
+        }
 
-        assertThat(result.getOutput())
-            .contains("Sample.java:4: @Test method must live inside a @Nested class");
-    }
+        @Test
+        void failsWhenTestIsAtTopLevelInJava(@TempDir Path projectDir) {
 
-    // Every annotation that makes a JUnit test is held to the rule, the fully qualified spelling
-    // included.
-    @Test
-    void failsWhenAnyTestAnnotationIsAtTopLevelInJava(@TempDir Path projectDir) {
+            // ARRANGE
+            var expectedMessage = "Sample.java:4: @Test method must live inside a @Nested class";
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("test-family-at-top-level-fails")
-            .runExpectingGateToFail();
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("top-level-test-fails");
 
-        assertThat(result.getOutput())
-            .contains("Sample.java:10: @Test method")
-            .contains("Sample.java:15: @Test method")
-            .contains("Sample.java:19: @Test method")
-            .contains("Sample.java:24: @Test method");
-    }
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
 
-    // An inner class without @Nested is a helper JUnit never descends into.
-    @Test
-    void failsWhenTestSitsInAClassWithoutNestedInJava(@TempDir Path projectDir) {
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("test-in-a-class-without-nested-fails")
-            .runExpectingGateToFail();
+        // Every annotation that makes a JUnit test is held to the rule, the fully qualified spelling
+        // included.
+        @Test
+        void failsWhenAnyTestAnnotationIsAtTopLevelInJava(@TempDir Path projectDir) {
 
-        assertThat(result.getOutput())
-            .contains("Sample.java:5: @Test method must live inside a @Nested class");
-    }
+            // ARRANGE
+            var expectedFindingOnLine10 = "Sample.java:10: @Test method";
+            var expectedFindingOnLine15 = "Sample.java:15: @Test method";
+            var expectedFindingOnLine19 = "Sample.java:19: @Test method";
+            var expectedFindingOnLine24 = "Sample.java:24: @Test method";
 
-    @Test
-    void failsWhenNestedClassIsStaticInJava(@TempDir Path projectDir) {
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("test-family-at-top-level-fails");
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("nested-static-class-fails")
-            .runExpectingGateToFail();
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
 
-        assertThat(result.getOutput())
-            .contains("Sample.java:6: Java @Nested class must not be static");
-    }
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedFindingOnLine10)
+                .contains(expectedFindingOnLine15)
+                .contains(expectedFindingOnLine19)
+                .contains(expectedFindingOnLine24);
+        }
 
-    @Test
-    void passesWhenAnnotationsAndBracesSitInLiteralsInJava(@TempDir Path projectDir) {
+        // An inner class without @Nested is a helper JUnit never descends into.
+        @Test
+        void failsWhenTestSitsInAClassWithoutNestedInJava(@TempDir Path projectDir) {
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("literals-hiding-a-test-passes")
-            .runExpectingGateToPass();
-    }
+            // ARRANGE
+            var expectedMessage = "Sample.java:5: @Test method must live inside a @Nested class";
 
-    @Test
-    void failsWhenTestIsAtTopLevelInTestFixtures(@TempDir Path projectDir) {
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("test-in-a-class-without-nested-fails");
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaSample(GateProject.TEST_FIXTURES_JAVA_ROOT, "top-level-test-fails")
-            .runExpectingGateToFail();
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
 
-        assertThat(result.getOutput())
-            .contains("Sample.java:4: @Test method must live inside a @Nested class");
-    }
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
 
-    @Test
-    void passesWhenTestIsNestedInKotlin(@TempDir Path projectDir) {
+        @Test
+        void failsWhenNestedClassIsStaticInJava(@TempDir Path projectDir) {
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("nested-test-passes")
-            .runExpectingGateToPass();
-    }
+            // ARRANGE
+            var expectedMessage = "Sample.java:6: Java @Nested class must not be static";
 
-    @Test
-    void failsWhenTestIsAtTopLevelInKotlin(@TempDir Path projectDir) {
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("nested-static-class-fails");
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("top-level-test-fails")
-            .runExpectingGateToFail();
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
 
-        assertThat(result.getOutput())
-            .contains("Sample.kt:4: @Test method must live inside a @Nested class");
-    }
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
 
-    // The Kotlin fixture hides the stray braces and @Test inside a """ raw string that spans
-    // lines, which reaches the cross-line raw-string state the Java fixture cannot.
-    @Test
-    void passesWhenAnnotationsAndBracesSitInLiteralsInKotlin(@TempDir Path projectDir) {
+        @Test
+        void passesWhenAnnotationsAndBracesSitInLiteralsInJava(@TempDir Path projectDir) {
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("literals-hiding-a-test-passes")
-            .runExpectingGateToPass();
-    }
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("literals-hiding-a-test-passes");
 
-    // The @Test is inside a @Nested class, but one JUnit skips.
-    @Test
-    void failsWhenNestedClassIsNotInnerInKotlin(@TempDir Path projectDir) {
+            // ACT
+            project.runExpectingGateToPass();
+        }
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("nested-class-without-inner-fails")
-            .runExpectingGateToFail();
+        @Test
+        void failsWhenTestIsAtTopLevelInTestFixtures(@TempDir Path projectDir) {
 
-        assertThat(result.getOutput())
-            .contains("Sample.kt:7: Kotlin @Nested class must be declared `inner class`");
-    }
+            // ARRANGE
+            var expectedMessage = "Sample.java:4: @Test method must live inside a @Nested class";
 
-    // An apostrophe in a backtick name read as a char-literal opener would swallow the method
-    // brace and drift the scan into flagging later nested tests.
-    @Test
-    void passesWhenBacktickTestNameHoldsAnApostropheInKotlin(@TempDir Path projectDir) {
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaSample(
+                    GateProject.TEST_FIXTURES_JAVA_ROOT,
+                    "top-level-test-fails");
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("backtick-name-with-apostrophe-passes")
-            .runExpectingGateToPass();
-    }
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
 
-    @Test
-    void passesWhenThereIsNoTestTree(@TempDir Path projectDir) {
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
 
-        GateProject
-            .driving(GATE, projectDir)
-            .runExpectingGateToPass();
+        @Test
+        void passesWhenTestIsNestedInKotlin(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("nested-test-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
+        }
+
+        @Test
+        void failsWhenTestIsAtTopLevelInKotlin(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var expectedMessage = "Sample.kt:4: @Test method must live inside a @Nested class";
+
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("top-level-test-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
+
+        // The Kotlin fixture hides the stray braces and @Test inside a """ raw string that spans
+        // lines, which reaches the cross-line raw-string state the Java fixture cannot.
+        @Test
+        void passesWhenAnnotationsAndBracesSitInLiteralsInKotlin(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("literals-hiding-a-test-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
+        }
+
+        // The @Test is inside a @Nested class, but one JUnit skips.
+        @Test
+        void failsWhenNestedClassIsNotInnerInKotlin(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var expectedMessage = "Sample.kt:7: Kotlin @Nested class must be declared `inner class`";
+
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("nested-class-without-inner-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
+
+        // An apostrophe in a backtick name read as a char-literal opener would swallow the method
+        // brace and drift the scan into flagging later nested tests.
+        @Test
+        void passesWhenBacktickTestNameHoldsAnApostropheInKotlin(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("backtick-name-with-apostrophe-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenThereIsNoTestTree(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir);
+
+            // ACT
+            project.runExpectingGateToPass();
+        }
     }
 }

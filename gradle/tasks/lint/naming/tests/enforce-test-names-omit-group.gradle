@@ -16,13 +16,10 @@
 //
 // A Kotlin backtick name ('fun `reads the owner`()') is prose rather than an identifier and cannot
 // carry the group's camel-case spelling, so it has nothing to be judged on.
+
 apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, '../../source-scan.gradle')
-
-// Any annotation with its argument list, removed before the declaration is read: a
-// '@MethodSource(...)' between @Test and the method would otherwise read as a call named
-// MethodSource. Literals are already gone, so the arguments hold no quoted ')'.
-def anyAnnotation = ~/@[\w.]+(?:\s*\([^)]*\))?/
+apply from: new File(buildscript.sourceFile.parentFile, '../../test-sources.gradle')
 
 // The declared name: Kotlin's after 'fun' (past any type parameters or receiver), Java's as the
 // first identifier opening a parameter list, the return type sitting before it.
@@ -30,20 +27,24 @@ def kotlinDeclaration = ~/\bfun\b(?:\s*<[^>]*>)?\s*(?:[\w.]+\.)?(\w+)?\s*\(/
 def javaDeclaration = ~/(\w+)\s*\(/
 
 // The rule itself: the group's lower-camel spelling, then the start of another word.
-def repeatsGroupName = { String methodName, String groupName ->
+def repeatsGroupName = {
+    String methodName,
+    String groupName ->
 
-    def groupPrefix = groupName[0].toLowerCase() + groupName.substring(1)
+        def groupPrefix = groupName[0].toLowerCase() + groupName.substring(1)
 
-    methodName.length() > groupPrefix.length()
-        && methodName.startsWith(groupPrefix)
-        && Character.isUpperCase(methodName.charAt(groupPrefix.length()))
-}
+        methodName.length() > groupPrefix.length()
+            && methodName.startsWith(groupPrefix)
+            && Character.isUpperCase(methodName.charAt(groupPrefix.length()))
+    }
 
 // Every test in one source file whose name repeats its group.
 def findGroupRepeatingNames = { File sourceFile ->
 
-    def declaration = sourceFile.name.endsWith('.kt') ? kotlinDeclaration : javaDeclaration
     def violations = []
+    def declaration = sourceFile.name.endsWith('.kt')
+        ? kotlinDeclaration
+        : javaDeclaration
 
     // The group of the test annotation still waiting for its method: a @Test is usually on a line
     // of its own, with the declaration one or more annotation lines below it.
@@ -57,8 +58,10 @@ def findGroupRepeatingNames = { File sourceFile ->
 
         if (annotationMatcher.find()) {
 
-            awaitedGroup = line.enclosingClass?.isNested ? line.enclosingClass.name : null
             isAwaitingDeclaration = true
+            awaitedGroup = line.enclosingClass?.isNested
+                ? line.enclosingClass.name
+                : null
 
             // The method may share the annotation's line.
             text = text.substring(annotationMatcher.end())
@@ -68,7 +71,10 @@ def findGroupRepeatingNames = { File sourceFile ->
             return
         }
 
-        def declared = declaration.matcher(text.replaceAll(anyAnnotation, ''))
+        // A '@MethodSource(...)' between @Test and the method would otherwise read as a call named
+        // MethodSource. Literals are already gone, so the arguments hold no quoted ')'.
+        def declared = declaration.matcher(
+            text.replaceAll(anyAnnotationPattern, ''))
 
         if (!declared.find()) {
             return
@@ -79,7 +85,9 @@ def findGroupRepeatingNames = { File sourceFile ->
         // A backtick name leaves no identifier after 'fun'.
         def methodName = declared.group(1)
 
-        if (awaitedGroup != null && methodName != null && repeatsGroupName(methodName, awaitedGroup)) {
+        if (awaitedGroup != null
+                && methodName != null
+                && repeatsGroupName(methodName, awaitedGroup)) {
 
             violations << "${sourceFile}:${line.number}: test method '${methodName}' repeats its " +
                 "@Nested group '${awaitedGroup}'; name the outcome and condition alone"
@@ -94,13 +102,19 @@ def enforceTestNamesOmitGroup = tasks.register('enforceTestNamesOmitGroup') {
     description = 'Fails the build when a test method name repeats its @Nested group\'s name.'
     group = 'verification'
 
-    def scannedFiles = declareScannedFiles(it, testSourceRoots, jvmSourceIncludes)
+    def scannedFiles = declareScannedFiles(
+        it,
+        findTestSourceRoots,
+        jvmSourceIncludes)
 
     doLast {
 
-        def violations = scannedFiles.collectMany { sourceFile -> findGroupRepeatingNames(sourceFile) }
+        def violations = scannedFiles
+            .collectMany { sourceFile -> findGroupRepeatingNames(sourceFile) }
 
-        failOnViolations('Test-name convention violated', violations)
+        failOnViolations(
+            'Test-name convention violated',
+            violations)
     }
 }
 

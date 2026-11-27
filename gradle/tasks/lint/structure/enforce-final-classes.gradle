@@ -42,8 +42,10 @@ apply from: new File(buildscript.sourceFile.parentFile, '../class-file-scan.grad
 apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, '../package-roots.gradle')
 
-// The class access flags this gate reads, as the class-file format numbers them.
+// The class access flags this gate reads, as the class-file format numbers them. A protected nested
+// class's flag is only ever in the modifiers InnerClasses records for it.
 def ACC_PUBLIC = 0x0001
+def ACC_PROTECTED = 0x0004
 def ACC_FINAL = 0x0010
 def ACC_INTERFACE = 0x0200
 def ACC_ABSTRACT = 0x0400
@@ -52,14 +54,18 @@ def ACC_ANNOTATION = 0x2000
 def ACC_ENUM = 0x4000
 def ACC_MODULE = 0x8000
 
+// Opens the findings with the gap the gate closes, since the reader is usually someone who left the
+// keyword off by accident and sees no harm in it: nothing in their project extends the class.
+def FINDINGS_HEADING =
+    'Classes open to extension (Java leaves a class open unless it is marked final, ' +
+    'and nothing but this gate reports one left open)'
+
+// Apart from the open classes, since the fix is to delete the allowance rather than to mark anything.
+def STALE_ALLOWANCES_HEADING = 'Allowances that exempt nothing'
+
 // Any of these and the class cannot be extended from outside, or is not a class at all. An enum's
 // constants may have bodies, which leaves the enum itself unmarked final, yet its constructor is
 // private to it.
-// Opens the findings with the gap the gate closes, since the reader is usually someone who left the
-// keyword off by accident and sees no harm in it: nothing in their project extends the class.
-def FINDINGS_HEADING = 'Classes open to extension (Java leaves a class open unless it is marked final, ' +
-    'and nothing but this gate reports one left open)'
-
 def FLAGS_CLOSING_EXTENSION = ACC_FINAL |
     ACC_INTERFACE |
     ACC_ABSTRACT |
@@ -68,17 +74,70 @@ def FLAGS_CLOSING_EXTENSION = ACC_FINAL |
     ACC_ENUM |
     ACC_MODULE
 
-// Answers whether access flags describe a class another JAR can extend.
-def isExtendableFromOutside = { int accessFlags ->
+// What a declaration of this gate may name.
+def REQUIRE_FINAL_KEYS = ['under', 'except', 'inSourceSets', 'reason']
+def ALLOW_EXTENDABLE_CLASS_KEYS = ['type', 'reason']
 
-    return (accessFlags & ACC_PUBLIC) != 0 &&
-        (accessFlags & FLAGS_CLOSING_EXTENSION) == 0
+// Defined before either is assigned, since each one asks the other about an enclosing class.
+def isNameableFromOutside
+def isExtendableFromOutside
+
+// Answers whether code in another package can name a class. A top-level class answers by its own
+// flags. A member class answers by the modifiers InnerClasses records for it, and only where its
+// enclosing class can be named too: a public class nested in a package-private one reaches no other
+// JAR. A protected member is reachable through a subclass of its enclosing class, so only where that
+// class can be extended. A local or anonymous class is never named from outside.
+//
+// readDeclarationOf answers a class's declaration by binary name, or null where it cannot be read;
+// a class it cannot read is taken as nameable, so the gate errs towards reporting.
+isNameableFromOutside = { String binaryName, Closure readDeclarationOf ->
+
+    def declaration = readDeclarationOf(binaryName)
+    if (declaration == null) {
+        return true
+    }
+
+    def memberClass = declaration.innerClassesByName[binaryName]
+    if (memberClass == null) {
+        return (declaration.accessFlags & ACC_PUBLIC) != 0
+    }
+
+    if (memberClass.outerName == null) {
+        return false
+    }
+
+    def isVisibleBeyondItsPackage = (memberClass.accessFlags & ACC_PUBLIC) != 0 ||
+        ((memberClass.accessFlags & ACC_PROTECTED) != 0 &&
+            isExtendableFromOutside(memberClass.outerName, readDeclarationOf))
+
+    return isVisibleBeyondItsPackage &&
+        isNameableFromOutside(memberClass.outerName, readDeclarationOf)
+}
+
+// Answers whether another JAR can extend a class: it can be named from outside, and neither its flags
+// nor, for a member class, its recorded modifiers close it.
+isExtendableFromOutside = { String binaryName, Closure readDeclarationOf ->
+
+    def declaration = readDeclarationOf(binaryName)
+    if (declaration == null) {
+        return true
+    }
+
+    def memberFlags = declaration
+        .innerClassesByName[binaryName]
+        ?.accessFlags
+        ?: 0
+
+    return ((declaration.accessFlags | memberFlags) & FLAGS_CLOSING_EXTENSION) == 0 &&
+        isNameableFromOutside(binaryName, readDeclarationOf)
 }
 
 // Answers whether a compiled class sits inside a rule's layer and in a tree the rule holds.
 def isHeldByRule = { Map compiledClass, Map finalRule ->
 
-    def dottedName = compiledClass.binaryName.replace('/', '.')
+    def dottedName = compiledClass
+        .binaryName
+        .replace('/', '.')
 
     return isInsideLayer(dottedName, finalRule.root, finalRule.exceptedRoots) &&
         (finalRule.sourceSets.isEmpty() || compiledClass.sourceSet in finalRule.sourceSets)
@@ -88,7 +147,10 @@ def isHeldByRule = { Map compiledClass, Map finalRule ->
 // when it states one, and the two ways to settle it.
 def describeOpenClass = { Map compiledClass, String sourcePath, String ruleReason ->
 
-    def sourceSpelling = compiledClass.binaryName.replace('/', '.')
+    def sourceSpelling = compiledClass
+        .binaryName
+        .replace('/', '.')
+
     def subject = sourcePath
         ? "${sourcePath}: ${sourceSpelling}"
         : "${compiledClass.binaryName}${compiledClass.compiledFrom}"
@@ -97,14 +159,19 @@ def describeOpenClass = { Map compiledClass, String sourcePath, String ruleReaso
         ? "; ${ruleReason}"
         : ''
 
-    return "${subject} is public and neither final nor abstract, so code in another JAR can extend it" +
-        "${stake}. Mark it final, or declare it with allowExtendableClass and the reason it has to stay open"
+    return (
+        "${subject} is public and neither final nor abstract, so code in another JAR can extend it" +
+        "${stake}. Mark it final, or declare it with allowExtendableClass and the reason it has to stay open")
 }
 
 // Reads every compiled class a rule holds. Answers the extendable classes no allowance covers, the
 // classes the walk could not follow, the extendable classes allowances do cover, and whether any rule
 // read a class.
-def scanCompiledClasses = { List finalRules, Map allowancesByType, Iterable classFiles, File classesDir,
+def scanCompiledClasses = {
+        List finalRules,
+        Map allowancesByType,
+        Iterable classFiles,
+        File classesDir,
         File projectDirectory ->
 
     def scan = [
@@ -113,6 +180,22 @@ def scanCompiledClasses = { List finalRules, Map allowancesByType, Iterable clas
         allowedOpenTypes: [] as Set,
         hasReadAnyClass: false,
     ]
+
+    // Each class file read once, whether for its own verdict or for a class nested in it. Null where
+    // it is absent or cannot be read.
+    def declarationsByFile = [:]
+
+    def readDeclarationOnce = { File declarationFile ->
+
+        if (!declarationsByFile.containsKey(declarationFile)) {
+
+            declarationsByFile[declarationFile] = declarationFile.isFile()
+                ? readClassDeclaration(declarationFile)
+                : null
+        }
+
+        return declarationsByFile[declarationFile]
+    }
 
     classFiles.each { classFile ->
 
@@ -125,28 +208,51 @@ def scanCompiledClasses = { List finalRules, Map allowancesByType, Iterable clas
             return
         }
 
-        def classFileRead = readClassFile(classFile)
-        if (classFileRead == null) {
-            scan.unreadableClasses << compiledClass.binaryName
+        def classFileRead = readDeclarationOnce(classFile)
+        if (classFileRead.unreadableReason) {
+            scan.unreadableClasses << describeUnreadableClass(compiledClass, classFileRead)
             return
         }
 
         scan.hasReadAnyClass = true
 
-        if (!isExtendableFromOutside(classFileRead.accessFlags)) {
+        // A class's enclosing classes share its package, so their files sit beside its own.
+        def readDeclarationOf = { String binaryName ->
+
+            def simpleName = binaryName.substring(binaryName.lastIndexOf('/') + 1)
+
+            def declaration = readDeclarationOnce(
+                new File(classFile.parentFile,
+                "${simpleName}.class"))
+
+            return declaration?.unreadableReason
+                ? null
+                : declaration
+        }
+
+        if (!isExtendableFromOutside(compiledClass.binaryName, readDeclarationOf)) {
             return
         }
 
         // An allowance is spelt with dots, a class file's name with slashes; '$' is the same in both.
-        def sourceSpelling = compiledClass.binaryName.replace('/', '.')
+        def sourceSpelling = compiledClass
+            .binaryName
+            .replace('/', '.')
+
         if (allowancesByType.containsKey(sourceSpelling)) {
             scan.allowedOpenTypes << sourceSpelling
             return
         }
 
-        def sourcePath = findSourcePath(compiledClass, classFileRead.sourceFileName, projectDirectory)
+        def sourcePath = findSourcePath(
+            compiledClass,
+            classFileRead.sourceFileName,
+            projectDirectory)
 
-        scan.violations << describeOpenClass(compiledClass, sourcePath, holdingRule.reason)
+        scan.violations << describeOpenClass(
+            compiledClass,
+            sourcePath,
+            holdingRule.reason)
     }
 
     return scan
@@ -183,42 +289,76 @@ def projectDirectory = project.projectDir
 def enforceFinalClasses = tasks.register('enforceFinalClasses') { gate ->
 
     group = 'verification'
-    description = 'Fails the build when a concrete public class under a root the consuming build ' +
+    description =
+        'Fails the build when a concrete public class under a root the consuming build ' +
         'declared is not final, outside the classes it allowed to be extended - Java leaves a ' +
         'class open by default, so a forgotten final is otherwise reported by nothing.'
 
     ext.requireFinal = { Map finalRule ->
 
+        failOnUnknownDeclarationKeys(
+            'requireFinal',
+            finalRule,
+            REQUIRE_FINAL_KEYS)
+
         if (!finalRule.under) {
 
-            throw new GradleException("requireFinal needs 'under' (the package root whose " +
+            throw new GradleException(
+                "requireFinal needs 'under' (the package root whose " +
                 "public classes must be final); got: ${finalRule}")
         }
 
-        def root = finalRule.under.toString()
+        def root = finalRule
+            .under
+            .toString()
 
         finalRules << [
             root: root,
-            exceptedRoots: readExceptedRoots('requireFinal', finalRule, root),
-            // Empty means every source set.
-            sourceSets: readOneOrMany(finalRule.inSourceSets).collect { it.toString() }.sort(),
+            exceptedRoots: readExceptedRoots(
+                'requireFinal',
+                finalRule,
+                root),
+            sourceSets: readSourceSetNames(finalRule.inSourceSets),
             // Optional: the project's own stake, carried by each finding this rule makes.
-            reason: finalRule.reason?.toString(),
+            reason: finalRule
+                .reason
+                ?.toString(),
         ]
     }
 
     ext.allowExtendableClass = { Map allowance ->
 
+        failOnUnknownDeclarationKeys(
+            'allowExtendableClass',
+            allowance,
+            ALLOW_EXTENDABLE_CLASS_KEYS)
+
         // The reason is required: an allowance is a line a reviewer reads, and one with no reason
         // gives them nothing to judge it by.
         if (!allowance.type || !allowance.reason) {
 
-            throw new GradleException("allowExtendableClass needs 'type' (the class, with '\$' " +
+            throw new GradleException(
+                "allowExtendableClass needs 'type' (the class, with '\$' " +
                 "before a nested class's name) and 'reason' (why it has to stay open); " +
                 "got: ${allowance}")
         }
 
-        allowancesByType[allowance.type.toString()] = allowance.reason.toString()
+        def allowedType = allowance
+            .type
+            .toString()
+
+        // A second allowance would replace the first one's reason, so the reviewed line would no
+        // longer be the one in force.
+        if (allowancesByType.containsKey(allowedType)) {
+
+            throw new GradleException(
+                "allowExtendableClass declares '${allowedType}' a second time; " +
+                'state one allowance per class, with its one reason')
+        }
+
+        allowancesByType[allowedType] = allowance
+            .reason
+            .toString()
     }
 
     // Compilation has to happen first.
@@ -227,20 +367,23 @@ def enforceFinalClasses = tasks.register('enforceFinalClasses') { gate ->
     declareRuleSnapshot(gate, 'finalRules') {
 
         finalRules.collect {
-            "final under ${describeLayer(it.root, it.exceptedRoots)} in ${it.sourceSets} because ${it.reason ?: ''}"
+            "final under ${describeLayer(it.root, it.exceptedRoots)} " +
+            "in ${it.sourceSets} because ${it.reason ?: ''}"
         } +
-            allowancesByType.collect { type, reason -> "open ${type} because ${reason}" }
+            allowancesByType.collect {
+                type,
+                reason -> "open ${type} because ${reason}" }
     }
 
     def sourceSetNames = declareSourceSetNames(gate)
 
+    skipWithoutRules(gate, finalRules)
+
     doLast {
 
-        if (finalRules.isEmpty()) {
-            return
+        failOnUnknownSourceSets(finalRules, sourceSetNames.get()) {
+            "requireFinal under '${it.root}'"
         }
-
-        failOnUnknownSourceSets(finalRules, sourceSetNames.get()) { "requireFinal under '${it.root}'" }
 
         def scan = scanCompiledClasses(
             finalRules,
@@ -250,9 +393,15 @@ def enforceFinalClasses = tasks.register('enforceFinalClasses') { gate ->
             projectDirectory)
 
         failOnUnreadableClasses(scan.unreadableClasses)
-        failOnViolations(
-            FINDINGS_HEADING,
-            (scan.violations + findStaleAllowances(allowancesByType, scan))*.toString().sort())
+        failOnViolationSections([
+            (FINDINGS_HEADING): scan
+                .violations
+                *.toString()
+                .sort(),
+            (STALE_ALLOWANCES_HEADING): findStaleAllowances(allowancesByType, scan)
+                *.toString()
+                .sort(),
+        ])
     }
 }
 

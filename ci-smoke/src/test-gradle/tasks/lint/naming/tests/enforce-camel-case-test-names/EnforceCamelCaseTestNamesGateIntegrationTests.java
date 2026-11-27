@@ -1,3 +1,4 @@
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -14,105 +15,151 @@ import static org.assertj.core.api.Assertions.assertThat;
 class EnforceCamelCaseTestNamesGateIntegrationTests {
 
     private static final GateUnderTest GATE =
-        new GateUnderTest("enforceCamelCaseTestNames", "lint/naming/tests/enforce-camel-case-test-names");
+        new GateUnderTest(
+            "enforceCamelCaseTestNames",
+            "lint/naming/tests/enforce-camel-case-test-names");
 
     // The second root the gate reads: test code shared across suites.
 
-    @Test
-    void passesWhenTestNamesAreCamelCaseInJava(@TempDir Path projectDir) {
+    @Nested
+    class EnforceCamelCaseTestNames {
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("camel-case-names-passes")
-            .runExpectingGateToPass();
-    }
+        @Test
+        void passesWhenTestNamesAreCamelCaseInJava(@TempDir Path projectDir) {
 
-    @Test
-    void failsWhenATestNameIsSnakeCaseInJava(@TempDir Path projectDir) {
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("camel-case-names-passes");
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("snake-case-test-name-fails")
-            .runExpectingGateToFail();
+            // ACT
+            project.runExpectingGateToPass();
+        }
 
-        assertThat(result.getOutput())
-            .contains("Sample.java:3: test method 'reads_the_owner_off_the_record' must be named in camelCase");
-    }
+        @Test
+        void failsWhenATestNameIsSnakeCaseInJava(@TempDir Path projectDir) {
 
-    // A helper is read in a report exactly as a case is, so the rule reaches it too - and catching
-    // it at the call as well as the declaration is what makes the gate's list the whole worklist.
-    @Test
-    void failsWhenAHelperNameIsSnakeCaseInJava(@TempDir Path projectDir) {
+            // ARRANGE
+            var expectedMessage =
+                "Sample.java:3: test method 'reads_the_owner_off_the_record' must be named in camelCase";
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("snake-case-helper-name-fails")
-            .runExpectingGateToFail();
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("snake-case-test-name-fails");
 
-        assertThat(result.getOutput())
-            .contains("Sample.java:4: test method 'build_record'")
-            .contains("Sample.java:7: test method 'build_record'");
-    }
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
 
-    // Data is not a name the gate has any business renaming, so a literal and a comment both pass -
-    // even when the literal is spelt to look like a call.
-    @Test
-    void passesWhenSnakeCaseIsInALiteralOrACommentInJava(@TempDir Path projectDir) {
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("snake-case-in-a-literal-or-comment-passes")
-            .runExpectingGateToPass();
-    }
+        // A helper is read in a report exactly as a case is, so the rule reaches it too - and catching
+        // it at the call as well as the declaration is what makes the gate's list the whole worklist.
+        @Test
+        void failsWhenAHelperNameIsSnakeCaseInJava(@TempDir Path projectDir) {
 
-    // An enum constant with an argument list opens a call shape, but a constant is not a method.
-    @Test
-    void passesWhenAConstantNameOpensACallInJava(@TempDir Path projectDir) {
+            // ARRANGE
+            var expectedDeclarationFinding = "Sample.java:4: test method 'build_record'";
+            var expectedCallFinding = "Sample.java:7: test method 'build_record'";
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("snake-case-constant-call-passes")
-            .runExpectingGateToPass();
-    }
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("snake-case-helper-name-fails");
 
-    // Fixtures are held to the same rule as the cases that drive them.
-    @Test
-    void failsWhenATestNameIsSnakeCaseInTestFixtures(@TempDir Path projectDir) {
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaSample(GateProject.TEST_FIXTURES_JAVA_ROOT, "snake-case-test-name-fails")
-            .runExpectingGateToFail();
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedDeclarationFinding)
+                .contains(expectedCallFinding);
+        }
 
-        assertThat(result.getOutput())
-            .contains("Sample.java:3: test method 'reads_the_owner_off_the_record'");
-    }
+        // Data is not a name the gate has any business renaming, so a literal and a comment both pass -
+        // even when the literal is spelt to look like a call.
+        @Test
+        void passesWhenSnakeCaseIsInALiteralOrACommentInJava(@TempDir Path projectDir) {
 
-    // A Kotlin raw string runs across lines, and a line inside it carries no quote of its own for a
-    // line-at-a-time strip to see.
-    @Test
-    void passesWhenSnakeCaseIsInARawStringInKotlin(@TempDir Path projectDir) {
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("snake-case-in-a-literal-or-comment-passes");
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("snake-case-in-a-raw-string-passes")
-            .runExpectingGateToPass();
-    }
+            // ACT
+            project.runExpectingGateToPass();
+        }
 
-    @Test
-    void passesWhenATestNameIsBacktickQuotedInKotlin(@TempDir Path projectDir) {
+        // An enum constant with an argument list opens a call shape, but a constant is not a method.
+        @Test
+        void passesWhenAConstantNameOpensACallInJava(@TempDir Path projectDir) {
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("backtick-test-name-passes")
-            .runExpectingGateToPass();
-    }
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("snake-case-constant-call-passes");
 
-    @Test
-    void passesWhenThereIsNoTestTree(@TempDir Path projectDir) {
+            // ACT
+            project.runExpectingGateToPass();
+        }
 
-        GateProject
-            .driving(GATE, projectDir)
-            .runExpectingGateToPass();
+        // Fixtures are held to the same rule as the cases that drive them.
+        @Test
+        void failsWhenATestNameIsSnakeCaseInTestFixtures(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var expectedMessage = "Sample.java:3: test method 'reads_the_owner_off_the_record'";
+
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaSample(
+                    GateProject.TEST_FIXTURES_JAVA_ROOT,
+                    "snake-case-test-name-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
+
+        // A Kotlin raw string runs across lines, and a line inside it carries no quote of its own for a
+        // line-at-a-time strip to see.
+        @Test
+        void passesWhenSnakeCaseIsInARawStringInKotlin(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("snake-case-in-a-raw-string-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenATestNameIsBacktickQuotedInKotlin(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("backtick-test-name-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenThereIsNoTestTree(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir);
+
+            // ACT
+            project.runExpectingGateToPass();
+        }
     }
 }

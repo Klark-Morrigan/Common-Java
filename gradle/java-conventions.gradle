@@ -26,7 +26,8 @@ apply plugin: 'checkstyle'
 //
 // Printed while the project is configured, so whatever tasks run: once per
 // project applying this script, and not at all on a configuration-cache hit.
-logger.lifecycle("Toolchain: Gradle ${gradle.gradleVersion}, " +
+logger.lifecycle(
+    "Toolchain: Gradle ${gradle.gradleVersion}, " +
     "JVM ${System.getProperty('java.version')} " +
     "(${System.getProperty('java.vendor')})")
 
@@ -38,9 +39,9 @@ repositories {
 // own. Everything it compiles against in one block, the JDK last: the ordering
 // every Java project agrees on, and the only part of the question a repo that
 // knows nothing about its consumers can answer. A consumer's own layer, which
-// does know, assigns the real list over this, and a
-// default is set rather than left empty because checkstyle fails on a property
-// its config names and nothing supplies.
+// does know, assigns the real list over this, and a default is set rather than
+// left empty because checkstyle fails on a property its config names and
+// nothing supplies.
 def defaultImportGroups = '*,java'
 
 checkstyle {
@@ -104,7 +105,9 @@ plugins.withId('java-test-fixtures') {
 }
 
 tasks.withType(JavaCompile).configureEach {
+
     options.encoding = 'UTF-8'
+
     // Java 17 is the baseline target. A consumer that wants a newer release
     // can override this in its own build script.
     options.release = 17
@@ -118,7 +121,9 @@ apply from: new File(
 test {
     useJUnitPlatform()
     testLogging {
+
         events 'passed', 'skipped', 'failed'
+
         // The per-test FAILED line is only useful with the assertion behind it,
         // and a truncated trace hides the frame inside the code under test.
         exceptionFormat = 'full'
@@ -162,13 +167,6 @@ tasks.register('coverage') {
     dependsOn jacocoTestReport
 }
 
-// Lint gates: the code-quality, doc and test-structure checks no plain build
-// catches, one script each under tasks/lint. Applied here so every consumer
-// inherits them from one place, alongside checkstyle; magic numbers on Java ride
-// in checkstyle.xml rather than as a gate. Resolved relative to THIS script's own
-// gradle/ dir, the same sibling-checkout convention checkstyle.xml uses.
-def lintTasksDir = new File(buildscript.sourceFile.parentFile, 'tasks/lint')
-
 // Not a gate but a report about the machine, so it is applied beside them
 // rather than among them: it joins no lifecycle task until a consumer declares
 // that its suites need fonts, and then it runs ahead of that project's tests.
@@ -178,6 +176,13 @@ def lintTasksDir = new File(buildscript.sourceFile.parentFile, 'tasks/lint')
 apply from: new File(
     buildscript.sourceFile.parentFile,
     'tasks/diagnostics/report-awt-environment.gradle')
+
+// Lint gates: the code-quality, doc and test-structure checks no plain build
+// catches, one script each under tasks/lint. Applied here so every consumer
+// inherits them from one place, alongside checkstyle; magic numbers on Java ride
+// in checkstyle.xml rather than as a gate. Resolved relative to THIS script's own
+// gradle/ dir, the same sibling-checkout convention checkstyle.xml uses.
+def lintTasksDir = new File(buildscript.sourceFile.parentFile, 'tasks/lint')
 
 apply from: new File(lintTasksDir, 'docs/enforce-doc-links-resolve.gradle')
 apply from: new File(lintTasksDir, 'docs/enforce-no-forbidden-phrases.gradle')

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
+#
 # Auto-fixes what this repo's commits need fixing: the executable bit on staged
 # files that must carry it, and trailing whitespace in staged Markdown and Gradle
 # scripts.
 #
 # Which fixes a commit gets, and the order they run in, live in
-# Common-Automation's .github/lib/run-pre-commit-fixes.sh (sibling checkout),
+# Common-Automation's .github/lib/fixes/run-pre-commit-fixes.sh (sibling checkout),
 # shared so every repo in the family fixes a commit the same way. What stays
-# here is only what this repo alone knows: where that sibling is, and which
-# tier it belongs to.
+# here is only what this repo alone knows: which tier it belongs to.
 #
 # Activated by running scripts/setup-hooks.sh once after cloning.
 
@@ -15,25 +15,21 @@ set -euo pipefail
 
 hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${hook_dir}/.." && pwd)"
-shared_fixes="${repo_root}/../Common-Automation/.github/lib/run-pre-commit-fixes.sh"
 
-# Skipped rather than fatal when the sibling is not checked out. These fixes
-# are conveniences: a hook that aborted here would block every commit in a repo
-# that is otherwise perfectly able to build, which is a far worse failure than
-# a commit that keeps a line of trailing whitespace.
-if [[ ! -f "${shared_fixes}" ]]; then
-    echo "pre-commit: Common-Automation is not checked out beside this repo - skipping the staged fixes"
-    exit 0
-fi
+readonly SHARED_FIXES_PATH='.github/lib/fixes/run-pre-commit-fixes.sh'
+
+# Found the way scripts/ finds it, so COMMON_AUTOMATION_ROOT works here too.
+# A missing copy stops the commit: a skip lets a commit through without its
+# fixes, and nobody reads a hook's output when the commit succeeds.
+# shellcheck source=scripts/imports/_require-common-automation-file.sh
+source "${repo_root}/scripts/imports/_require-common-automation-file.sh"
+require_common_automation_file "${SHARED_FIXES_PATH}"
 
 # shellcheck source=/dev/null
-source "${shared_fixes}"
+source "${common_automation_root}/${SHARED_FIXES_PATH}"
 
 # This tier's own declarations, which this repo owns and every JVM repo reads:
 # the paths that must carry +x, and .gradle as a text type to trim.
-# shellcheck source=.github/lib/executable-paths.sh
-source "${repo_root}/.github/lib/executable-paths.sh"
-
 run_pre_commit_fixes \
-    "${EXECUTABLE_PATHSPEC_REGEX}" \
+    "${repo_root}/.github/lib/executable-paths.sh" \
     "${repo_root}/.github/lib/trimmed-file-types.sh"

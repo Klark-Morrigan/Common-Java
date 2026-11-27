@@ -1,0 +1,13 @@
+# Fences
+
+A four-backtick block shows a three-backtick sample whole.
+
+````markdown
+```java
+long id = entity.getId();
+```
+
+Each row is keyed by its id.
+````
+
+The sample ends where the longer fence closes.

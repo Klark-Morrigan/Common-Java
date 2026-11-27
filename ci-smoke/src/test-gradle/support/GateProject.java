@@ -3,7 +3,6 @@ import org.gradle.testkit.runner.GradleRunner;
 import org.gradle.testkit.runner.TaskOutcome;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -85,14 +84,16 @@ final class GateProject {
      */
     static String loadFixture(String fixtureName) {
 
-        try (InputStream fixture =
+        try (var fixture =
                 GateProject.class.getResourceAsStream("/" + fixtureName + ".txt")) {
 
             if (fixture == null) {
                 throw new IllegalStateException("Missing fixture: " + fixtureName);
             }
 
-            return new String(fixture.readAllBytes(), StandardCharsets.UTF_8);
+            return new String(
+                fixture.readAllBytes(),
+                StandardCharsets.UTF_8);
 
         } catch (IOException ioException) {
             throw new UncheckedIOException(ioException);
@@ -108,13 +109,19 @@ final class GateProject {
      */
     static String buildConfigurationBlock(String extension, String... statements) {
 
-        var block = new StringBuilder(extension).append(" {\n");
+        var block = new StringBuilder(extension)
+            .append(" {\n");
 
         for (var statement : statements) {
-            block.append("    ").append(statement).append('\n');
+            block
+                .append("    ")
+                .append(statement)
+                .append('\n');
         }
 
-        return block.append("}\n").toString();
+        return block
+            .append("}\n")
+            .toString();
     }
 
     /**
@@ -146,7 +153,8 @@ final class GateProject {
      */
     GateProject configuringTheGate(String configuration) {
 
-        gateConfiguration = configuration;
+        // Added to, as the preamble is, so a case states its configuration in as many pieces as it has.
+        gateConfiguration += configuration;
         return this;
     }
 
@@ -157,7 +165,10 @@ final class GateProject {
      * @param fixtureName the fixture to load, as {@link #loadFixture} names one
      */
     GateProject holdingFixture(String filePath, String fixtureName) {
-        return holdingText(filePath, loadFixture(fixtureName));
+
+        return holdingText(
+            filePath,
+            loadFixture(fixtureName));
     }
 
     /**
@@ -167,7 +178,10 @@ final class GateProject {
      * @param fixtureName the fixture's name under its suite's java/ folder, without the .txt
      */
     GateProject holdingJavaSample(String sourceRoot, String fixtureName) {
-        return holdingFixture(sourceRoot + "/" + JAVA_SAMPLE_NAME, "java/" + fixtureName);
+
+        return holdingFixture(
+            sourceRoot + "/" + JAVA_SAMPLE_NAME,
+            "java/" + fixtureName);
     }
 
     /**
@@ -177,7 +191,10 @@ final class GateProject {
      * @param fixtureName the fixture's name under its suite's kotlin/ folder, without the .txt
      */
     GateProject holdingKotlinSample(String sourceRoot, String fixtureName) {
-        return holdingFixture(sourceRoot + "/" + KOTLIN_SAMPLE_NAME, "kotlin/" + fixtureName);
+
+        return holdingFixture(
+            sourceRoot + "/" + KOTLIN_SAMPLE_NAME,
+            "kotlin/" + fixtureName);
     }
 
     /**
@@ -186,7 +203,10 @@ final class GateProject {
      * @param fixtureName the fixture's name under its suite's java/ folder, without the .txt
      */
     GateProject holdingJavaTestSample(String fixtureName) {
-        return holdingJavaSample(TEST_JAVA_ROOT, fixtureName);
+
+        return holdingJavaSample(
+            TEST_JAVA_ROOT,
+            fixtureName);
     }
 
     /**
@@ -195,7 +215,10 @@ final class GateProject {
      * @param fixtureName the fixture's name under its suite's kotlin/ folder, without the .txt
      */
     GateProject holdingKotlinTestSample(String fixtureName) {
-        return holdingKotlinSample(TEST_KOTLIN_ROOT, fixtureName);
+
+        return holdingKotlinSample(
+            TEST_KOTLIN_ROOT,
+            fixtureName);
     }
 
     /**
@@ -206,13 +229,7 @@ final class GateProject {
      * @return its text
      */
     String readText(String filePath) {
-
-        try {
-            return Files.readString(projectDir.resolve(filePath));
-
-        } catch (IOException ioException) {
-            throw new UncheckedIOException(ioException);
-        }
+        return callUnchecked(() -> Files.readString(projectDir.resolve(filePath)));
     }
 
     /**
@@ -224,17 +241,9 @@ final class GateProject {
      */
     GateProject holdingText(String filePath, String content) {
 
-        try {
-            var file = projectDir.resolve(filePath);
-
-            Files.createDirectories(file.getParent());
-            Files.writeString(file, content);
-
-        } catch (IOException ioException) {
-            throw new UncheckedIOException(ioException);
-        }
-
-        return this;
+        return holdingBytes(
+            filePath,
+            content.getBytes(StandardCharsets.UTF_8));
     }
 
     /**
@@ -247,15 +256,10 @@ final class GateProject {
      */
     GateProject holdingBytes(String filePath, byte[] content) {
 
-        try {
-            var file = projectDir.resolve(filePath);
+        var file = projectDir.resolve(filePath);
 
-            Files.createDirectories(file.getParent());
-            Files.write(file, content);
-
-        } catch (IOException ioException) {
-            throw new UncheckedIOException(ioException);
-        }
+        callUnchecked(() -> Files.createDirectories(file.getParent()));
+        callUnchecked(() -> Files.write(file, content));
 
         return this;
     }
@@ -268,13 +272,7 @@ final class GateProject {
      */
     GateProject holdingDirectory(String directoryPath) {
 
-        try {
-            Files.createDirectories(projectDir.resolve(directoryPath));
-
-        } catch (IOException ioException) {
-            throw new UncheckedIOException(ioException);
-        }
-
+        callUnchecked(() -> Files.createDirectories(projectDir.resolve(directoryPath)));
         return this;
     }
 
@@ -312,13 +310,17 @@ final class GateProject {
      * @return the result, for a case with more to read off it
      */
     BuildResult runExpectingGateToPass() {
+        return runExpectingGateOutcome(runExpectingSuccess(), TaskOutcome.SUCCESS);
+    }
 
-        var result = runExpectingSuccess();
-
-        assertThat(result.task(gate.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.SUCCESS);
-
-        return result;
+    /**
+     * Runs a build the gate is expected to sit out, because nothing was declared for it to judge.
+     * Skipped rather than run, so it reads none of the tree it would scan.
+     *
+     * @return the result, for a case with more to read off it
+     */
+    BuildResult runExpectingGateToBeSkipped() {
+        return runExpectingGateOutcome(runExpectingSuccess(), TaskOutcome.SKIPPED);
     }
 
     /**
@@ -329,28 +331,57 @@ final class GateProject {
      * @return the result, for the case to read the gate's message off
      */
     BuildResult runExpectingGateToFail() {
+        return runExpectingGateOutcome(runExpectingFailure(), TaskOutcome.FAILED);
+    }
 
-        var result = runExpectingFailure();
+    // The gate is checked to have been scheduled first, so a gate that never ran is reported as that
+    // rather than as a NullPointerException reading its outcome.
+    private BuildResult runExpectingGateOutcome(BuildResult result, TaskOutcome expectedOutcome) {
 
-        assertThat(result.task(gate.taskPath()))
+        var gateTask = result.task(gate.taskPath());
+
+        assertThat(gateTask)
             .as("the gate ran")
             .isNotNull();
 
-        assertThat(result.task(gate.taskPath()).getOutcome())
-            .isEqualTo(TaskOutcome.FAILED);
+        assertThat(gateTask.getOutcome())
+            .isEqualTo(expectedOutcome);
 
         return result;
+    }
+
+    // Has file I/O fail as unchecked, so a staging step reads as one line.
+    private static <T> T callUnchecked(IoCall<T> call) {
+
+        try {
+            return call.call();
+
+        } catch (IOException ioException) {
+            throw new UncheckedIOException(ioException);
+        }
+    }
+
+    @FunctionalInterface
+    private interface IoCall<T> {
+
+        T call() throws IOException;
     }
 
     private GradleRunner createRunner() {
 
         // An explicit settings file stops Gradle walking up into a real build.
         holdingText("settings.gradle", "rootProject.name = 'gate-fixture'\n");
+
         holdingText(
             "build.gradle",
-            buildPreamble + "apply from: '" + gate.scriptPath() + "'\n" + gateConfiguration);
+            buildPreamble +
+                "apply from: '" +
+                gate.scriptPath() +
+                "'\n" +
+                gateConfiguration);
 
-        return GradleRunner.create()
+        return GradleRunner
+            .create()
             .withProjectDir(projectDir.toFile())
             .withArguments(requestedTask);
     }

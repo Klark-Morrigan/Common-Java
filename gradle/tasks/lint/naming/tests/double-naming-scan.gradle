@@ -36,15 +36,13 @@
 // 'new SomeInterface() { ... }' - names neither and is invisible to it.
 apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, '../../source-scan.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../../test-sources.gradle')
 
 // The names the test itself declares: a Kotlin 'val'/'var' (covering locals and lateinit fields)
 // and a typed Java field or local. A Java type's generic arguments may nest, so they are read up to
 // the last '>' before the name rather than to the first.
 def kotlinDeclaration = ~/\b(?:val|var)\s+(\w+)/
 def javaTypedDeclaration = ~/\b[A-Za-z_]\w*(?:\s*<[^;=(){}]*>)?(?:\[\])?\s+(\w+)\s*[=;]/
-
-// Any annotation with its argument list, removed so the declaration behind it can be read.
-def anyAnnotation = ~/@[\w.]+(?:\s*\([^)]*\))?/
 
 // One innermost generic argument list, removed repeatedly to flatten nested ones.
 def innermostTypeArguments = ~/<[^<>]*>/
@@ -61,7 +59,9 @@ def readStrippedLines = { File sourceFile ->
 
     def lines = []
 
-    eachStrippedLine(sourceFile) { text, number -> lines << [text: text, number: number] }
+    eachStrippedLine(sourceFile) {
+        text,
+        number -> lines << [text: text, number: number] }
 
     return lines
 }
@@ -72,14 +72,15 @@ def collectDeclaredNames = { List lines ->
 
     lines.each { line ->
 
-        [kotlinDeclaration, javaTypedDeclaration].each { declaration ->
+        [kotlinDeclaration, javaTypedDeclaration]
+            .each { declaration ->
 
-            def matcher = declaration.matcher(line.text)
+                def matcher = declaration.matcher(line.text)
 
-            while (matcher.find()) {
-                declaredNames << matcher.group(1)
+                while (matcher.find()) {
+                    declaredNames << matcher.group(1)
+                }
             }
-        }
     }
 
     return declaredNames
@@ -89,7 +90,8 @@ def collectDeclaredNames = { List lines ->
 // to come on a later line.
 def readAnnotatedName = { String declaration ->
 
-    def flattened = declaration.replaceAll(anyAnnotation, '')
+    // Annotations go first, so the declaration behind them can be read.
+    def flattened = declaration.replaceAll(anyAnnotationPattern, '')
 
     while (innermostTypeArguments.matcher(flattened).find()) {
         flattened = flattened.replaceAll(innermostTypeArguments, '')
@@ -97,7 +99,9 @@ def readAnnotatedName = { String declaration ->
 
     def nameMatcher = trailingIdentifier.matcher(declarationNameEnd.split(flattened, 2)[0])
 
-    return nameMatcher.find() ? nameMatcher.group(1) : null
+    return nameMatcher.find()
+        ? nameMatcher.group(1)
+        : null
 }
 
 // Everything a scan needs from one gate's declaration, derived once.
@@ -148,7 +152,9 @@ def findTypeViolations = { File sourceFile, List lines, Map rule ->
 
     lines.each { line ->
 
-        def typeMatcher = rule.typePattern.matcher(line.text)
+        def typeMatcher = rule
+            .typePattern
+            .matcher(line.text)
 
         while (typeMatcher.find()) {
 
@@ -171,30 +177,49 @@ def findAssignedHolderViolations = { File sourceFile, List lines, Set declaredNa
 
     def violations = []
 
-    lines.findAll { line -> !line.text.trim().endsWith(',') }.each { line ->
+    lines
+        .findAll { line -> !line
+            .text
+            .trim()
+            .endsWith(',') }
+        .each { line ->
 
-        def holderMatcher = rule.holderPattern.matcher(line.text)
+            def holderMatcher = rule
+                .holderPattern
+                .matcher(line.text)
 
-        while (holderMatcher.find()) {
+            while (holderMatcher.find()) {
 
-            def name = holderMatcher.group(1)
+                def name = holderMatcher.group(1)
 
-            if (declaredNames.contains(name) && !isHolderNameSuffixed(name, rule)) {
-                violations << describeHolderViolation(sourceFile, line.number, name, rule)
+                if (declaredNames.contains(name) && !isHolderNameSuffixed(name, rule)) {
+
+                    violations << describeHolderViolation(
+                        sourceFile,
+                        line.number,
+                        name,
+                        rule)
+                }
+            }
+
+            def typedHolderMatcher = rule
+                .typedHolderPattern
+                .matcher(line.text)
+
+            while (typedHolderMatcher.find()) {
+
+                def name = typedHolderMatcher.group(1)
+
+                if (!isHolderNameSuffixed(name, rule)) {
+
+                    violations << describeHolderViolation(
+                        sourceFile,
+                        line.number,
+                        name,
+                        rule)
+                }
             }
         }
-
-        def typedHolderMatcher = rule.typedHolderPattern.matcher(line.text)
-
-        while (typedHolderMatcher.find()) {
-
-            def name = typedHolderMatcher.group(1)
-
-            if (!isHolderNameSuffixed(name, rule)) {
-                violations << describeHolderViolation(sourceFile, line.number, name, rule)
-            }
-        }
-    }
 
     return violations
 }
@@ -214,7 +239,9 @@ def findAnnotatedHolderViolations = { File sourceFile, List lines, Map rule ->
     lines.each { line ->
 
         def text = line.text
-        def annotationMatcher = rule.holderAnnotation.matcher(text)
+        def annotationMatcher = rule
+            .holderAnnotation
+            .matcher(text)
 
         if (annotationMatcher.find()) {
 
@@ -222,7 +249,9 @@ def findAnnotatedHolderViolations = { File sourceFile, List lines, Map rule ->
             text = text.substring(annotationMatcher.end())
         }
 
-        def name = isAwaitingDeclaration ? readAnnotatedName(text) : null
+        def name = isAwaitingDeclaration
+            ? readAnnotatedName(text)
+            : null
 
         if (name == null) {
             return
@@ -231,7 +260,12 @@ def findAnnotatedHolderViolations = { File sourceFile, List lines, Map rule ->
         isAwaitingDeclaration = false
 
         if (!isHolderNameSuffixed(name, rule)) {
-            violations << describeHolderViolation(sourceFile, line.number, name, rule)
+
+            violations << describeHolderViolation(
+                sourceFile,
+                line.number,
+                name,
+                rule)
         }
     }
 
@@ -255,16 +289,20 @@ ext.findDoubleNamingViolations = { Map spec ->
 
     def rule = readDoubleNamingRule(spec)
 
-    return spec.scannedFiles.collectMany { File sourceFile ->
+    return spec
+        .scannedFiles
+        .collectMany { File sourceFile ->
 
-        def lines = readStrippedLines(sourceFile)
-        def declaredNames = collectDeclaredNames(lines)
+            def lines = readStrippedLines(sourceFile)
+            def declaredNames = collectDeclaredNames(lines)
 
-        def violations = findTypeViolations(sourceFile, lines, rule) +
-            findAssignedHolderViolations(sourceFile, lines, declaredNames, rule) +
-            findAnnotatedHolderViolations(sourceFile, lines, rule)
+            def violations = findTypeViolations(sourceFile, lines, rule) +
+                findAssignedHolderViolations(sourceFile, lines, declaredNames, rule) +
+                findAnnotatedHolderViolations(sourceFile, lines, rule)
 
-        // A holder both annotated and assigned from a factory is one finding, not two.
-        return violations*.toString().unique()
-    }
+            // A holder both annotated and assigned from a factory is one finding, not two.
+            return violations
+                *.toString()
+                .unique()
+        }
 }

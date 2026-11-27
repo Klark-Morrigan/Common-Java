@@ -37,6 +37,13 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels that pull request's earlier run; a
+# manual run is never cancelled. Same shape as Common-Automation's ci-*
+# workflows.
+concurrency:
+  group: ci-gradle-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   smoke:
     uses: ./.github/workflows/_ci-gradle.yml

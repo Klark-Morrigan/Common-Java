@@ -6,7 +6,9 @@
  * names them together once. The script path is the suite folder's own path under
  * src/test-gradle/tasks, which verifyEveryGateHasASuite holds every suite to.
  */
-record GateUnderTest(String taskName, String scriptName) {
+record GateUnderTest(
+    String taskName,
+    String scriptName) {
 
     // The test task hands in where the scripts live, so a suite does not assume a working directory.
     private static final String SCRIPTS_ROOT_PROPERTY = "gate.scripts.root";
@@ -24,6 +26,18 @@ record GateUnderTest(String taskName, String scriptName) {
      * script on Windows.
      */
     String scriptPath() {
-        return (System.getProperty(SCRIPTS_ROOT_PROPERTY) + "/" + scriptName + ".gradle").replace('\\', '/');
+
+        var scriptsRoot = System.getProperty(SCRIPTS_ROOT_PROPERTY);
+
+        // Run outside the test task, as from an editor, the property is unset; stated here, where it
+        // is the cause, rather than as a "null/..." path the generated build fails to apply.
+        if (scriptsRoot == null) {
+
+            throw new IllegalStateException("System property '" + SCRIPTS_ROOT_PROPERTY + "' is unset: run "
+                + "the suites through ci-smoke's testGradle task, which hands in where the scripts live");
+        }
+
+        return (scriptsRoot + "/" + scriptName + ".gradle")
+            .replace('\\', '/');
     }
 }

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#
 # Publishes this repo's GitHub Actions release tags - an immutable vX.Y.Z plus a
 # floating major vX - on the tip of origin/master, so consumers can pin this
 # repo's reusable workflows by tag. Thin shim to Common-Automation's
@@ -6,11 +7,15 @@
 # current git repo's origin/master rather than on CONSUMER_REPO_PATH,
 # so this cds into this repo first and forwards the version argument ("$@"; the
 # engine prompts when it is omitted).
+
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/imports/_common-automation-root.sh
-source "${script_dir}/imports/_common-automation-root.sh"
+
+# shellcheck source=scripts/imports/_require-common-automation-file.sh
+source "${script_dir}/imports/_require-common-automation-file.sh"
+
+require_common_automation_file scripts/publish-version-tags.sh
 
 cd "${script_dir}/.."
 exec "${common_automation_root}/scripts/publish-version-tags.sh" "$@"

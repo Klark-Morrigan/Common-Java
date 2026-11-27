@@ -41,16 +41,8 @@ def indentedCodeLinePattern = ~/^\s{4,}[\{\}"<]/
 // The token after @param names a parameter and keeps the source's casing.
 def paramTagPattern = ~/^(\s*\*?\s*@param\s+)(\S+)/
 
-def lineCommentOpening = '//'
-def blockCommentOpening = '/*'
-def blockCommentClosing = '*/'
 def preOpeningTag = '<pre>'
 def preClosingTag = '</pre>'
-
-// A NUL character, which no source line holds, appended to a line prefix before it is stripped. The source
-// scan keeps it only when the prefix ends in code, so it tells a '//' or '/*' that opens a comment from one
-// inside a literal.
-def codeProbe = '\u0000'
 
 // Rewrites every code span to spaces of the same width, so what remains is the prose of the line with its
 // columns intact.
@@ -61,7 +53,10 @@ def readProseOf = { String line ->
 
     while (matcher.find()) {
 
-        for (int index = matcher.start(); index < matcher.end(); index++) {
+        for (int index = matcher.start();
+                index < matcher.end();
+                index++) {
+
             prose.setCharAt(index, ' ' as char)
         }
     }
@@ -74,125 +69,52 @@ def readMarkdownProse = { File sourceFile ->
 
     def proseLines = []
 
-    visitLinesOutsideFences(sourceFile) { String line, int lineNumber ->
+    visitLinesOutsideFences(sourceFile) {
+        String line,
+        int lineNumber ->
 
-        if (!indentedCodeLinePattern.matcher(line).find()) {
-            proseLines << [text: readProseOf(line), line: lineNumber]
+            if (!indentedCodeLinePattern.matcher(line).find()) {
+                proseLines << [text: readProseOf(line), line: lineNumber]
+            }
         }
-    }
 
     return proseLines
 }
 
-// Answers whether a raw line is in code at index, given the comment and raw-string state it opened in.
-def isCodeAt = { String rawLine, int index, boolean isInBlock, boolean isInRaw ->
-
-    def probed = stripSourceLine(rawLine.substring(0, index) + codeProbe, isInBlock, isInRaw)
-
-    return probed.text.endsWith(codeProbe)
-}
-
-// Where the next comment opens at or after position, or -1 when none does.
-def findCommentOpening = { String rawLine, int position, boolean isInBlock, boolean isInRaw ->
-
-    for (int index = position; index < rawLine.length() - 1; index++) {
-
-        def isOpening = rawLine.startsWith(lineCommentOpening, index) || rawLine.startsWith(blockCommentOpening, index)
-
-        if (isOpening && isCodeAt(rawLine, index, isInBlock, isInRaw)) {
-            return index
-        }
-    }
-
-    return -1
-}
-
-// A block comment's text from textStart to its closing on this line, or to the end of the line when it runs on.
-def readBlockComment = { String rawLine, int textStart ->
-
-    def closing = rawLine.indexOf(blockCommentClosing, textStart)
-    def textEnd = closing < 0 ? rawLine.length() : closing
-
-    return [text: rawLine.substring(textStart, textEnd),
-        isBlock: true,
-        isClosed: closing >= 0,
-        end: textEnd + (closing < 0 ? 0 : blockCommentClosing.length())]
-}
-
-// The comments one raw line holds, in order, each as its text without delimiters. Found by the source scan's
-// own literal and comment rules, so a comment opening after code is read and a '//' inside a string is not.
-def readLineComments = { String rawLine, boolean isInBlock, boolean isInRaw ->
-
-    def comments = []
-    def position = 0
-
-    if (isInBlock) {
-
-        def continued = readBlockComment(rawLine, 0)
-
-        comments << continued
-
-        if (!continued.isClosed) {
-            return comments
-        }
-
-        position = continued.end
-    }
-
-    def opening = findCommentOpening(rawLine, position, isInBlock, isInRaw)
-
-    while (opening >= 0) {
-
-        if (rawLine.startsWith(lineCommentOpening, opening)) {
-
-            comments << [text: rawLine.substring(opening + lineCommentOpening.length()), isBlock: false]
-            return comments
-        }
-
-        def block = readBlockComment(rawLine, opening + blockCommentOpening.length())
-
-        comments << block
-
-        if (!block.isClosed) {
-            return comments
-        }
-
-        opening = findCommentOpening(rawLine, block.end, isInBlock, isInRaw)
-    }
-
-    return comments
-}
-
-// The comment text of a Java or Kotlin file, paired with the line each comment sits on. A <pre> sample inside
-// a block comment is dropped whole, up to its closing tag or the end of its comment.
+// The comment text of a Java or Kotlin file, paired with the line each comment sits on. The comments are
+// the ones the source scan found by its own literal and comment rules, so a comment opening after code is
+// read and a '//' inside a string is not. A <pre> sample inside a block comment is dropped whole, up to its
+// closing tag or the end of its comment.
 //
 // Everything else in the file is invisible to the gate, so no identifier, literal or column can be reported
 // and the gate can never ask for a rename.
 def readCodeComments = { File sourceFile ->
 
     def commentLines = []
-    def isInBlock = false
-    def isInRaw = false
     def isInPre = false
 
-    sourceFile.readLines(sourceEncoding).eachWithIndex { String rawLine, int index ->
+    eachSourceLine(sourceFile) {
+        String rawLine, stripped,
+        int lineNumber ->
 
-        readLineComments(rawLine, isInBlock, isInRaw).each { comment ->
+            stripped
+                .commentSpans
+                .each { span ->
 
-            if (comment.isBlock && (isInPre || comment.text.contains(preOpeningTag))) {
+                    def commentText = rawLine.substring(span.start, span.end)
 
-                isInPre = !comment.text.contains(preClosingTag) && !comment.isClosed
-                return
-            }
+                    if (span.isBlock
+                            && (isInPre || commentText.contains(preOpeningTag))) {
 
-            commentLines << [text: readProseOf(comment.text), line: index + 1]
+                        isInPre = !commentText.contains(preClosingTag)
+                            && !span.isClosed
+
+                        return
+                    }
+
+                    commentLines << [text: readProseOf(commentText), line: lineNumber]
+                }
         }
-
-        def stripped = stripSourceLine(rawLine, isInBlock, isInRaw)
-
-        isInBlock = stripped.inBlock
-        isInRaw = stripped.inRaw
-    }
 
     return commentLines
 }
@@ -206,28 +128,36 @@ def readJavadocProse = { String text ->
         return text
     }
 
-    return text.substring(0, paramTag.end(1)) + ' ' * paramTag.group(2).length() + text.substring(paramTag.end(2))
+    return text.substring(0, paramTag.end(1)) +
+        ' ' * paramTag.group(2).length() +
+        text.substring(paramTag.end(2))
 }
 
 // Reports one message per misspelling the file says.
-def findMisspeltIds = { List proseLines, String reportedPath, boolean isCode ->
+def findMisspeltIds = {
+    List proseLines,
+    String reportedPath,
+    boolean isCode ->
 
-    def found = []
+        def found = []
 
-    proseLines.each { proseLine ->
+        proseLines.each { proseLine ->
 
-        def text = isCode ? readJavadocProse(proseLine.text) : proseLine.text
-        def matcher = proseIdPattern.matcher(text)
+            def text = isCode
+                ? readJavadocProse(proseLine.text)
+                : proseLine.text
 
-        while (matcher.find()) {
+            def matcher = proseIdPattern.matcher(text)
 
-            found << "${reportedPath}:${proseLine.line}: prose says \"${matcher.group()}\"; the abbreviation is " +
-                '"ID" (backtick it instead if it names code)'
+            while (matcher.find()) {
+
+                found << "${reportedPath}:${proseLine.line}: prose says \"${matcher.group()}\"; the abbreviation is " +
+                    '"ID" (backtick it instead if it names code)'
+            }
         }
-    }
 
-    return found
-}
+        return found
+    }
 
 def exemptGlobs = []
 
@@ -241,6 +171,11 @@ def enforceIdCasing = tasks.register('enforceIdCasing') {
     // else's copy.
     ext.exemptPath = { Map exemption ->
 
+        failOnUnknownDeclarationKeys(
+            'exemptPath',
+            exemption,
+            ['glob'])
+
         if (!exemption.glob) {
 
             throw new GradleException("exemptPath needs 'glob' (the project-relative path pattern to leave " +
@@ -253,7 +188,9 @@ def enforceIdCasing = tasks.register('enforceIdCasing') {
     // Code is scanned under src/ only, and only its comments are read. Both trees are rooted at the project,
     // so an exemption glob is matched against the same relative path it is written in.
     def scannedMarkdown = declareMarkdownFiles(it, 'scannedMarkdown')
-    def scannedCode = declareScannedFiles(it, createAuthoredFileTree(projectDir),
+    def scannedCode = declareScannedFiles(
+        it,
+        createAuthoredFileTree(projectDir),
         jvmSourceIncludes.collect { "src/${it}".toString() }, 'scannedCode')
 
     declareRuleSnapshot(it, 'exemptGlobs') { exemptGlobs }
@@ -264,36 +201,51 @@ def enforceIdCasing = tasks.register('enforceIdCasing') {
 
         // Matched by the same Ant globbing a fileTree include uses, so an exemption means what it would mean
         // anywhere else in the build.
-        def exemptionSpecs = exemptGlobs.collectEntries { [(it): new PatternSet().include(it).asSpec] }
+        def exemptionSpecs = exemptGlobs
+            .collectEntries { [(it): new PatternSet()
+                .include(it)
+                .asSpec] }
+
         def matchedGlobs = [] as Set
 
-        def judgeFile = { FileVisitDetails details, boolean isCode ->
+        def judgeFile = {
+            FileVisitDetails details,
+            boolean isCode ->
 
-            if (details.directory) {
-                return
+                if (details.directory) {
+                    return
+                }
+
+                def matchingGlobs = exemptionSpecs
+                    .findAll { it.value.isSatisfiedBy(details) }
+                    *.key
+
+                if (!matchingGlobs.isEmpty()) {
+
+                    matchedGlobs.addAll(matchingGlobs)
+                    return
+                }
+
+                def proseLines = isCode
+                    ? readCodeComments(details.file)
+                    : readMarkdownProse(details.file)
+
+                violations.addAll(findMisspeltIds(
+                    proseLines,
+                    details.path,
+                    isCode))
             }
-
-            def matchingGlobs = exemptionSpecs.findAll { it.value.isSatisfiedBy(details) }*.key
-
-            if (!matchingGlobs.isEmpty()) {
-
-                matchedGlobs.addAll(matchingGlobs)
-                return
-            }
-
-            def proseLines = isCode ? readCodeComments(details.file) : readMarkdownProse(details.file)
-
-            violations.addAll(findMisspeltIds(proseLines, details.path, isCode))
-        }
 
         scannedMarkdown.visit { judgeFile(it, false) }
         scannedCode.visit { judgeFile(it, true) }
 
         // An exemption matching nothing is dead config: it excuses no file, and the prose it was written for is
         // loose again the moment the path it meant comes back under another name.
-        exemptGlobs.findAll { !(it in matchedGlobs) }.each {
-            violations << "${it}: exemptPath matches no file, so it exempts nothing"
-        }
+        exemptGlobs
+            .findAll { !(it in matchedGlobs) }
+            .each {
+                violations << "${it}: exemptPath matches no file, so it exempts nothing"
+            }
 
         failOnViolations('Lower-case "id" in prose', violations)
     }
