@@ -159,9 +159,9 @@ def describeOpenClass = { Map compiledClass, String sourcePath, String ruleReaso
         ? "; ${ruleReason}"
         : ''
 
-    return
+    return (
         "${subject} is public and neither final nor abstract, so code in another JAR can extend it" +
-        "${stake}. Mark it final, or declare it with allowExtendableClass and the reason it has to stay open"
+        "${stake}. Mark it final, or declare it with allowExtendableClass and the reason it has to stay open")
 }
 
 // Reads every compiled class a rule holds. Answers the extendable classes no allowance covers, the

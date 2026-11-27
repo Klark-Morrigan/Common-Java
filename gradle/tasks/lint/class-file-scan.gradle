@@ -437,9 +437,9 @@ ext.describeUnreadableClass = {
     Map compiledClass,
     Map classFileRead ->
 
-        return
+        return (
             "${compiledClass.binaryName}${compiledClass.compiledFrom}: " +
-            "${classFileRead.unreadableReason}"
+            "${classFileRead.unreadableReason}")
     }
 
 // Everything the build compiles, taken as the directory the language plugins write into rather than

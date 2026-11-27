@@ -148,9 +148,9 @@ def recordMemberVisibility = {
         if (frame.maxRank != null
                 && visibility.rank < frame.maxRank) {
 
-            return
+            return (
                 "${sourceFile}:${lineNumber}: ${visibility.label} method declared below a " +
-                "${frame.maxLabel} method (line ${frame.maxLine}); more-visible methods must come first"
+                "${frame.maxLabel} method (line ${frame.maxLine}); more-visible methods must come first")
         }
 
         frame.maxRank = visibility.rank

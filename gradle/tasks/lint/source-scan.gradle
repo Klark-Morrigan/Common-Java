@@ -121,8 +121,8 @@ final class SourceLineStripper {
                     true,
                     closing >= 0)
 
-                position = closing < 0 ? length : closing
-                    + BLOCK_COMMENT_CLOSING.length()
+                position = (closing < 0 ? length : closing
+                    + BLOCK_COMMENT_CLOSING.length())
 
                 isInBlockComment = closing < 0
 
@@ -130,8 +130,8 @@ final class SourceLineStripper {
 
                 int closing = raw.indexOf(RAW_STRING_QUOTE, position)
 
-                int end = closing < 0 ? length : closing
-                    + RAW_STRING_QUOTE.length()
+                int end = (closing < 0 ? length : closing
+                    + RAW_STRING_QUOTE.length())
 
                 keepLiteral(keptText, raw, position, end, keepsLiterals)
                 position = end
