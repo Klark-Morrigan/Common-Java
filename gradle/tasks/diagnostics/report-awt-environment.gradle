@@ -59,7 +59,9 @@ def requiredFontFamilies = project.provider {
 // of the chain is the one that names fonts.
 def describeCauseChain = { Throwable failure ->
 
-    return readCauseChain(failure).collect { "${it.class.name}: ${it.message}" }.join(' <- caused by ')
+    return readCauseChain(failure)
+        .collect { "${it.class.name}: ${it.message}" }
+        .join(' <- caused by ')
 }
 
 def reportAwtEnvironment = tasks.register('reportAwtEnvironment') {
@@ -76,19 +78,23 @@ def reportAwtEnvironment = tasks.register('reportAwtEnvironment') {
 
     doLast {
 
-        // Everything is read inside one try: a broken graphics stack throws
-        // rather than answering, and the throwable IS the finding. Throwable,
-        // not Exception, because the failure this is written for is an Error -
-        // an InternalError out of the font manager, or the "no fonts found"
-        // Error behind it.
+        // Each question is asked inside a try of its own: a broken graphics
+        // stack throws rather than answering, the throwable IS the finding, and
+        // one question failing must not hide the other's answer. Throwable, not
+        // Exception, because the failure this is written for is an Error - an
+        // InternalError out of the font manager, or the "no fonts found" Error
+        // behind it.
         def facts = []
         def familyCount = unansweredFamilyCount
+        def isTextMeasured = false
 
         facts << "jvm: ${System.getProperty('java.version')} at ${System.getProperty('java.home')}"
         facts << "java.awt.headless: ${System.getProperty('java.awt.headless') ?: '(unset)'}"
 
         def jdkFontDir = new File(System.getProperty('java.home'), 'lib/fonts')
-        def jdkFontFiles = jdkFontDir.isDirectory() ? (jdkFontDir.list()?.length ?: 0) : 0
+        def jdkFontFiles = jdkFontDir.isDirectory()
+            ? (jdkFontDir.list()?.length ?: 0)
+            : 0
 
         // Absent is normal and not the fault: most JDKs ship no fonts of their own and rely on
         // the platform's. It is reported because where it IS present it is the fallback that
@@ -118,12 +124,21 @@ def reportAwtEnvironment = tasks.register('reportAwtEnvironment') {
         // call that fails on the runner this was written for.
         try {
             def canvas = new java.awt.image.BufferedImage(
-                1, 1, java.awt.image.BufferedImage.TYPE_INT_ARGB)
-            def metrics = canvas.createGraphics().getFontMetrics(
-                new java.awt.Font(measuredFontName, java.awt.Font.PLAIN, measuredFontSize))
+                1,
+                1,
+                java.awt.image.BufferedImage.TYPE_INT_ARGB)
+
+            def metrics = canvas
+                .createGraphics()
+                .getFontMetrics(new java.awt.Font(
+                    measuredFontName,
+                    java.awt.Font.PLAIN,
+                    measuredFontSize))
 
             facts << "text measurement: \"${measuredText}\" in ${measuredFontName} ${measuredFontSize} is " +
                 "${metrics.stringWidth(measuredText)}px"
+
+            isTextMeasured = true
 
         } catch (Throwable cannotMeasure) {
             facts << "text measurement: unavailable - ${describeCauseChain(cannotMeasure)}"
@@ -132,17 +147,26 @@ def reportAwtEnvironment = tasks.register('reportAwtEnvironment') {
         def report = "AWT environment:\n  " + facts.join('\n  ')
         def required = requiredFontFamilies.get()
 
-        if (required > 0 && familyCount < required) {
+        // Both answers gate: fonts listed but not measurable is the very failure this was written for,
+        // since a family count alone passes a machine whose glyphs cannot be resolved.
+        if (required > 0
+                && (familyCount < required || !isTextMeasured)) {
 
-            def offered = familyCount == unansweredFamilyCount ? 'no answer at all' : familyCount
+            def offered = familyCount == unansweredFamilyCount
+                ? 'no answer at all'
+                : familyCount
+
+            def measured = isTextMeasured
+                ? ''
+                : ', and cannot measure text in them'
 
             throw new GradleException(report +
                 "\n\nThis project declared awtFontFamiliesRequired = ${required}, and this " +
-                "machine offers ${offered}. A JVM with no usable fonts cannot construct a " +
-                'font manager, so every test that ' +
-                'builds a text component will fail with an InternalError naming nothing. ' +
-                'Install a font package and fontconfig on this machine (fonts-dejavu-core ' +
-                'plus fontconfig on Debian and Ubuntu, dejavu-sans-fonts on RHEL-likes).')
+                "machine offers ${offered} font families${measured}. A JVM with no usable fonts cannot " +
+                'construct a font manager, so every test that builds a text component will fail ' +
+                'with an InternalError naming nothing. Install a font package and fontconfig on ' +
+                'this machine (fonts-dejavu-core plus fontconfig on Debian and Ubuntu, ' +
+                'dejavu-sans-fonts on RHEL-likes).')
         }
 
         logger.lifecycle(report)
@@ -154,6 +178,8 @@ def reportAwtEnvironment = tasks.register('reportAwtEnvironment') {
 // than through whichever suite happens to build a text component first. Wired
 // through a closure so the requirement is read when the task graph is built,
 // after the consumer's own script has set it.
-tasks.matching { it.name == 'test' }.configureEach {
-    dependsOn({ requiredFontFamilies.get() > 0 ? reportAwtEnvironment : [] })
-}
+tasks
+    .matching { it.name == 'test' }
+    .configureEach {
+        dependsOn({ requiredFontFamilies.get() > 0 ? reportAwtEnvironment : [] })
+    }

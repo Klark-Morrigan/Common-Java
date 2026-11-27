@@ -1,3 +1,4 @@
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -18,7 +19,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AlignJavadocParamsFormatterIntegrationTests {
 
     private static final GateUnderTest FORMATTER =
-        new GateUnderTest("alignJavadocParams", "format/align-javadoc-params");
+        new GateUnderTest(
+            "alignJavadocParams",
+            "format/align-javadoc-params");
 
     private static final String MAIN_SAMPLE_PATH = GateProject.MAIN_JAVA_ROOT + "/Sample.java";
     private static final String TEST_SAMPLE_PATH = GateProject.TEST_JAVA_ROOT + "/Sample.java";
@@ -37,195 +40,315 @@ class AlignJavadocParamsFormatterIntegrationTests {
 
     private static final String NOTHING_TO_ALIGN = "every @param column already aligned";
 
-    @Test
-    void realignsDescriptionsWhenParamColumnsDisagree(@TempDir Path projectDir) {
+    @Nested
+    class AlignJavadocParams {
 
-        var project = formatting(projectDir, MAIN_SAMPLE_PATH, "drifted-columns");
+        @Test
+        void realignsDescriptionsWhenParamColumnsDisagree(@TempDir Path projectDir) {
 
-        project.runExpectingGateToPass();
+            // ARRANGE
+            var expectedText = GateProject.loadFixture("java/drifted-columns-aligned");
+            var project = formatting(
+                projectDir,
+                MAIN_SAMPLE_PATH,
+                "drifted-columns");
 
-        assertThat(project.readText(MAIN_SAMPLE_PATH))
-            .isEqualTo(GateProject.loadFixture("java/drifted-columns-aligned"));
-    }
+            // ACT
+            project.runExpectingGateToPass();
+            var actualText = project.readText(MAIN_SAMPLE_PATH);
 
-    @Test
-    void pullsAWrappedContinuationOntoTheDescriptionColumn(@TempDir Path projectDir) {
+            // ASSERT
+            assertThat(actualText)
+                .isEqualTo(expectedText);
+        }
 
-        var project = formatting(projectDir, MAIN_SAMPLE_PATH, "drifted-continuation");
+        @Test
+        void pullsAWrappedContinuationOntoTheDescriptionColumn(@TempDir Path projectDir) {
 
-        project.runExpectingGateToPass();
+            // ARRANGE
+            var expectedText = GateProject.loadFixture("java/drifted-continuation-aligned");
+            var project = formatting(
+                projectDir,
+                MAIN_SAMPLE_PATH,
+                "drifted-continuation");
 
-        assertThat(project.readText(MAIN_SAMPLE_PATH))
-            .isEqualTo(GateProject.loadFixture("java/drifted-continuation-aligned"));
-    }
+            // ACT
+            project.runExpectingGateToPass();
+            var actualText = project.readText(MAIN_SAMPLE_PATH);
 
-    @Test
-    void movesOnlyTheContinuationOfALoneParam(@TempDir Path projectDir) {
+            // ASSERT
+            assertThat(actualText)
+                .isEqualTo(expectedText);
+        }
 
-        // A single @param has no sibling to disagree with, so the column it already sets is the
-        // answer: its own line must come through untouched and only the wrapped line moves.
-        var project = formatting(projectDir, MAIN_SAMPLE_PATH, "lone-param-drifted-continuation");
+        // A single @param has no sibling to disagree with, so the column it already sets is the answer:
+        // its own line must come through untouched and only the wrapped line moves.
+        @Test
+        void movesOnlyTheContinuationOfALoneParam(@TempDir Path projectDir) {
 
-        project.runExpectingGateToPass();
+            // ARRANGE
+            var expectedText = GateProject.loadFixture(
+                "java/lone-param-drifted-continuation-aligned");
 
-        assertThat(project.readText(MAIN_SAMPLE_PATH))
-            .isEqualTo(GateProject.loadFixture("java/lone-param-drifted-continuation-aligned"));
-    }
+            var project = formatting(
+                projectDir,
+                MAIN_SAMPLE_PATH,
+                "lone-param-drifted-continuation");
 
-    @Test
-    void leavesATagAfterTheParamsWhereItIs(@TempDir Path projectDir) {
+            // ACT
+            project.runExpectingGateToPass();
+            var actualText = project.readText(MAIN_SAMPLE_PATH);
 
-        // A tag ends the description above it, so an @return is never pulled onto the @param
-        // column as if it were a wrapped line.
-        var project = formatting(projectDir, MAIN_SAMPLE_PATH, "return-after-drifted-params");
+            // ASSERT
+            assertThat(actualText)
+                .isEqualTo(expectedText);
+        }
 
-        project.runExpectingGateToPass();
+        // A tag ends the description above it, so an @return is never pulled onto the @param column as if
+        // it were a wrapped line.
+        @Test
+        void leavesATagAfterTheParamsWhereItIs(@TempDir Path projectDir) {
 
-        assertThat(project.readText(MAIN_SAMPLE_PATH))
-            .isEqualTo(GateProject.loadFixture("java/return-after-drifted-params-aligned"));
-    }
+            // ARRANGE
+            var expectedText = GateProject.loadFixture(
+                "java/return-after-drifted-params-aligned");
 
-    @Test
-    void leavesABlockAloneWhenEveryParamUsesOneSpace(@TempDir Path projectDir) {
+            var project = formatting(
+                projectDir,
+                MAIN_SAMPLE_PATH,
+                "return-after-drifted-params");
+
+            // ACT
+            project.runExpectingGateToPass();
+            var actualText = project.readText(MAIN_SAMPLE_PATH);
+
+            // ASSERT
+            assertThat(actualText)
+                .isEqualTo(expectedText);
+        }
 
         // Nobody aligned this block on purpose, so there is no column to restore.
-        var project = formatting(projectDir, MAIN_SAMPLE_PATH, "single-space-params");
+        @Test
+        void leavesABlockAloneWhenEveryParamUsesOneSpace(@TempDir Path projectDir) {
 
-        project.runExpectingGateToPass();
+            // ARRANGE
+            var expectedText = GateProject.loadFixture("java/single-space-params");
+            var project = formatting(
+                projectDir,
+                MAIN_SAMPLE_PATH,
+                "single-space-params");
 
-        assertThat(project.readText(MAIN_SAMPLE_PATH))
-            .isEqualTo(GateProject.loadFixture("java/single-space-params"));
-    }
+            // ACT
+            project.runExpectingGateToPass();
+            var actualText = project.readText(MAIN_SAMPLE_PATH);
 
-    @Test
-    void leavesABlockAloneWhenDescriptionsAlreadyAgree(@TempDir Path projectDir) {
+            // ASSERT
+            assertThat(actualText)
+                .isEqualTo(expectedText);
+        }
 
         // Padded on purpose and still in true: the second guard, which is what keeps the pass from
         // re-cutting every aligned block to its own preferred width.
-        var project = formatting(projectDir, MAIN_SAMPLE_PATH, "already-aligned-params");
+        @Test
+        void leavesABlockAloneWhenDescriptionsAlreadyAgree(@TempDir Path projectDir) {
 
-        var result = project.runExpectingGateToPass();
+            // ARRANGE
+            var expectedText = GateProject.loadFixture("java/already-aligned-params");
+            var project = formatting(
+                projectDir,
+                MAIN_SAMPLE_PATH,
+                "already-aligned-params");
 
-        assertThat(project.readText(MAIN_SAMPLE_PATH))
-            .isEqualTo(GateProject.loadFixture("java/already-aligned-params"));
-        assertThat(result.getOutput())
-            .contains(NOTHING_TO_ALIGN);
-    }
+            // ACT
+            var actualResult = project.runExpectingGateToPass();
+            var actualText = project.readText(MAIN_SAMPLE_PATH);
 
-    @Test
-    void scopesADocBlockThatOpensAndClosesOnOneLine(@TempDir Path projectDir) {
+            // ASSERT
+            assertThat(actualText)
+                .isEqualTo(expectedText);
+
+            assertThat(actualResult.getOutput())
+                .contains(NOTHING_TO_ALIGN);
+        }
 
         // A one-line /** ... */ must close where it opened. Left open, it would run on to the next
         // comment's terminator and swallow the block below it.
-        var project = formatting(projectDir, MAIN_SAMPLE_PATH, "one-line-block-before-drifted-block");
+        @Test
+        void scopesADocBlockThatOpensAndClosesOnOneLine(@TempDir Path projectDir) {
 
-        project.runExpectingGateToPass();
+            // ARRANGE
+            var expectedText = GateProject.loadFixture(
+                "java/one-line-block-before-drifted-block-aligned");
 
-        assertThat(project.readText(MAIN_SAMPLE_PATH))
-            .isEqualTo(GateProject.loadFixture("java/one-line-block-before-drifted-block-aligned"));
-    }
+            var project = formatting(
+                projectDir,
+                MAIN_SAMPLE_PATH,
+                "one-line-block-before-drifted-block");
 
-    @Test
-    void keepsTheLineEndingsTheFileArrivedWith(@TempDir Path projectDir) {
+            // ACT
+            project.runExpectingGateToPass();
+            var actualText = project.readText(MAIN_SAMPLE_PATH);
+
+            // ASSERT
+            assertThat(actualText)
+                .isEqualTo(expectedText);
+        }
 
         // A pass that rewrote a CRLF checkout's block to LF would turn one realigned column into a
         // whole-file diff.
-        var project = GateProject
-            .driving(FORMATTER, projectDir)
-            .applyingTheJavaPlugin()
-            .holdingText(MAIN_SAMPLE_PATH, asCrlf(GateProject.loadFixture("java/drifted-continuation")));
+        @Test
+        void keepsTheLineEndingsTheFileArrivedWith(@TempDir Path projectDir) {
 
-        project.runExpectingGateToPass();
+            // ARRANGE
+            var expectedText = asCrlf(GateProject.loadFixture(
+                "java/drifted-continuation-aligned"));
 
-        assertThat(project.readText(MAIN_SAMPLE_PATH))
-            .isEqualTo(asCrlf(GateProject.loadFixture("java/drifted-continuation-aligned")));
-    }
+            var project = GateProject
+                .driving(FORMATTER, projectDir)
+                .applyingTheJavaPlugin()
+                .holdingText(
+                    MAIN_SAMPLE_PATH,
+                    asCrlf(GateProject.loadFixture("java/drifted-continuation")));
 
-    @Test
-    void alignsASourceSetDeclaredAfterTheFormatter(@TempDir Path projectDir) {
+            // ACT
+            project.runExpectingGateToPass();
+            var actualText = project.readText(MAIN_SAMPLE_PATH);
+
+            // ASSERT
+            assertThat(actualText)
+                .isEqualTo(expectedText);
+        }
 
         // A consumer declares its own source sets after applying the shared scripts.
-        var project = formatting(projectDir, TOOLING_SAMPLE_PATH, "drifted-columns")
-            .configuringTheGate(DECLARES_A_TOOLING_SOURCE_SET);
+        @Test
+        void alignsASourceSetDeclaredAfterTheFormatter(@TempDir Path projectDir) {
 
-        project.runExpectingGateToPass();
+            // ARRANGE
+            var expectedText = GateProject.loadFixture("java/drifted-columns-aligned");
 
-        assertThat(project.readText(TOOLING_SAMPLE_PATH))
-            .isEqualTo(GateProject.loadFixture("java/drifted-columns-aligned"));
-    }
+            var project = formatting(
+                    projectDir,
+                    TOOLING_SAMPLE_PATH,
+                    "drifted-columns")
+                .configuringTheGate(DECLARES_A_TOOLING_SOURCE_SET);
 
-    @Test
-    void skipsASourceSetHeldOutOfTheFormatter(@TempDir Path projectDir) {
+            // ACT
+            project.runExpectingGateToPass();
+            var actualText = project.readText(TOOLING_SAMPLE_PATH);
 
-        var project = formatting(projectDir, TEST_SAMPLE_PATH, "drifted-columns")
-            .withBuildPreamble(EXEMPTS_THE_TEST_SOURCE_SET);
+            // ASSERT
+            assertThat(actualText)
+                .isEqualTo(expectedText);
+        }
 
-        var result = project.runExpectingGateToPass();
+        @Test
+        void skipsASourceSetHeldOutOfTheFormatter(@TempDir Path projectDir) {
 
-        assertThat(project.readText(TEST_SAMPLE_PATH))
-            .isEqualTo(GateProject.loadFixture("java/drifted-columns"));
-        assertThat(result.getOutput())
-            .contains(NOTHING_TO_ALIGN);
-    }
+            // ARRANGE
+            var expectedText = GateProject.loadFixture("java/drifted-columns");
 
-    @Test
-    void skipsASourceSetHeldOutAfterTheFormatterIsApplied(@TempDir Path projectDir) {
+            var project = formatting(projectDir, TEST_SAMPLE_PATH, "drifted-columns")
+                .withBuildPreamble(EXEMPTS_THE_TEST_SOURCE_SET);
 
-        var project = formatting(projectDir, TEST_SAMPLE_PATH, "drifted-columns")
-            .configuringTheGate(EXEMPTS_THE_TEST_SOURCE_SET);
+            // ACT
+            var actualResult = project.runExpectingGateToPass();
+            var actualText = project.readText(TEST_SAMPLE_PATH);
 
-        project.runExpectingGateToPass();
+            // ASSERT
+            assertThat(actualText)
+                .isEqualTo(expectedText);
 
-        assertThat(project.readText(TEST_SAMPLE_PATH))
-            .isEqualTo(GateProject.loadFixture("java/drifted-columns"));
-    }
+            assertThat(actualResult.getOutput())
+                .contains(NOTHING_TO_ALIGN);
+        }
 
-    @Test
-    void namesTheFilesItRewrote(@TempDir Path projectDir) {
+        @Test
+        void skipsASourceSetHeldOutAfterTheFormatterIsApplied(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var expectedText = GateProject.loadFixture("java/drifted-columns");
+
+            var project = formatting(projectDir, TEST_SAMPLE_PATH, "drifted-columns")
+                .configuringTheGate(EXEMPTS_THE_TEST_SOURCE_SET);
+
+            // ACT
+            project.runExpectingGateToPass();
+            var actualText = project.readText(TEST_SAMPLE_PATH);
+
+            // ASSERT
+            assertThat(actualText)
+                .isEqualTo(expectedText);
+        }
 
         // The pass is read as a diff, so its report has to say which files to look at.
-        var result = formatting(projectDir, MAIN_SAMPLE_PATH, "drifted-columns")
-            .runExpectingGateToPass();
+        @Test
+        void namesTheFilesItRewrote(@TempDir Path projectDir) {
 
-        assertThat(result.getOutput())
-            .contains("re-aligned 1 file(s)")
-            .contains("Sample.java (1)");
-    }
+            // ARRANGE
+            var expectedSummary = "re-aligned 1 file(s)";
+            var expectedFileLine = "Sample.java (1)";
+            var project = formatting(projectDir, MAIN_SAMPLE_PATH, "drifted-columns");
 
-    @Test
-    void passesWhenThereIsNoSourceAtAll(@TempDir Path projectDir) {
+            // ACT
+            var actualResult = project.runExpectingGateToPass();
 
-        var result = GateProject
-            .driving(FORMATTER, projectDir)
-            .applyingTheJavaPlugin()
-            .runExpectingGateToPass();
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedSummary)
+                .contains(expectedFileLine);
+        }
 
-        assertThat(result.getOutput())
-            .contains(NOTHING_TO_ALIGN);
-    }
+        @Test
+        void passesWhenThereIsNoSourceAtAll(@TempDir Path projectDir) {
 
-    @Test
-    void staysOutOfCheck(@TempDir Path projectDir) {
+            // ARRANGE
+            var project = GateProject
+                .driving(FORMATTER, projectDir)
+                .applyingTheJavaPlugin();
+
+            // ACT
+            var actualResult = project.runExpectingGateToPass();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(NOTHING_TO_ALIGN);
+        }
 
         // It rewrites source, so a build must never run it unasked.
-        var project = formatting(projectDir, MAIN_SAMPLE_PATH, "drifted-columns")
-            .runningTask("check");
+        @Test
+        void staysOutOfCheck(@TempDir Path projectDir) {
 
-        var result = project.runExpectingSuccess();
+            // ARRANGE
+            var expectedText = GateProject.loadFixture("java/drifted-columns");
 
-        assertThat(result.task(FORMATTER.taskPath()))
-            .isNull();
-        assertThat(project.readText(MAIN_SAMPLE_PATH))
-            .isEqualTo(GateProject.loadFixture("java/drifted-columns"));
+            var project = formatting(projectDir, MAIN_SAMPLE_PATH, "drifted-columns")
+                .runningTask("check");
+
+            // ACT
+            var actualResult = project.runExpectingSuccess();
+            var actualText = project.readText(MAIN_SAMPLE_PATH);
+
+            // ASSERT
+            assertThat(actualResult.task(FORMATTER.taskPath()))
+                .isNull();
+
+            assertThat(actualText)
+                .isEqualTo(expectedText);
+        }
     }
 
     // The java plugin, because the pass reads source sets rather than guessing at directory names.
-    private static GateProject formatting(Path projectDir, String samplePath, String fixtureName) {
+    private static GateProject formatting(
+            Path projectDir,
+            String samplePath,
+            String fixtureName) {
 
         return GateProject
             .driving(FORMATTER, projectDir)
             .applyingTheJavaPlugin()
-            .holdingFixture(samplePath, "java/" + fixtureName);
+            .holdingFixture(
+                samplePath,
+                "java/" + fixtureName);
     }
 
     // Fixtures are stored LF (.gitattributes pins this repo's text files), so a CRLF case is made

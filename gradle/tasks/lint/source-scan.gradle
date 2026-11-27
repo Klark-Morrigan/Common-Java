@@ -7,141 +7,63 @@
 // open a frame. That stripping, and the class-scope stack the structure gates read a member's class
 // off, are the same whichever rule a gate then states over them, so they are held once, here.
 
-apply from: new File(buildscript.sourceFile.parentFile, 'lint-gate.gradle')
+apply from: new File(
+    buildscript.sourceFile.parentFile,
+    'lint-gate.gradle')
 
-// The annotations that declare a JUnit test method, bare or fully qualified. The trailing \b stops
-// the alternation from also catching @Testable or @TestInstance.
-ext.testMethodAnnotation = ~(/@(?:org\.junit\.jupiter\.(?:api|params)\.)?/ +
-    /(?:Test|ParameterizedTest|RepeatedTest|TestFactory)\b/)
+// Where one comment's text runs on a line, without its delimiters, and for a block comment whether it
+// closes on that line.
+@groovy.transform.CompileStatic
+final class CommentSpan {
 
-// The roots a project's test code lives under: its suites, and the fixtures they share. The gates
-// holding test code to a convention read both, since a fixture is test code a suite reaches for.
-ext.testSourceRoots = ['src/test', 'src/testFixtures']
+    final int start
+    final int end
+    final boolean isBlock
+    final boolean isClosed
 
-// The word a suite's class name ends in: enforceSuffixOnSuites holds suites to it, and the
-// test-double gates read it to tell a suite over a double from the double itself.
-ext.suiteSuffix = 'Tests'
+    CommentSpan(int start, int end, boolean isBlock, boolean isClosed) {
 
-def lineCommentOpening = '//'
-def blockCommentOpening = '/*'
-def blockCommentClosing = '*/'
-def rawStringQuote = '"""'
-def backtick = '`'
-def literalQuotes = ['"', "'"]
-def escapeCharacter = '\\'
-
-// Copies literal text into the kept text when the caller keeps literal bodies.
-def keepLiteralText = { Map scan, String text ->
-
-    if (scan.keepsLiterals) {
-        scan.keptText.append(text)
+        this.start = start
+        this.end = end
+        this.isBlock = isBlock
+        this.isClosed = isClosed
     }
 }
 
-// Skips the open block comment up to and past its closing, or to the end of the line when it runs on.
-def skipBlockComment = { Map scan ->
+// One source line as SourceLineStripper read it:
+//
+// - raw           the line as written
+// - text          the line with comments gone, and literal bodies gone unless literals were kept
+// - inBlock       whether a block comment is still open at the end of the line
+// - inRaw         whether a triple-quoted string is still open at the end of the line
+// - hasComment    whether the line held any comment text, for a gate judging comments as such
+// - commentSpans  where each comment's text runs, in order
+//
+// A class rather than a map, since one is held for every line of every file a build's gates read.
+@groovy.transform.CompileStatic
+final class StrippedSourceLine {
 
-    def closing = scan.raw.indexOf(blockCommentClosing, scan.position)
-    if (closing < 0) {
+    final String raw
+    final String text
+    final boolean inBlock
+    final boolean inRaw
+    final boolean hasComment
+    final List<CommentSpan> commentSpans
 
-        scan.position = scan.raw.length()
-        return
-    }
+    StrippedSourceLine(
+            String raw,
+            String text,
+            boolean inBlock,
+            boolean inRaw,
+            boolean hasComment,
+            List<CommentSpan> commentSpans) {
 
-    scan.position = closing + blockCommentClosing.length()
-    scan.isInBlockComment = false
-}
-
-// Reads the open raw string up to and past its closing quotes, or to the end of the line when it runs on.
-def readRawString = { Map scan ->
-
-    def closing = scan
-        .raw
-        .indexOf(rawStringQuote, scan.position)
-
-    def end = closing < 0
-        ? scan.raw.length()
-        : closing + rawStringQuote.length()
-
-    keepLiteralText(
-        scan,
-        scan.raw.substring(scan.position, end))
-
-    scan.position = end
-    scan.isInRawString = closing < 0
-}
-
-// Skips a Kotlin backtick-quoted identifier, such as a test name like `does not bill a null facility`.
-// Its body can hold quotes, apostrophes and braces that are not code. Kotlin processes no escapes inside,
-// and the identifier cannot span lines, so it ends at the next backtick or with the line.
-def skipBacktickIdentifier = { Map scan ->
-
-    def closing = scan
-        .raw
-        .indexOf(backtick, scan.position + backtick.length())
-
-    scan.position = closing < 0
-        ? scan.raw.length()
-        : closing + backtick.length()
-}
-
-// Reads a string or char literal, stepping over escapes so an escaped quote does not end it. A literal
-// left open ends with the line.
-def readQuotedLiteral = { Map scan ->
-
-    def raw = scan.raw
-    def quote = raw[scan.position]
-    def end = scan.position + 1
-
-    while (end < raw.length() && raw[end] != quote) {
-
-        end += raw[end] == escapeCharacter
-            ? 2
-            : 1
-    }
-
-    end = Math.min(end + 1, raw.length())
-
-    keepLiteralText(scan, raw.substring(scan.position, end))
-    scan.position = end
-}
-
-// Reads one token of code: a comment or literal opening, or one character kept as code.
-def readCodeToken = { Map scan ->
-
-    def raw = scan.raw
-    def position = scan.position
-
-    if (raw.startsWith(lineCommentOpening, position)) {
-
-        scan.hasComment = true
-        scan.position = raw.length()
-
-    } else if (raw.startsWith(blockCommentOpening, position)) {
-
-        scan.hasComment = true
-        scan.isInBlockComment = true
-        scan.position += blockCommentOpening.length()
-
-    } else if (raw.startsWith(rawStringQuote, position)) {
-
-        keepLiteralText(scan, rawStringQuote)
-
-        scan.isInRawString = true
-        scan.position += rawStringQuote.length()
-
-    } else if (raw.startsWith(backtick, position)) {
-
-        skipBacktickIdentifier(scan)
-
-    } else if (raw[position] in literalQuotes) {
-
-        readQuotedLiteral(scan)
-
-    } else {
-
-        scan.keptText.append(raw[position])
-        scan.position += 1
+        this.raw = raw
+        this.text = text
+        this.inBlock = inBlock
+        this.inRaw = inRaw
+        this.hasComment = hasComment
+        this.commentSpans = commentSpans
     }
 }
 
@@ -149,69 +71,276 @@ def readCodeToken = { Map scan ->
 // string and char literals and Kotlin's backtick-quoted identifiers. Block comments and Kotlin
 // triple-quoted strings span lines, so their open state is threaded back in by the caller.
 //
-// keepsLiterals leaves literal bodies in place, for a gate whose subject can be spelt inside one;
-// they are still read as literals, so a '//' or '/*' inside a string opens no comment.
-//
-// hasComment tells whether the line held any comment text, for a gate judging comments as such.
+// Statically compiled, since it visits every character of every source file a gate reads: a dynamic
+// closure per character made it most of the time the gates take.
 //
 // Known heuristic limit: a quote embedded in Kotlin '${...}' interpolation can end a literal early -
 // tolerated, as a heuristic gate can afford to be.
-//
-// The line is read as a scan: a map of the raw line, the text kept so far, the position reached,
-// and which multi-line construct is open. One reader per construct moves the position on.
-ext.stripSourceLine = { String raw, boolean inBlock, boolean inRaw, boolean keepsLiterals = false ->
+@groovy.transform.CompileStatic
+final class SourceLineStripper {
 
-    def scan = [raw: raw,
-        keepsLiterals: keepsLiterals,
-        keptText: new StringBuilder(),
-        position: 0,
-        isInBlockComment: inBlock,
-        isInRawString: inRaw,
-        hasComment: inBlock]
+    private static final String LINE_COMMENT_OPENING = '//'
+    private static final String BLOCK_COMMENT_OPENING = '/*'
+    private static final String BLOCK_COMMENT_CLOSING = '*/'
+    private static final String RAW_STRING_QUOTE = '"""'
+    private static final char BACKTICK = '`' as char
+    private static final char DOUBLE_QUOTE = '"' as char
+    private static final char SINGLE_QUOTE = '\'' as char
+    private static final char ESCAPE_CHARACTER = '\\' as char
 
-    while (scan.position < raw.length()) {
+    private SourceLineStripper() {
+    }
 
-        if (scan.isInBlockComment) {
-            skipBlockComment(scan)
-        } else if (scan.isInRawString) {
-            readRawString(scan)
-        } else {
-            readCodeToken(scan)
+    // Answers the line stripped. keepsLiterals leaves literal bodies in place, for a gate whose subject
+    // can be spelt inside one; kept or not, a literal is read as one, so a '//' or '/*' inside a string
+    // opens nothing.
+    static StrippedSourceLine stripLine(
+            String raw,
+            boolean inBlock,
+            boolean inRaw,
+            boolean keepsLiterals) {
+
+        def keptText = new StringBuilder(raw.length())
+
+        List<CommentSpan> commentSpans = []
+        boolean isInBlockComment = inBlock
+        boolean isInRawString = inRaw
+        boolean hasComment = inBlock
+        int position = 0
+        int length = raw.length()
+
+        while (position < length) {
+
+            if (isInBlockComment) {
+
+                int closing = raw.indexOf(BLOCK_COMMENT_CLOSING, position)
+
+                commentSpans << new CommentSpan(
+                    position,
+                    closing < 0 ? length : closing,
+                    true,
+                    closing >= 0)
+
+                position = closing < 0 ? length : closing
+                    + BLOCK_COMMENT_CLOSING.length()
+
+                isInBlockComment = closing < 0
+
+            } else if (isInRawString) {
+
+                int closing = raw.indexOf(RAW_STRING_QUOTE, position)
+
+                int end = closing < 0 ? length : closing
+                    + RAW_STRING_QUOTE.length()
+
+                keepLiteral(keptText, raw, position, end, keepsLiterals)
+                position = end
+                isInRawString = closing < 0
+
+            } else if (raw.startsWith(LINE_COMMENT_OPENING, position)) {
+
+                hasComment = true
+                commentSpans << new CommentSpan(
+                    position + LINE_COMMENT_OPENING.length(),
+                    length,
+                    false,
+                    true)
+
+                position = length
+
+            } else if (raw.startsWith(BLOCK_COMMENT_OPENING, position)) {
+
+                // Its text is read as an open block from here, so a comment ending the line still
+                // leaves a span, empty, that a gate tracking open blocks reads.
+                hasComment = true
+                isInBlockComment = true
+                position += BLOCK_COMMENT_OPENING.length()
+
+                if (position == length) {
+                    commentSpans << new CommentSpan(length, length, true, false)
+                }
+
+            } else if (raw.startsWith(RAW_STRING_QUOTE, position)) {
+
+                keepLiteral(
+                    keptText,
+                    raw,
+                    position,
+                    position + RAW_STRING_QUOTE.length(),
+                    keepsLiterals)
+
+                isInRawString = true
+                position += RAW_STRING_QUOTE.length()
+
+            } else {
+
+                position = readCodeCharacter(
+                    keptText,
+                    raw,
+                    position,
+                    keepsLiterals)
+            }
+        }
+
+        // Stripping only removes text, so a line of the same length lost nothing and shares the raw string.
+        def text = keptText.length() == length
+            ? raw
+            : keptText.toString()
+
+        def spans = commentSpans.isEmpty()
+            ? Collections.<CommentSpan>emptyList()
+            : commentSpans.asImmutable()
+
+        return new StrippedSourceLine(
+            raw,
+            text,
+            isInBlockComment,
+            isInRawString,
+            hasComment,
+            spans)
+    }
+
+    // Reads what opens at position outside any comment or raw string, and answers where it ends. A
+    // Kotlin backtick-quoted identifier, such as a test name like `does not bill a null facility`, can
+    // hold quotes and braces that are not code; Kotlin processes no escapes inside it and it cannot
+    // span lines. A string or char literal steps over escapes, so an escaped quote does not end it.
+    // Either left open ends with the line.
+    private static int readCodeCharacter(
+            StringBuilder keptText,
+            String raw,
+            int position,
+            boolean keepsLiterals) {
+
+        int length = raw.length()
+        char opening = raw.charAt(position)
+
+        if (opening == BACKTICK) {
+
+            int closing = raw.indexOf(
+                (int) BACKTICK,
+                position + 1)
+
+            return closing < 0
+                ? length
+                : closing + 1
+        }
+
+        if (opening != DOUBLE_QUOTE
+                && opening != SINGLE_QUOTE) {
+
+            keptText.append(opening)
+
+            return position + 1
+        }
+
+        int end = position + 1
+
+        while (end < length
+                && raw.charAt(end) != opening) {
+
+            end += raw.charAt(end) == ESCAPE_CHARACTER
+                ? 2
+                : 1
+        }
+
+        end = Math.min(end + 1, length)
+        keepLiteral(
+            keptText,
+            raw,
+            position,
+            end,
+            keepsLiterals)
+
+        return end
+    }
+
+    private static void keepLiteral(
+            StringBuilder keptText,
+            String raw,
+            int start,
+            int end,
+            boolean keepsLiterals) {
+
+        if (keepsLiterals) {
+            keptText.append(raw, start, end)
+        }
+    }
+}
+
+// Each file's stripped lines, per build: most files are read by several gates, and stripping is the
+// part of a gate's scan that costs. Held on the build rather than the project, so a file is stripped
+// once whichever project's gate reaches it first, and dropped when the build ends. A file's size and
+// modification time are in its key, so a task rewriting a file mid-build is read afresh.
+def STRIPPED_LINES_PROPERTY = 'commonJavaStrippedSourceLines'
+
+if (!gradle.ext.has(STRIPPED_LINES_PROPERTY)) {
+    gradle.ext[STRIPPED_LINES_PROPERTY] = new java.util.concurrent.ConcurrentHashMap()
+}
+
+def strippedLinesByFile = gradle.ext[STRIPPED_LINES_PROPERTY]
+
+// Every line of a source file as a StrippedSourceLine, carrying the block-comment and raw-string state
+// from one line to the next. The list is shared between gates, so it cannot be changed.
+ext.readStrippedLines = {
+    File sourceFile,
+    boolean keepsLiterals = false ->
+
+        def memoKey =
+            "${sourceFile.absolutePath}|" +
+            "${sourceFile.length()}|" +
+            "${sourceFile.lastModified()}|" +
+            "${keepsLiterals}"
+
+        return strippedLinesByFile.computeIfAbsent(memoKey.toString()) {
+
+            def isInBlockComment = false
+            def isInRawString = false
+
+            sourceFile
+                .readLines(sourceEncoding)
+                .collect { String rawLine ->
+
+                    def stripped = SourceLineStripper.stripLine(
+                        rawLine,
+                        isInBlockComment,
+                        isInRawString,
+                        keepsLiterals)
+
+                    isInBlockComment = stripped.inBlock
+                    isInRawString = stripped.inRaw
+
+                    return stripped
+                }
+                .asImmutable()
         }
     }
 
-    return [text: scan.keptText.toString(),
-        inBlock: scan.isInBlockComment,
-        inRaw: scan.isInRawString,
-        hasComment: scan.hasComment]
-}
+// Hands each line of a source file to visitLine as its raw text, its StrippedSourceLine, and its
+// 1-based number.
+ext.eachSourceLine = {
+    File sourceFile,
+    boolean keepsLiterals = false,
+    Closure visitLine ->
 
-// Hands each line of a source file to visitLine as its raw text, what stripSourceLine answered for
-// it, and its 1-based number, carrying the block-comment and raw-string state from one line to the
-// next.
-ext.eachSourceLine = { File sourceFile, boolean keepsLiterals = false, Closure visitLine ->
-
-    def isInBlockComment = false
-    def isInRawString = false
-
-    sourceFile.readLines(sourceEncoding).eachWithIndex { rawLine, index ->
-
-        def stripped = stripSourceLine(rawLine, isInBlockComment, isInRawString, keepsLiterals)
-
-        isInBlockComment = stripped.inBlock
-        isInRawString = stripped.inRaw
-
-        visitLine(rawLine, stripped, index + 1)
-    }
+    readStrippedLines(sourceFile, keepsLiterals).eachWithIndex {
+        stripped,
+        index ->
+            visitLine(stripped.raw, stripped, index + 1)
+        }
 }
 
 // Hands each line of a source file to visitLine as its stripped text and 1-based number.
-ext.eachStrippedLine = { File sourceFile, boolean keepsLiterals = false, Closure visitLine ->
+ext.eachStrippedLine = {
+    File sourceFile,
+    boolean keepsLiterals = false,
+    Closure visitLine ->
 
-    eachSourceLine(sourceFile, keepsLiterals) { String rawLine, Map stripped, int lineNumber ->
-        visitLine(stripped.text, lineNumber)
+        readStrippedLines(sourceFile, keepsLiterals).eachWithIndex {
+            stripped,
+            index ->
+                visitLine(stripped.text, index + 1)
+            }
     }
-}
 
 // A class-like declaration that opens a scope, its keyword and its name. The lookbehind rejects a
 // Kotlin reference such as 'Foo::class' or 'x.object', which are uses, not declarations. 'enum
@@ -223,6 +352,12 @@ ext.classDeclarationPattern = ~/(?<![:.\w])(enum\s+class|class|interface|enum|re
 // any '{': a statement end, an initialiser, or the next declaration. A Kotlin class needs no body,
 // so 'object Marker' or 'data class Point(val x: Int)' must not hand its frame to the next brace.
 def bodilessDeclarationEnd = ~/[;=]|\b(?:fun|val|var|typealias|import|package|init)\b/
+
+// The characters the class-scope walk counts, as chars so a comparison makes no string per character.
+def OPENING_PARENTHESIS = '(' as char
+def CLOSING_PARENTHESIS = ')' as char
+def OPENING_BRACE = '{' as char
+def CLOSING_BRACE = '}' as char
 
 /**
  * Walks one source file line by line, handing each line to visitLine with the class scope it sits
@@ -305,23 +440,29 @@ ext.scanClassScopes = { File sourceFile, Closure visitLine ->
         // at the matching close. A frame is popped only when a '}' lands at the exact depth its
         // body opened at, so lambda and method braces deeper inside never disturb it. Parentheses
         // are counted so a constructor's parameters are not read as the end of its header.
-        line.eachWithIndex { ch, index ->
+        for (int index = 0;
+                index < line.length();
+                index++) {
 
-            if (pendingClass != null && parenDepth == 0 && index >= declarationEnd
+            char ch = line.charAt(index)
+
+            if (pendingClass != null
+                    && parenDepth == 0
+                    && index >= declarationEnd
                     && index in headerEndPositions) {
 
                 pendingClass = null
             }
 
-            if (ch == '(') {
+            if (ch == OPENING_PARENTHESIS) {
 
                 parenDepth++
 
-            } else if (ch == ')') {
+            } else if (ch == CLOSING_PARENTHESIS) {
 
                 parenDepth = Math.max(0, parenDepth - 1)
 
-            } else if (ch == '{') {
+            } else if (ch == OPENING_BRACE) {
 
                 braceDepth++
 
@@ -331,9 +472,11 @@ ext.scanClassScopes = { File sourceFile, Closure visitLine ->
                     pendingClass = null
                 }
 
-            } else if (ch == '}') {
+            } else if (ch == CLOSING_BRACE) {
 
-                if (!classStack.isEmpty() && classStack.last().openDepth == braceDepth) {
+                if (!classStack.isEmpty()
+                        && classStack.last().openDepth == braceDepth) {
+
                     classStack.removeAt(classStack.size() - 1)
                 }
 

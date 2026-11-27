@@ -1,0 +1,16 @@
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+class SampleTests {
+
+    @Test
+    void passes() {
+        assertEquals(1, 1);
+    }
+
+    @Test
+    void fails() {
+        assertEquals(2, 1, "the sum");
+    }
+}

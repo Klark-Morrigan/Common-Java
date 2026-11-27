@@ -1,3 +1,4 @@
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -40,7 +41,11 @@ class FormattedSourceLineGateIntegrationTests {
      * A gate built on the helper, with a sample it rejects. The fixture is filed under both java/
      * and kotlin/ in the gate's own suite folder, and is rejected at the same line in each.
      */
-    record LineGate(GateUnderTest gate, String violatingFixture, int violatingLine, String finding) {
+    record LineGate(
+            GateUnderTest gate,
+            String violatingFixture,
+            int violatingLine,
+            String finding) {
 
         @Override
         public String toString() {
@@ -68,118 +73,180 @@ class FormattedSourceLineGateIntegrationTests {
                 "consecutive blank line"));
     }
 
-    @ParameterizedTest
-    @MethodSource("readLineGates")
-    void passesWhenThereAreNoSources(LineGate lineGate, @TempDir Path projectDir) {
+    @Nested
+    class ConfigureFormattedSourceLineGate {
 
-        javaProject(lineGate, projectDir)
-            .runExpectingGateToPass();
-    }
+        @ParameterizedTest
+        @MethodSource("FormattedSourceLineGateIntegrationTests#readLineGates")
+        void passesWhenThereAreNoSources(LineGate lineGate, @TempDir Path projectDir) {
 
-    @ParameterizedTest
-    @MethodSource("readLineGates")
-    void failsOnAViolationInJava(LineGate lineGate, @TempDir Path projectDir) {
+            // ARRANGE
+            var project = javaProject(lineGate, projectDir);
 
-        var result = javaProject(lineGate, projectDir)
-            .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, lineGate.violatingFixture())
-            .runExpectingGateToFail();
+            // ACT
+            project.runExpectingGateToPass();
+        }
 
-        assertThat(result.getOutput())
-            .contains("Sample.java:" + lineGate.violatingLine() + ": " + lineGate.finding());
-    }
+        @ParameterizedTest
+        @MethodSource("FormattedSourceLineGateIntegrationTests#readLineGates")
+        void failsOnAViolationInJava(LineGate lineGate, @TempDir Path projectDir) {
 
-    @ParameterizedTest
-    @MethodSource("readLineGates")
-    void failsOnAViolationInKotlin(LineGate lineGate, @TempDir Path projectDir) {
+            // ARRANGE
+            var expectedMessage = "Sample.java:" + lineGate.violatingLine() + ": " + lineGate.finding();
 
-        var result = javaProject(lineGate, projectDir)
-            .withBuildPreamble(KOTLIN_TREE_ON_MAIN_SOURCE_SET)
-            .holdingKotlinSample(GateProject.MAIN_KOTLIN_ROOT, lineGate.violatingFixture())
-            .runExpectingGateToFail();
+            var project = javaProject(lineGate, projectDir)
+                .holdingJavaSample(
+                    GateProject.MAIN_JAVA_ROOT,
+                    lineGate.violatingFixture());
 
-        assertThat(result.getOutput())
-            .contains("Sample.kt:" + lineGate.violatingLine() + ": " + lineGate.finding());
-    }
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
 
-    @ParameterizedTest
-    @MethodSource("readLineGates")
-    void passesOnACleanSourceWithWindowsLineEndings(LineGate lineGate, @TempDir Path projectDir) {
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
+
+        @ParameterizedTest
+        @MethodSource("FormattedSourceLineGateIntegrationTests#readLineGates")
+        void failsOnAViolationInKotlin(LineGate lineGate, @TempDir Path projectDir) {
+
+            // ARRANGE
+            var expectedMessage = "Sample.kt:" + lineGate.violatingLine() + ": " + lineGate.finding();
+
+            var project = javaProject(lineGate, projectDir)
+                .withBuildPreamble(KOTLIN_TREE_ON_MAIN_SOURCE_SET)
+                .holdingKotlinSample(
+                    GateProject.MAIN_KOTLIN_ROOT,
+                    lineGate.violatingFixture());
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
 
         // The carriage return of a CRLF ending is the line's terminator, never part of the line.
-        javaProject(lineGate, projectDir)
-            .holdingBytes(
-                GateProject.MAIN_JAVA_ROOT + "/Sample.java",
-                CLEAN_CRLF_SOURCE.getBytes(StandardCharsets.UTF_8))
-            .runExpectingGateToPass();
-    }
+        @ParameterizedTest
+        @MethodSource("FormattedSourceLineGateIntegrationTests#readLineGates")
+        void passesOnACleanSourceWithWindowsLineEndings(LineGate lineGate, @TempDir Path projectDir) {
 
-    @ParameterizedTest
-    @MethodSource("readLineGates")
-    void failsOnAViolationInASourceSetTheBuildDeclares(LineGate lineGate, @TempDir Path projectDir) {
+            // ARRANGE
+            var project = javaProject(lineGate, projectDir)
+                .holdingBytes(
+                    GateProject.MAIN_JAVA_ROOT + "/Sample.java",
+                    CLEAN_CRLF_SOURCE.getBytes(StandardCharsets.UTF_8));
 
-        // The reason the gates read source sets rather than a list of tree names: named trees cover
-        // main and test and silently stop there.
-        var result = javaProject(lineGate, projectDir)
-            .withBuildPreamble(DECLARES_A_TOOLING_SOURCE_SET)
-            .holdingJavaSample(TOOLING_JAVA_ROOT, lineGate.violatingFixture())
-            .runExpectingGateToFail();
+            // ACT
+            project.runExpectingGateToPass();
+        }
 
-        assertThat(result.getOutput())
-            .contains("Sample.java:" + lineGate.violatingLine() + ": " + lineGate.finding());
-    }
+        // The reason the gates read source sets rather than a list of tree names: named trees cover main
+        // and test and silently stop there.
+        @ParameterizedTest
+        @MethodSource("FormattedSourceLineGateIntegrationTests#readLineGates")
+        void failsOnAViolationInASourceSetTheBuildDeclares(LineGate lineGate, @TempDir Path projectDir) {
 
-    @ParameterizedTest
-    @MethodSource("readLineGates")
-    void failsOnAViolationInASourceSetDeclaredAfterTheGate(LineGate lineGate, @TempDir Path projectDir) {
+            // ARRANGE
+            var expectedMessage = "Sample.java:" + lineGate.violatingLine() + ": " + lineGate.finding();
+
+            var project = javaProject(lineGate, projectDir)
+                .withBuildPreamble(DECLARES_A_TOOLING_SOURCE_SET)
+                .holdingJavaSample(
+                    TOOLING_JAVA_ROOT,
+                    lineGate.violatingFixture());
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
 
         // A consumer declares its own source sets after the conventions apply the gate.
-        var result = javaProject(lineGate, projectDir)
-            .configuringTheGate(DECLARES_A_TOOLING_SOURCE_SET)
-            .holdingJavaSample(TOOLING_JAVA_ROOT, lineGate.violatingFixture())
-            .runExpectingGateToFail();
+        @ParameterizedTest
+        @MethodSource("FormattedSourceLineGateIntegrationTests#readLineGates")
+        void failsOnAViolationInASourceSetDeclaredAfterTheGate(LineGate lineGate, @TempDir Path projectDir) {
 
-        assertThat(result.getOutput())
-            .contains("Sample.java:" + lineGate.violatingLine() + ": " + lineGate.finding());
-    }
+            // ARRANGE
+            var expectedMessage = "Sample.java:" + lineGate.violatingLine() + ": " + lineGate.finding();
 
-    @ParameterizedTest
-    @MethodSource("readLineGates")
-    void passesWhenTheOffendingSourceSetIsExemptFromTheFormatter(LineGate lineGate, @TempDir Path projectDir) {
+            var project = javaProject(lineGate, projectDir)
+                .configuringTheGate(DECLARES_A_TOOLING_SOURCE_SET)
+                .holdingJavaSample(
+                    TOOLING_JAVA_ROOT,
+                    lineGate.violatingFixture());
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
 
         // Exempt because its shape is not the repo's to choose, and its lines are part of that shape.
-        javaProject(lineGate, projectDir)
-            .withBuildPreamble(DECLARES_A_TOOLING_SOURCE_SET + EXEMPTS_THE_TOOLING_SOURCE_SET)
-            .holdingJavaSample(TOOLING_JAVA_ROOT, lineGate.violatingFixture())
-            .runExpectingGateToPass();
-    }
+        @ParameterizedTest
+        @MethodSource("FormattedSourceLineGateIntegrationTests#readLineGates")
+        void passesWhenTheOffendingSourceSetIsExemptFromTheFormatter(LineGate lineGate, @TempDir Path projectDir) {
 
-    @ParameterizedTest
-    @MethodSource("readLineGates")
-    void passesWhenTheExemptionIsDeclaredAfterTheGate(LineGate lineGate, @TempDir Path projectDir) {
+            // ARRANGE
+            var project = javaProject(lineGate, projectDir)
+                .withBuildPreamble(DECLARES_A_TOOLING_SOURCE_SET + EXEMPTS_THE_TOOLING_SOURCE_SET)
+                .holdingJavaSample(
+                    TOOLING_JAVA_ROOT,
+                    lineGate.violatingFixture());
 
-        javaProject(lineGate, projectDir)
-            .configuringTheGate(DECLARES_A_TOOLING_SOURCE_SET + EXEMPTS_THE_TOOLING_SOURCE_SET)
-            .holdingJavaSample(TOOLING_JAVA_ROOT, lineGate.violatingFixture())
-            .runExpectingGateToPass();
-    }
+            // ACT
+            project.runExpectingGateToPass();
+        }
 
-    @ParameterizedTest
-    @MethodSource("readLineGates")
-    void refusesABuildWithoutTheJavaPlugin(LineGate lineGate, @TempDir Path projectDir) {
+        @ParameterizedTest
+        @MethodSource("FormattedSourceLineGateIntegrationTests#readLineGates")
+        void passesWhenTheExemptionIsDeclaredAfterTheGate(LineGate lineGate, @TempDir Path projectDir) {
+
+            // ARRANGE
+            var project = javaProject(lineGate, projectDir)
+                .configuringTheGate(DECLARES_A_TOOLING_SOURCE_SET + EXEMPTS_THE_TOOLING_SOURCE_SET)
+                .holdingJavaSample(
+                    TOOLING_JAVA_ROOT,
+                    lineGate.violatingFixture());
+
+            // ACT
+            project.runExpectingGateToPass();
+        }
 
         // Refused before the gate can run, so there is no gate outcome to read: only the message.
-        var result = GateProject
-            .driving(lineGate.gate(), projectDir)
-            .runExpectingFailure();
+        @ParameterizedTest
+        @MethodSource("FormattedSourceLineGateIntegrationTests#readLineGates")
+        void refusesABuildWithoutTheJavaPlugin(LineGate lineGate, @TempDir Path projectDir) {
 
-        assertThat(result.getOutput())
-            .contains(lineGate.gate().taskName() + " needs the java plugin");
+            // ARRANGE
+            var expectedMessage = lineGate.gate().taskName() + " needs the java plugin";
+
+            var project = GateProject
+                .driving(
+                    lineGate.gate(),
+                    projectDir);
+
+            // ACT
+            var actualResult = project.runExpectingFailure();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
     }
 
     private static GateProject javaProject(LineGate lineGate, Path projectDir) {
 
         return GateProject
-            .driving(lineGate.gate(), projectDir)
+            .driving(
+                lineGate.gate(),
+                projectDir)
             .applyingTheJavaPlugin();
     }
 }

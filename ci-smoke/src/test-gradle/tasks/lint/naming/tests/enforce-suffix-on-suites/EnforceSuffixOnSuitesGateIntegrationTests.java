@@ -1,3 +1,4 @@
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -12,125 +13,180 @@ import static org.assertj.core.api.Assertions.assertThat;
 class EnforceSuffixOnSuitesGateIntegrationTests {
 
     private static final GateUnderTest GATE =
-        new GateUnderTest("enforceSuffixOnSuites", "lint/naming/tests/enforce-suffix-on-suites");
+        new GateUnderTest(
+            "enforceSuffixOnSuites",
+            "lint/naming/tests/enforce-suffix-on-suites");
 
     // The second root the gate reads: test code shared across suites.
 
-    // A suite is reported once however many tests it holds, so a developer reads one line per
-    // class to rename rather than one per test.
-    @Test
-    void failsOnceWhenASuiteEndsInTestInJava(@TempDir Path projectDir) {
+    @Nested
+    class EnforceSuffixOnSuites {
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("suite-ending-in-test-fails")
-            .runExpectingGateToFail();
+        // A suite is reported once however many tests it holds, so a developer reads one line per
+        // class to rename rather than one per test.
+        @Test
+        void failsOnceWhenASuiteEndsInTestInJava(@TempDir Path projectDir) {
 
-        assertThat(result.getOutput())
-            .contains("Sample.java:4: class 'SampleTest' holds tests and does not end in 'Tests'")
-            .containsOnlyOnce("'SampleTest'");
-    }
+            // ARRANGE
+            var expectedMessage = "Sample.java:4: class 'SampleTest' holds tests and does not end in 'Tests'";
+            var expectedOnceName = "'SampleTest'";
 
-    // A group is what a suite is built of, so a class declaring one is a suite before its first
-    // test lands.
-    @Test
-    void failsWhenAClassHoldsAGroupButNoTestYetInJava(@TempDir Path projectDir) {
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("suite-ending-in-test-fails");
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("group-without-tests-fails")
-            .runExpectingGateToFail();
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
 
-        assertThat(result.getOutput())
-            .contains("Sample.java:3: class 'SampleTest' holds tests and does not end in 'Tests'");
-    }
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage)
+                .containsOnlyOnce(expectedOnceName);
+        }
 
-    @Test
-    void passesWhenASuiteEndsInTestsInJava(@TempDir Path projectDir) {
+        // A group is what a suite is built of, so a class declaring one is a suite before its first
+        // test lands.
+        @Test
+        void failsWhenAClassHoldsAGroupButNoTestYetInJava(@TempDir Path projectDir) {
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("suite-ending-in-tests-passes")
-            .runExpectingGateToPass();
-    }
+            // ARRANGE
+            var expectedMessage = "Sample.java:3: class 'SampleTest' holds tests and does not end in 'Tests'";
 
-    @Test
-    void passesWhenAnIntegrationSuiteEndsInIntegrationTestsInJava(@TempDir Path projectDir) {
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("group-without-tests-fails");
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("integration-suite-passes")
-            .runExpectingGateToPass();
-    }
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
 
-    // A helper holds no test, so its name is its own; a nested class it declares without @Nested is
-    // no group either.
-    @Test
-    void passesWhenAHelperHoldsNoTestInJava(@TempDir Path projectDir) {
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaTestSample("helper-without-tests-passes")
-            .runExpectingGateToPass();
-    }
+        @Test
+        void passesWhenASuiteEndsInTestsInJava(@TempDir Path projectDir) {
 
-    @Test
-    void failsWhenASuiteEndsInTestInTestFixtures(@TempDir Path projectDir) {
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("suite-ending-in-tests-passes");
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingJavaSample(GateProject.TEST_FIXTURES_JAVA_ROOT, "suite-ending-in-test-fails")
-            .runExpectingGateToFail();
+            // ACT
+            project.runExpectingGateToPass();
+        }
 
-        assertThat(result.getOutput())
-            .contains("Sample.java:4: class 'SampleTest' holds tests");
-    }
+        @Test
+        void passesWhenAnIntegrationSuiteEndsInIntegrationTestsInJava(@TempDir Path projectDir) {
 
-    // A Kotlin group is an 'inner class' and its tests are declared with 'fun'; the outermost
-    // class is read the same as its Java form.
-    @Test
-    void failsWhenASuiteEndsInTestInKotlin(@TempDir Path projectDir) {
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("integration-suite-passes");
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("suite-ending-in-test-fails")
-            .runExpectingGateToFail();
+            // ACT
+            project.runExpectingGateToPass();
+        }
 
-        assertThat(result.getOutput())
-            .contains("Sample.kt:4: class 'SampleTest' holds tests and does not end in 'Tests'");
-    }
+        // A helper holds no test, so its name is its own; a nested class it declares without @Nested is
+        // no group either.
+        @Test
+        void passesWhenAHelperHoldsNoTestInJava(@TempDir Path projectDir) {
 
-    // A Kotlin file may hold several top-level classes; each is judged on its own, so a helper
-    // above a suite is not blamed for the suite's name.
-    @Test
-    void failsOnTheSuiteRatherThanAHelperAboveItInKotlin(@TempDir Path projectDir) {
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("helper-without-tests-passes");
 
-        var result = GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("helper-before-a-suite-fails")
-            .runExpectingGateToFail();
+            // ACT
+            project.runExpectingGateToPass();
+        }
 
-        assertThat(result.getOutput())
-            .contains("Sample.kt:9: class 'SampleTest' holds tests")
-            .doesNotContain("'SampleFixture'");
-    }
+        @Test
+        void failsWhenASuiteEndsInTestInTestFixtures(@TempDir Path projectDir) {
 
-    // A test outside any class is enforceTestsNested's finding. The class that closed above it
-    // is not its suite, and naming it would send its author to rename a helper.
-    @Test
-    void passesWhenATestSitsOutsideAnyClassInKotlin(@TempDir Path projectDir) {
+            // ARRANGE
+            var expectedMessage = "Sample.java:4: class 'SampleTest' holds tests";
 
-        GateProject
-            .driving(GATE, projectDir)
-            .holdingKotlinTestSample("test-outside-a-class-passes")
-            .runExpectingGateToPass();
-    }
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaSample(
+                    GateProject.TEST_FIXTURES_JAVA_ROOT,
+                    "suite-ending-in-test-fails");
 
-    @Test
-    void passesWhenThereIsNoTestTree(@TempDir Path projectDir) {
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
 
-        GateProject
-            .driving(GATE, projectDir)
-            .runExpectingGateToPass();
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
+
+        // A Kotlin group is an 'inner class' and its tests are declared with 'fun'; the outermost
+        // class is read the same as its Java form.
+        @Test
+        void failsWhenASuiteEndsInTestInKotlin(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var expectedMessage = "Sample.kt:4: class 'SampleTest' holds tests and does not end in 'Tests'";
+
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("suite-ending-in-test-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
+
+        // A Kotlin file may hold several top-level classes; each is judged on its own, so a helper
+        // above a suite is not blamed for the suite's name.
+        @Test
+        void failsOnTheSuiteRatherThanAHelperAboveItInKotlin(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var expectedMessage = "Sample.kt:9: class 'SampleTest' holds tests";
+            var unexpectedName = "'SampleFixture'";
+
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("helper-before-a-suite-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage)
+                .doesNotContain(unexpectedName);
+        }
+
+        // A test outside any class is enforceTestsNested's finding. The class that closed above it
+        // is not its suite, and naming it would send its author to rename a helper.
+        @Test
+        void passesWhenATestSitsOutsideAnyClassInKotlin(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("test-outside-a-class-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
+        }
+
+        @Test
+        void passesWhenThereIsNoTestTree(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir);
+
+            // ACT
+            project.runExpectingGateToPass();
+        }
     }
 }

@@ -30,15 +30,23 @@ apply from: new File(buildscript.sourceFile.parentFile, '../markdown-scan.gradle
 def forbiddenPhrases = []
 
 // Reports one message per forbidden phrase a file says, given the rules whose globs match it.
-def findForbiddenPhrases = { File markdownFile, String reportedPath, List applicablePhrases ->
+def findForbiddenPhrases = {
+        File markdownFile,
+        String reportedPath,
+        List applicablePhrases ->
 
     def found = []
 
-    visitProseLines(markdownFile) { String prose, int lineNumber ->
+    visitProseLines(markdownFile) {
+            String prose,
+            int lineNumber ->
 
         applicablePhrases.each { phrase ->
 
-            def matcher = phrase.pattern.matcher(prose)
+            def matcher = phrase
+                .pattern
+                .matcher(prose)
+
             if (matcher.find()) {
                 found << "${reportedPath}:${lineNumber}: ${phrase.reason}: '${matcher.group()}'"
             }
@@ -55,9 +63,16 @@ def enforceNoForbiddenPhrases = tasks.register('enforceNoForbiddenPhrases') { ga
 
     ext.forbidPhrase = { Map declaration ->
 
+        failOnUnknownDeclarationKeys(
+            'forbidPhrase',
+            declaration,
+            ['pattern', 'inFiles', 'reason'])
+
         def inFiles = readOneOrMany(declaration.inFiles)
 
-        if (!declaration.pattern || inFiles.isEmpty() || !declaration.reason) {
+        if (!declaration.pattern
+                || inFiles.isEmpty()
+                || !declaration.reason) {
 
             throw new GradleException("forbidPhrase needs 'pattern' (the regular expression ruled out), " +
                 "'inFiles' (the project-relative globs of the documents it is ruled out of) and 'reason' " +
@@ -67,7 +82,8 @@ def enforceNoForbiddenPhrases = tasks.register('enforceNoForbiddenPhrases') { ga
         def pattern
 
         try {
-            pattern = java.util.regex.Pattern.compile(declaration.pattern.toString())
+            pattern = java.util.regex.Pattern.compile(
+                declaration.pattern.toString())
 
         } catch (java.util.regex.PatternSyntaxException syntaxException) {
 
@@ -78,8 +94,12 @@ def enforceNoForbiddenPhrases = tasks.register('enforceNoForbiddenPhrases') { ga
         forbiddenPhrases << [
             pattern: pattern,
             // Sorted so the rule snapshot does not turn on declaration order.
-            inFiles: inFiles.collect { it.toString() }.sort(),
-            reason: declaration.reason.toString(),
+            inFiles: inFiles
+                .collect { it.toString() }
+                .sort(),
+            reason: declaration
+                .reason
+                .toString(),
         ]
     }
 
@@ -89,18 +109,20 @@ def enforceNoForbiddenPhrases = tasks.register('enforceNoForbiddenPhrases') { ga
         forbiddenPhrases.collect { "${it.pattern.pattern()} in ${it.inFiles}: ${it.reason}" }
     }
 
-    doLast {
+    skipWithoutRules(gate, forbiddenPhrases)
 
-        if (forbiddenPhrases.isEmpty()) {
-            return
-        }
+    doLast {
 
         def violations = []
 
         // Matched by the same Ant globbing a fileTree include uses, so a glob means what it would mean
         // anywhere else in the build.
         def phraseSpecs = forbiddenPhrases.collect { phrase ->
-            [phrase: phrase, spec: new PatternSet().include(phrase.inFiles).asSpec]
+            [
+                phrase: phrase,
+                spec: new PatternSet()
+                    .include(phrase.inFiles)
+                    .asSpec]
         }
 
         def matchedPhrases = [] as Set
@@ -118,15 +140,20 @@ def enforceNoForbiddenPhrases = tasks.register('enforceNoForbiddenPhrases') { ga
             if (!applicablePhrases.isEmpty()) {
 
                 matchedPhrases.addAll(applicablePhrases)
-                violations.addAll(findForbiddenPhrases(details.file, details.path, applicablePhrases))
+                violations.addAll(findForbiddenPhrases(
+                    details.file,
+
+                details.path, applicablePhrases))
             }
         }
 
         // A rule judging no file is dead config: it forbids nothing, and the documents it was written for
         // go unjudged the moment they come back under another path.
-        forbiddenPhrases.findAll { !(it in matchedPhrases) }.each {
-            violations << "${it.inFiles}: forbidPhrase matches no file, so it forbids nothing: '${it.pattern.pattern()}'"
-        }
+        forbiddenPhrases
+            .findAll { !(it in matchedPhrases) }
+            .each {
+                violations << "${it.inFiles}: forbidPhrase matches no file, so it forbids nothing: '${it.pattern.pattern()}'"
+            }
 
         failOnViolations('Forbidden phrases found', violations)
     }

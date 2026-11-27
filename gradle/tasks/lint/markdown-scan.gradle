@@ -18,54 +18,73 @@ ext.markdownCodeSpanPattern = ~/(`+).+?(?<!`)\1(?!`)/
 // Rewrites every inline code span on a line to spaces of the same width. A span is sample text, so what it
 // quotes is neither prose nor navigation; the columns stay where they were for anything reporting them.
 ext.blankMarkdownCodeSpans = { String line ->
-    return line.replaceAll(markdownCodeSpanPattern) { List<String> span -> ' ' * span[0].length() }
+    return line.replaceAll(markdownCodeSpanPattern) {
+        List<String> span -> ' ' * span[0].length() }
 }
 
 // Declares every authored .md file in the project as an input of the gate, and answers them as one tree.
 // The whole project rather than src/, because a repository's longest prose, its README, sits at the root.
-ext.declareMarkdownFiles = { Task gate, String propertyName = 'markdownFiles' ->
-    return declareScannedFiles(gate, createAuthoredFileTree(gate.project.projectDir), ['**/*.md'], propertyName)
-}
+ext.declareMarkdownFiles = {
+    Task gate,
+    String propertyName = 'markdownFiles' ->
+
+        return declareScannedFiles(
+            gate,
+            createAuthoredFileTree(gate.project.projectDir),
+            ['**/*.md'],
+            propertyName)
+    }
 
 // Hands each line of a Markdown file that sits outside a fenced code block to visitLine with its 1-based
 // number. A fenced block is sample text rather than prose or navigation, however it is spelt.
 //
-// A fence closes only on the character it opened with, so a ``` block can show a ~~~ fence as its content.
+// A fence closes, as CommonMark has it, only on a run of the character it opened with, at least as long as
+// the opening run and with nothing after it. So a ``` block can show a ~~~ fence as its content, and a ````
+// block can show a ``` one.
 ext.visitLinesOutsideFences = { File markdownFile, Closure visitLine ->
 
-    String openFenceCharacter = null
+    String openFence = null
 
-    markdownFile.eachLine(sourceEncoding) { String line, int lineNumber ->
+    markdownFile.eachLine(sourceEncoding) {
+        String line,
+        int lineNumber ->
 
-        def fenceMatcher = markdownFencePattern.matcher(line)
+            def fenceMatcher = markdownFencePattern.matcher(line)
+            if (fenceMatcher.find()) {
 
-        if (fenceMatcher.find()) {
+                def fence = fenceMatcher.group(1)
 
-            def fenceCharacter = fenceMatcher.group(1).substring(0, 1)
+                if (openFence == null) {
+                    openFence = fence
+                    return
+                }
 
-            if (openFenceCharacter == null) {
-                openFenceCharacter = fenceCharacter
-                return
+                def isClosingFence = fence.charAt(0) == openFence.charAt(0)
+                    && fence.length() >= openFence.length()
+                    && line.substring(fenceMatcher.end()).trim().isEmpty()
+
+                if (isClosingFence) {
+                    openFence = null
+                    return
+                }
             }
 
-            if (fenceCharacter == openFenceCharacter) {
-                openFenceCharacter = null
-                return
+            if (openFence == null) {
+                visitLine(line, lineNumber)
             }
         }
-
-        if (openFenceCharacter == null) {
-            visitLine(line, lineNumber)
-        }
-    }
 }
 
 // Hands each prose line of a Markdown file to visitProse with its 1-based number: every line outside a fenced
 // block, with its inline code spans blanked. Stated once, so the gates judging what a document says agree on
 // what is said and what is only quoted.
-ext.visitProseLines = { File markdownFile, Closure visitProse ->
+ext.visitProseLines = {
+    File markdownFile,
+    Closure visitProse ->
 
-    visitLinesOutsideFences(markdownFile) { String line, int lineNumber ->
-        visitProse(blankMarkdownCodeSpans(line), lineNumber)
+        visitLinesOutsideFences(markdownFile) {
+            String line,
+            int lineNumber ->
+                visitProse(blankMarkdownCodeSpans(line), lineNumber)
+            }
     }
-}

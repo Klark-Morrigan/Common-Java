@@ -1,0 +1,11 @@
+package example.app;
+
+/**
+ * Final itself, so the protected class nested in it is reachable through no subclass, though javac
+ * flags the nested class public in its own class file.
+ */
+public final class Shell {
+
+    protected static class Guarded {
+    }
+}

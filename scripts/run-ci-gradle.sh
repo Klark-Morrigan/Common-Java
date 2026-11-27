@@ -3,21 +3,20 @@
 # Local mirror of _ci-gradle.yml: runs a Gradle build/test with the same
 # flags the reusable workflow uses, so a green local run means a green CI run.
 #
-# Consumer-aware, the JVM counterpart to Common-Automation's
-# run-ci-yaml-and-bash.sh:
-#   - A consumer repo ships a same-named run-ci-gradle.sh shim that sets
-#     CONSUMER_REPO_PATH and execs this with its tasks; the build runs at
+# It builds one of two repos:
+#   - A consumer repo ships its own run-ci-gradle.sh that sets
+#     CONSUMER_REPO_PATH and runs this with its tasks; the build runs at
 #     that repo's root (its gradlew). The tasks are required: only the
 #     consumer knows which ones its own ci-gradle.yml runs.
-#   - With no consumer this runs against Common-Java itself. Common-Java's only
+#   - With no consumer this builds Common-Java itself. Common-Java's only
 #     Gradle project is the CI smoke project under ci-smoke/, which exercises
 #     the shared Gradle scripts - the same build ci-gradle.yml runs - so the
-#     self-run builds that (default: build), a local mirror of that CI gate.
+#     self build runs that (default: build).
 #
-# A Gradle build is a single gradlew invocation, so - unlike the bash root -
-# there are no separate underscored sub-runners to orchestrate: this script
-# is both the entry and the engine. It holds no knowledge of any consumer's
-# build: whatever a build needs from its machine is the build's concern - if
+# Unlike the other scripts here, this one does the work itself rather than
+# handing it to Common-Automation: a Gradle build is one gradlew call, so
+# there is nothing to share. It knows nothing of any consumer's build:
+# whatever a build needs from its machine is the build's concern - if
 # missing, the build fails with its own message.
 
 set -euo pipefail
@@ -26,16 +25,19 @@ set -euo pipefail
 readonly -a SELF_BUILD_TASKS=(build)
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-common_java_root="$(cd "${script_dir}/.." && pwd)"
 
-# Reuse Common-Automation's hold-window helper so a double-clicked launch
-# behaves like every other runner in the family. The imports/ adapter owns
-# the cross-repo resolution, the EXIT trap, and a soft-dependency guard (a
-# missing Common-Automation degrades to "no pause" rather than failing).
+# shellcheck source=scripts/imports/_consumer-repo.sh
+source "${script_dir}/imports/_consumer-repo.sh"
+
+# Holds a double-clicked window open on exit, as every other script here
+# does. Optional: without Common-Automation the window simply closes.
 # shellcheck source=scripts/imports/_hold-window.sh
 source "${script_dir}/imports/_hold-window.sh"
 
-if [[ -n "${CONSUMER_REPO_PATH:-}" ]]; then
+# The import defaults CONSUMER_REPO_PATH to Common-Java, so a match means no
+# consumer was named.
+if [[ "${CONSUMER_REPO_PATH}" != "${common_java_root}" ]]; then
+
     # Consumer build: the Gradle project is at the consumer repo's root.
     build_dir="${CONSUMER_REPO_PATH}"
     if [[ "$#" -eq 0 ]]; then
@@ -57,9 +59,11 @@ fi
 
 echo "=== gradlew $* (in ${build_dir}) ==="
 cd "${build_dir}"
-# --no-daemon --console=plain --warning-mode all matches _ci-gradle.yml so local
-# output and process model line up with CI - including which deprecations are
-# named, so one is not first seen on a runner.
-./gradlew "$@" --no-daemon --console=plain --warning-mode all
+
+# The flags match _ci-gradle.yml so local output, process model and cached
+# task results line up with CI - including which deprecations are named, so
+# one is not first seen on a runner.
+./gradlew "$@" --no-daemon --console=plain --warning-mode all --build-cache
+
 echo
 echo "Gradle build passed."

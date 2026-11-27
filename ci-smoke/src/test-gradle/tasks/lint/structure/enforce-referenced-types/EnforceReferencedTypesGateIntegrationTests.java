@@ -18,7 +18,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 class EnforceReferencedTypesGateIntegrationTests {
 
     private static final GateUnderTest GATE =
-        new GateUnderTest("enforceReferencedTypes", "lint/structure/enforce-referenced-types");
+        new GateUnderTest(
+            "enforceReferencedTypes",
+            "lint/structure/enforce-referenced-types");
 
     private static final String EXTENSION = "enforceReferencedTypes";
 
@@ -33,51 +35,106 @@ class EnforceReferencedTypesGateIntegrationTests {
 
     private static final String NOTHING_DECLARED = "";
 
-    private static final String PUBLISHED_PACKAGE_AND_THE_SEAM = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "restrictReferences namespace: '" + NAMESPACE + "', allowingPackages: ['" + PUBLISHED_PACKAGE +
-            "'], allowingTypes: ['" + SEAM_TYPE + "']");
+    private static final String PUBLISHED_PACKAGE_AND_THE_SEAM =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "restrictReferences namespace: '" +
+                NAMESPACE +
+                "', allowingPackages: ['" +
+                PUBLISHED_PACKAGE +
+                "'], allowingTypes: ['" +
+                SEAM_TYPE +
+                "']");
 
-    private static final String THE_PUBLISHED_PACKAGE_ALONE = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "restrictReferences namespace: '" + NAMESPACE + "', allowingPackages: ['" + PUBLISHED_PACKAGE + "']");
+    private static final String THE_PUBLISHED_PACKAGE_ALONE =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "restrictReferences namespace: '" +
+                NAMESPACE +
+                "', allowingPackages: ['" +
+                PUBLISHED_PACKAGE +
+                "']");
 
-    private static final String NOTHING_IN_THE_NAMESPACE = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "restrictReferences namespace: '" + NAMESPACE + "'");
+    private static final String NOTHING_IN_THE_NAMESPACE =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "restrictReferences namespace: '" +
+                NAMESPACE +
+                "'");
 
     // Closed in the shipped tree alone: a rule about what the runtime refuses to load.
-    private static final String NOTHING_IN_THE_NAMESPACE_IN_MAIN = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "restrictReferences namespace: '" + NAMESPACE + "', inSourceSets: 'main'");
+    private static final String NOTHING_IN_THE_NAMESPACE_IN_MAIN =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "restrictReferences namespace: '" +
+                NAMESPACE +
+                "', inSourceSets: 'main'");
 
     private static final String RUNTIME_REFUSAL = "the runtime refuses to load it";
 
-    private static final String NOTHING_IN_THE_NAMESPACE_WITH_A_REASON = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "restrictReferences namespace: '" + NAMESPACE + "', reason: '" + RUNTIME_REFUSAL + "'");
+    private static final String NOTHING_IN_THE_NAMESPACE_WITH_A_REASON =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "restrictReferences namespace: '" +
+                NAMESPACE +
+                "', reason: '" +
+                RUNTIME_REFUSAL +
+                "'");
 
     private static final String NOTHING_IN_THE_NAMESPACE_IN_A_MISSPELT_SOURCE_SET =
         GateProject.buildConfigurationBlock(
             EXTENSION,
-            "restrictReferences namespace: '" + NAMESPACE + "', inSourceSets: ['mian']");
+            "restrictReferences namespace: '" +
+                NAMESPACE +
+                "', inSourceSets: ['mian']");
 
-    private static final String THE_NAMESPACE_DECLARED_TWICE = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "restrictReferences namespace: '" + NAMESPACE + "', inSourceSets: ['main']",
-        "restrictReferences namespace: '" + NAMESPACE + "', inSourceSets: ['test']");
+    private static final String THE_NAMESPACE_DECLARED_TWICE =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "restrictReferences namespace: '" +
+                NAMESPACE +
+                "', inSourceSets: ['main']",
+            "restrictReferences namespace: '" +
+                NAMESPACE +
+                "', inSourceSets: ['test']");
+
+    // A rule nothing compiled here breaks, for a passing run that still reads every class.
+    private static final String ONLY_AN_UNRELATED_NAMESPACE =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "restrictReferences namespace: '" +
+                UNRELATED_NAMESPACE +
+                "'");
+
+    private static final String A_RULE_WITH_A_MISSPELT_KEY =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "restrictReferences namespace: '" +
+                NAMESPACE +
+                "', allowingType: '" +
+                SEAM_TYPE +
+                "'");
 
     // The shape a misspelt or forgotten 'namespace:' takes.
-    private static final String HALF_DECLARED_NAMESPACE = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "restrictReferences allowingPackages: ['" + PUBLISHED_PACKAGE + "']");
+    private static final String HALF_DECLARED_NAMESPACE =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "restrictReferences allowingPackages: ['" +
+                PUBLISHED_PACKAGE +
+                "']");
 
     // A rule held to the test tree, where nothing is compiled, beside a rule that reads every class.
-    private static final String THE_SEAM_IN_AN_EMPTY_TREE_BESIDE_ANOTHER_RULE = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "restrictReferences namespace: '" + NAMESPACE + "', inSourceSets: ['test'], allowingTypes: '" +
-            SEAM_TYPE + "'",
-        "restrictReferences namespace: '" + UNRELATED_NAMESPACE + "'");
+    private static final String THE_SEAM_IN_AN_EMPTY_TREE_BESIDE_ANOTHER_RULE =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "restrictReferences namespace: '" +
+                NAMESPACE +
+                "', inSourceSets: ['test'], allowingTypes: '" +
+                SEAM_TYPE +
+                "'",
+            "restrictReferences namespace: '" +
+                UNRELATED_NAMESPACE +
+                "'");
 
     // The class file the unreadable-class case poses, by the names the format gives each part. The
     // buffer is roomier than the file and trimmed to what was written.
@@ -101,153 +158,251 @@ class EnforceReferencedTypesGateIntegrationTests {
         @Test
         void failsWhenTheDeclarationNamesNoNamespace(@TempDir Path projectDir) {
 
-            var result = stageTheLibrary(projectDir, HALF_DECLARED_NAMESPACE)
-                .runExpectingFailure();
+            // ARRANGE
+            var expectedMessage = "restrictReferences needs 'namespace'";
+            var project = stageTheLibrary(projectDir, HALF_DECLARED_NAMESPACE);
 
-            assertThat(result.getOutput())
-                .contains("restrictReferences needs 'namespace'");
+            // ACT
+            var actualResult = project.runExpectingFailure();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
+        // Two rules over one namespace would judge each other's allowances against a merged set.
         @Test
         void failsWhenANamespaceIsDeclaredTwice(@TempDir Path projectDir) {
 
-            // Two rules over one namespace would judge each other's allowances against a merged set.
-            var result = stageTheLibrary(projectDir, THE_NAMESPACE_DECLARED_TWICE)
-                .runExpectingFailure();
+            // ARRANGE
+            var expectedMessage = "restrictReferences declares '" + NAMESPACE + "' a second time";
+            var project = stageTheLibrary(projectDir, THE_NAMESPACE_DECLARED_TWICE);
 
-            assertThat(result.getOutput())
-                .contains("restrictReferences declares '" + NAMESPACE + "' a second time");
+            // ACT
+            var actualResult = project.runExpectingFailure();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
+        // A misspelt source set matches no compiled tree, so its rule would check nothing.
         @Test
         void failsWhenARuleNamesASourceSetTheBuildDoesNotHave(@TempDir Path projectDir) {
 
-            // A misspelt source set matches no compiled tree, so its rule would check nothing.
-            var result = stageTheLibrary(projectDir, NOTHING_IN_THE_NAMESPACE_IN_A_MISSPELT_SOURCE_SET)
-                .holdingFixture(GateProject.MAIN_JAVA_ROOT + CALLER_PATH, "java/caller-naming-the-unpromised-type")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "names source set(s) [mian] this build does not have";
 
-            assertThat(result.getOutput())
-                .contains("names source set(s) [mian] this build does not have");
+            var project = stageTheLibrary(projectDir, NOTHING_IN_THE_NAMESPACE_IN_A_MISSPELT_SOURCE_SET)
+                .holdingFixture(
+                    GateProject.MAIN_JAVA_ROOT + CALLER_PATH,
+                    "java/caller-naming-the-unpromised-type");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
+        // A misspelt allowance key would otherwise be dropped, closing the namespace it meant to open.
         @Test
-        void passesWhenNoNamespaceIsDeclared(@TempDir Path projectDir) {
+        void failsWhenARuleNamesAKeyItDoesNotTake(@TempDir Path projectDir) {
 
-            stageTheLibrary(projectDir, NOTHING_DECLARED)
-                .holdingFixture(GateProject.MAIN_JAVA_ROOT + CALLER_PATH, "java/caller-naming-the-unpromised-type")
-                .runExpectingGateToPass();
+            // ARRANGE
+            var expectedMessage =
+                "restrictReferences does not take 'allowingType'; it takes 'namespace', " +
+                    "'allowingPackages', 'allowingTypes', 'inSourceSets', 'reason'";
+
+            var project = stageTheLibrary(projectDir, A_RULE_WITH_A_MISSPELT_KEY);
+
+            // ACT
+            var actualResult = project.runExpectingFailure();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
+        // Every consumer inherits the gate, so one declaring nothing has it sit out.
         @Test
-        void failsAgainAfterAPassingRunOnceARuleIsDeclared(@TempDir Path projectDir) {
+        void sitsOutWhenNoNamespaceIsDeclared(@TempDir Path projectDir) {
 
-            // Were the rules not a task input, the second run would be UP-TO-DATE.
-            stageTheLibrary(projectDir, NOTHING_DECLARED)
-                .holdingFixture(GateProject.MAIN_JAVA_ROOT + CALLER_PATH, "java/caller-naming-the-unpromised-type")
+            // ARRANGE
+            var project = stageTheLibrary(projectDir, NOTHING_DECLARED)
+                .holdingFixture(
+                    GateProject.MAIN_JAVA_ROOT + CALLER_PATH,
+                    "java/caller-naming-the-unpromised-type");
+
+            // ACT
+            project.runExpectingGateToBeSkipped();
+        }
+
+        // Were the rules not a task input, the second run would be UP-TO-DATE.
+        @Test
+        void failsAgainAfterAPassingRunOnceARuleTightens(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var expectedMessage = "example/consumer/Caller in java/main references " + UNPROMISED_TYPE;
+
+            stageTheLibrary(projectDir, ONLY_AN_UNRELATED_NAMESPACE)
+                .holdingFixture(
+                    GateProject.MAIN_JAVA_ROOT + CALLER_PATH,
+                    "java/caller-naming-the-unpromised-type")
                 .runExpectingGateToPass();
 
-            var result = stageTheLibrary(projectDir, NOTHING_IN_THE_NAMESPACE)
-                .runExpectingGateToFail();
+            var project = stageTheLibrary(projectDir, NOTHING_IN_THE_NAMESPACE);
 
-            assertThat(result.getOutput())
-                .contains("example/consumer/Caller in java/main references " + UNPROMISED_TYPE);
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
     }
 
     @Nested
     class References {
 
+        // The case no source-text pass can reach: the compiler writes the type the seam hands back
+        // into the caller's own descriptor.
         @Test
         void failsWhenCompiledCodeCarriesAnUnpromisedNameTheSourceNeverSpells(@TempDir Path projectDir) {
 
-            // The case no source-text pass can reach: the compiler writes the type the seam hands
-            // back into the caller's own descriptor.
-            var result = stageTheLibrary(projectDir, PUBLISHED_PACKAGE_AND_THE_SEAM)
-                .holdingFixture(GateProject.MAIN_JAVA_ROOT + CALLER_PATH, "java/caller-taking-a-value-from-the-seam")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "example/consumer/Caller in java/main references " + UNPROMISED_TYPE +
+                ", which example.library does not promise to keep spelled that way";
 
-            assertThat(result.getOutput())
-                .contains("example/consumer/Caller in java/main references " + UNPROMISED_TYPE +
-                    ", which example.library does not promise to keep spelled that way");
+            var project = stageTheLibrary(projectDir, PUBLISHED_PACKAGE_AND_THE_SEAM)
+                .holdingFixture(
+                    GateProject.MAIN_JAVA_ROOT + CALLER_PATH,
+                    "java/caller-taking-a-value-from-the-seam");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
+        // An allowance is per type: the type named here sits in the seam's own package.
         @Test
         void failsWhenASiblingOfAnAllowedTypeIsNamedOutright(@TempDir Path projectDir) {
 
-            // An allowance is per type: the type named here sits in the seam's own package.
-            var result = stageTheLibrary(projectDir, PUBLISHED_PACKAGE_AND_THE_SEAM)
-                .holdingFixture(GateProject.MAIN_JAVA_ROOT + CALLER_PATH, "java/caller-naming-the-unpromised-type")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "example/consumer/Caller in java/main references " + UNPROMISED_TYPE;
 
-            assertThat(result.getOutput())
-                .contains("example/consumer/Caller in java/main references " + UNPROMISED_TYPE);
+            var project = stageTheLibrary(projectDir, PUBLISHED_PACKAGE_AND_THE_SEAM)
+                .holdingFixture(
+                    GateProject.MAIN_JAVA_ROOT + CALLER_PATH,
+                    "java/caller-naming-the-unpromised-type");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
+        // '(ILexample/library/internal/Renamed;)V': the descriptor's 'L' follows a primitive.
         @Test
         void failsWhenTheUnpromisedTypeFollowsAPrimitiveInADescriptor(@TempDir Path projectDir) {
 
-            // '(ILexample/library/internal/Renamed;)V': the descriptor's 'L' follows a primitive.
-            var result = stageTheLibrary(projectDir, NOTHING_IN_THE_NAMESPACE)
+            // ARRANGE
+            var expectedMessage = "example/consumer/Caller in java/main references " + UNPROMISED_TYPE;
+
+            var project = stageTheLibrary(projectDir, NOTHING_IN_THE_NAMESPACE)
                 .holdingFixture(
                     GateProject.MAIN_JAVA_ROOT + CALLER_PATH,
-                    "java/caller-taking-the-unpromised-type-after-a-primitive")
-                .runExpectingGateToFail();
+                    "java/caller-taking-the-unpromised-type-after-a-primitive");
 
-            assertThat(result.getOutput())
-                .contains("example/consumer/Caller in java/main references " + UNPROMISED_TYPE);
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
+        // 'other/example/library/Lookalike' holds the namespace's segments but is not under it.
         @Test
         void passesWhenATypeOnlyContainsTheNamespaceBelowAnotherPackage(@TempDir Path projectDir) {
 
-            // 'other/example/library/Lookalike' holds the namespace's segments but is not under it.
-            stageTheLibrary(projectDir, NOTHING_IN_THE_NAMESPACE)
+            // ARRANGE
+            var project = stageTheLibrary(projectDir, NOTHING_IN_THE_NAMESPACE)
                 .holdingFixture(
                     GateProject.MAIN_JAVA_ROOT + "/other/example/library/Lookalike.java",
                     "java/library-lookalike")
-                .holdingFixture(GateProject.MAIN_JAVA_ROOT + CALLER_PATH, "java/caller-naming-a-lookalike-type")
-                .runExpectingGateToPass();
+                .holdingFixture(
+                    GateProject.MAIN_JAVA_ROOT + CALLER_PATH,
+                    "java/caller-naming-a-lookalike-type");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
+        // The default sentence is about unstable spellings, which is false for any other reason.
         @Test
         void failsEndingAFindingWithTheReasonTheRuleGives(@TempDir Path projectDir) {
 
-            // The default sentence is about unstable spellings, which is false for any other reason.
-            var result = stageTheLibrary(projectDir, NOTHING_IN_THE_NAMESPACE_WITH_A_REASON)
-                .holdingFixture(GateProject.MAIN_JAVA_ROOT + CALLER_PATH, "java/caller-naming-the-unpromised-type")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "references " + UNPROMISED_TYPE + ", which " + RUNTIME_REFUSAL;
+            var unexpectedSentence = "does not promise to keep spelled that way";
 
-            assertThat(result.getOutput())
-                .contains("references " + UNPROMISED_TYPE + ", which " + RUNTIME_REFUSAL)
-                .doesNotContain("does not promise to keep spelled that way");
+            var project = stageTheLibrary(projectDir, NOTHING_IN_THE_NAMESPACE_WITH_A_REASON)
+                .holdingFixture(
+                    GateProject.MAIN_JAVA_ROOT + CALLER_PATH,
+                    "java/caller-naming-the-unpromised-type");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage)
+                .doesNotContain(unexpectedSentence);
         }
 
         @Test
         void passesWhenOnlyThePublishedPackageIsNamed(@TempDir Path projectDir) {
 
-            stageTheLibrary(projectDir, THE_PUBLISHED_PACKAGE_ALONE)
-                .holdingFixture(GateProject.MAIN_JAVA_ROOT + CALLER_PATH, "java/caller-naming-the-published-type")
-                .runExpectingGateToPass();
+            // ARRANGE
+            var project = stageTheLibrary(projectDir, THE_PUBLISHED_PACKAGE_ALONE)
+                .holdingFixture(
+                    GateProject.MAIN_JAVA_ROOT + CALLER_PATH,
+                    "java/caller-naming-the-published-type");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
         @Test
         void passesWhenATypeNestedInAnAllowedOneIsNamed(@TempDir Path projectDir) {
 
-            stageTheLibrary(projectDir, PUBLISHED_PACKAGE_AND_THE_SEAM)
+            // ARRANGE
+            var project = stageTheLibrary(projectDir, PUBLISHED_PACKAGE_AND_THE_SEAM)
                 .holdingFixture(
                     GateProject.MAIN_JAVA_ROOT + CALLER_PATH,
-                    "java/caller-naming-a-type-nested-in-the-seam")
-                .runExpectingGateToPass();
+                    "java/caller-naming-a-type-nested-in-the-seam");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
+        // The library's own seam hands back the unpromised type; nothing in the namespace is held to
+        // the promise it is the one making.
         @Test
         void passesOverTheNamespacesOwnClasses(@TempDir Path projectDir) {
 
-            // The library's own seam hands back the unpromised type; nothing in the namespace is
-            // held to the promise it is the one making.
-            stageTheLibrary(projectDir, NOTHING_IN_THE_NAMESPACE)
-                .runExpectingGateToPass();
+            // ARRANGE
+            var project = stageTheLibrary(projectDir, NOTHING_IN_THE_NAMESPACE);
+
+            // ACT
+            project.runExpectingGateToPass();
         }
     }
 
@@ -257,87 +412,132 @@ class EnforceReferencedTypesGateIntegrationTests {
         @Test
         void failsWhenTestCodeNamesAnUnpromisedType(@TempDir Path projectDir) {
 
-            var result = stageTheLibrary(projectDir, PUBLISHED_PACKAGE_AND_THE_SEAM)
-                .holdingFixture(GateProject.TEST_JAVA_ROOT + CALLER_PATH, "java/caller-naming-the-unpromised-type")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "example/consumer/Caller in java/test references " + UNPROMISED_TYPE;
 
-            assertThat(result.getOutput())
-                .contains("example/consumer/Caller in java/test references " + UNPROMISED_TYPE);
+            var project = stageTheLibrary(projectDir, PUBLISHED_PACKAGE_AND_THE_SEAM)
+                .holdingFixture(
+                    GateProject.TEST_JAVA_ROOT + CALLER_PATH,
+                    "java/caller-naming-the-unpromised-type");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
         @Test
         void passesWhenTestCodeNamesATypeTheRuleHoldsOnlyInMain(@TempDir Path projectDir) {
 
-            stageTheLibrary(projectDir, NOTHING_IN_THE_NAMESPACE_IN_MAIN)
-                .holdingFixture(GateProject.TEST_JAVA_ROOT + CALLER_PATH, "java/caller-naming-the-unpromised-type")
-                .runExpectingGateToPass();
+            // ARRANGE
+            var project = stageTheLibrary(projectDir, NOTHING_IN_THE_NAMESPACE_IN_MAIN)
+                .holdingFixture(
+                    GateProject.TEST_JAVA_ROOT + CALLER_PATH,
+                    "java/caller-naming-the-unpromised-type");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
         @Test
         void failsWhenMainCodeNamesATypeTheRuleHoldsOnlyInMain(@TempDir Path projectDir) {
 
-            var result = stageTheLibrary(projectDir, NOTHING_IN_THE_NAMESPACE_IN_MAIN)
-                .holdingFixture(GateProject.MAIN_JAVA_ROOT + CALLER_PATH, "java/caller-naming-the-unpromised-type")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "example/consumer/Caller in java/main references " + UNPROMISED_TYPE;
 
-            assertThat(result.getOutput())
-                .contains("example/consumer/Caller in java/main references " + UNPROMISED_TYPE);
+            var project = stageTheLibrary(projectDir, NOTHING_IN_THE_NAMESPACE_IN_MAIN)
+                .holdingFixture(
+                    GateProject.MAIN_JAVA_ROOT + CALLER_PATH,
+                    "java/caller-naming-the-unpromised-type");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
     }
 
     @Nested
     class Allowances {
 
+        // The allowance reads as a dependency this project has, and pre-approves the next one.
         @Test
         void failsWhenAnAllowedTypeIsNamedByNothing(@TempDir Path projectDir) {
 
-            // The allowance reads as a dependency this project has, and pre-approves the next one.
-            var result = stageTheLibrary(projectDir, PUBLISHED_PACKAGE_AND_THE_SEAM)
-                .holdingFixture(GateProject.MAIN_JAVA_ROOT + CALLER_PATH, "java/caller-naming-the-published-type")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = SEAM_TYPE + " is allowed for " + NAMESPACE + " and nothing compiled here names it";
 
-            assertThat(result.getOutput())
-                .contains(SEAM_TYPE + " is allowed for " + NAMESPACE + " and nothing compiled here names it");
+            var project = stageTheLibrary(projectDir, PUBLISHED_PACKAGE_AND_THE_SEAM)
+                .holdingFixture(
+                    GateProject.MAIN_JAVA_ROOT + CALLER_PATH,
+                    "java/caller-naming-the-published-type");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
+        // The other rule reading every class must not count as this rule having read one.
         @Test
         void passesWhenTheRuleAllowingTheTypeReadsNoClass(@TempDir Path projectDir) {
 
-            // The other rule reading every class must not count as this rule having read one.
-            stageTheLibrary(projectDir, THE_SEAM_IN_AN_EMPTY_TREE_BESIDE_ANOTHER_RULE)
-                .holdingFixture(GateProject.MAIN_JAVA_ROOT + CALLER_PATH, "java/caller-naming-the-published-type")
-                .runExpectingGateToPass();
+            // ARRANGE
+            var project = stageTheLibrary(projectDir, THE_SEAM_IN_AN_EMPTY_TREE_BESIDE_ANOTHER_RULE)
+                .holdingFixture(
+                    GateProject.MAIN_JAVA_ROOT + CALLER_PATH,
+                    "java/caller-naming-the-published-type");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
         @Test
         void passesWhenThereIsNothingCompiled(@TempDir Path projectDir) {
 
-            GateProject.driving(GATE, projectDir)
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir)
                 .applyingTheJavaPlugin()
-                .configuringTheGate(PUBLISHED_PACKAGE_AND_THE_SEAM)
-                .runExpectingGateToPass();
+                .configuringTheGate(PUBLISHED_PACKAGE_AND_THE_SEAM);
+
+            // ACT
+            project.runExpectingGateToPass();
         }
     }
 
     @Nested
     class ClassFiles {
 
+        // A tag from a version the walk does not know leaves the class checked for nothing.
+        //
+        // Staged into a tree no compile task owns, since Gradle clears a compile task's stale outputs.
+        // The gate takes the build's class output whole, so it is scanned all the same.
         @Test
         void failsWhenAClassCarriesAConstantPoolTagItCannotFollow(@TempDir Path projectDir) {
 
-            // A tag from a version the walk does not know leaves the class checked for nothing.
-            //
-            // Staged into a tree no compile task owns, since Gradle clears a compile task's stale
-            // outputs. The gate takes the build's class output whole, so it is scanned all the same.
-            var result = stageTheLibrary(projectDir, THE_PUBLISHED_PACKAGE_ALONE)
+            // ARRANGE
+            var expectedHeading = "Classes this gate could not read";
+            var expectedClassName = "example/consumer/Odd";
+
+            var project = stageTheLibrary(projectDir, THE_PUBLISHED_PACKAGE_ALONE)
                 .holdingBytes(
                     "build/classes/java/staged/example/consumer/Odd.class",
-                    buildClassFileCarryingAnUnknownTag())
-                .runExpectingGateToFail();
+                    buildClassFileCarryingAnUnknownTag());
 
-            assertThat(result.getOutput())
-                .contains("Classes this gate could not read")
-                .contains("example/consumer/Odd");
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedHeading)
+                .contains(expectedClassName);
         }
     }
 
@@ -367,10 +567,13 @@ class EnforceReferencedTypesGateIntegrationTests {
     // whichever part it reaches for.
     private static GateProject stageTheLibrary(Path projectDir, String declaration) {
 
-        return GateProject.driving(GATE, projectDir)
+        return GateProject
+            .driving(GATE, projectDir)
             .applyingTheJavaPlugin()
             .configuringTheGate(declaration)
-            .holdingFixture(GateProject.MAIN_JAVA_ROOT + "/example/library/internal/Seam.java", "java/library-seam")
+            .holdingFixture(
+                GateProject.MAIN_JAVA_ROOT + "/example/library/internal/Seam.java",
+                "java/library-seam")
             .holdingFixture(
                 GateProject.MAIN_JAVA_ROOT + "/example/library/internal/Renamed.java",
                 "java/library-renamed")

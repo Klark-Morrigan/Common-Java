@@ -1,0 +1,39 @@
+// The facts the gates holding test code to a convention share: which trees hold test code, what a test
+// method's annotation looks like, and what a suite's class name ends in. Kept apart from the source scan,
+// which reads any code and knows nothing of tests.
+
+// A directory under src/ whose name says test: Gradle's own test and testFixtures trees, and a suite tree
+// a project adds, such as integrationTest or test-gradle. Matched at a word's start, so a name merely
+// holding the letters, such as 'contest', is not read as one.
+def testTreeNamePattern = ~/^test|Test|[-_]test/
+
+// Answers whether a source set, or its directory under src/, holds test code by its name. Checkstyle's
+// magic-number suppression in checkstyle.xml spells the same rule as a path pattern.
+ext.isTestTreeName = { String treeName ->
+
+    return testTreeNamePattern
+        .matcher(treeName)
+        .find()
+}
+
+// The trees a project's test code lives under, read when a gate's inputs are, so a tree added after the
+// gate is applied still counts. A fixture is test code a suite reaches for, so both kinds are read.
+ext.findTestSourceRoots = {
+
+    return (file('src').listFiles() ?: [])
+        .findAll { it.directory && isTestTreeName(it.name) }
+        .sort { it.name }
+}
+
+// The annotations that declare a JUnit test method, bare or fully qualified. The trailing \b stops
+// the alternation from also catching @Testable or @TestInstance.
+ext.testMethodAnnotation = ~(/@(?:org\.junit\.jupiter\.(?:api|params)\.)?/ +
+    /(?:Test|ParameterizedTest|RepeatedTest|TestFactory)\b/)
+
+// Any annotation, with its arguments when they close on the same line, for a gate reading a declaration
+// with its annotations taken out.
+ext.anyAnnotationPattern = ~/@[\w.]+(?:\s*\([^)]*\))?/
+
+// The word a suite's class name ends in: enforceSuffixOnSuites holds suites to it, and the
+// test-double gates read it to tell a suite over a double from the double itself.
+ext.suiteSuffix = 'Tests'

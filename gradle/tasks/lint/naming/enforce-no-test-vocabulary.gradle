@@ -18,6 +18,7 @@
 //     }
 
 apply from: new File(buildscript.sourceFile.parentFile, '../package-roots.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../test-sources.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, '../word-scan.gradle')
 
 // The file types the vocabulary leaks into: code, and the Markdown filed beside it. Resources stay out of
@@ -56,45 +57,51 @@ def bannedPhrases = [
     'assert that', 'j unit',
 ]
 
-def bannedEntries = (bannedWords + bannedPhrases).collect { readDeclaredPhrase('enforceNoTestVocabulary', it) }
-
-// The source sets a test vocabulary belongs to, exempt without a consumer saying so: Gradle's own names for
-// the two test trees a JVM project may have, compared lower case like every declared source set.
-def defaultExemptSourceSets = ['test', 'testfixtures']
+def bannedEntries = (bannedWords + bannedPhrases).collect {
+    readDeclaredPhrase('enforceNoTestVocabulary', it) }
 
 def exemptSourceSets = [] as Set
 def exemptPackages = []
 def allowances = []
 
-// Answers whether a path under src/ sits in an exempt tree: an exempt source set, named by its directory, or
-// an exempt package root, judged by directory because Markdown declares no package.
+// Answers whether a path under src/ sits in an exempt tree: a test tree, which a test vocabulary belongs to
+// without a consumer saying so; a declared source set, named by its directory and compared lower case; or an
+// exempt package root, judged by directory because Markdown declares no package.
 def isExemptPath = { List<String> pathSegmentsUnderSrc ->
 
-    def sourceSetName = pathSegmentsUnderSrc.first().toLowerCase()
+    def treeName = pathSegmentsUnderSrc.first()
 
-    return sourceSetName in defaultExemptSourceSets ||
-        sourceSetName in exemptSourceSets ||
+    return isTestTreeName(treeName) ||
+        treeName.toLowerCase() in exemptSourceSets ||
         exemptPackages.any { isPathUnderPackageRoot(pathSegmentsUnderSrc, it) }
 }
 
 // Why an allowance answers no rule, or null when it answers one. scannedPaths are the files the gate judged.
-def findStrandedReason = { Map allowance, Set scannedPaths ->
+def findStrandedReason = {
+    Map allowance,
+    Set scannedPaths ->
 
-    if (!bannedEntries.any { it.words == allowance.words }) {
-        return 'names no banned entry, so it allows nothing'
+        if (!bannedEntries.any { it.words == allowance.words }) {
+            return 'names no banned entry, so it allows nothing'
+        }
+
+        if (allowance.inFile in scannedPaths) {
+            return null
+        }
+
+        def segments = allowance
+            .inFile
+            .tokenize('/')
+
+        def isInExemptTree =
+            segments.size() > 1 &&
+            segments.first() == 'src' &&
+            isExemptPath(segments.drop(1))
+
+        return isInExemptTree
+            ? 'names a file in an exempt tree, which is already allowed'
+            : 'names a file this gate does not scan, so it allows nothing'
     }
-
-    if (allowance.inFile in scannedPaths) {
-        return null
-    }
-
-    def segments = allowance.inFile.tokenize('/')
-    def isInExemptTree = segments.size() > 1 && segments.first() == 'src' && isExemptPath(segments.drop(1))
-
-    return isInExemptTree
-        ? 'names a file in an exempt tree, which is already allowed'
-        : 'names a file this gate does not scan, so it allows nothing'
-}
 
 // The declared exemptions no file sits in, each as the message reporting it. An exemption that matches nothing
 // exempts nothing, and the tree it was written for is judged again the moment one comes back under that name.
@@ -114,7 +121,8 @@ def findUnmatchedExemptions = {
 
             def packagePath = root.replace('.', '/')
 
-            fileTree('src') { include scannedFileIncludes.collect { "*/*/${packagePath}/${it}" } }.isEmpty()
+            fileTree('src') { include scannedFileIncludes.collect { "*/*/${packagePath}/${it}" } }
+                .isEmpty()
         }
         .collect { "${it}: exemptPackage names no package holding a scanned file, so it exempts nothing".toString() }
 
@@ -122,29 +130,39 @@ def findUnmatchedExemptions = {
 }
 
 // Reports one message per banned entry the file says, less the entries allowed in it.
-def findTestVocabulary = { File sourceFile, String reportedPath ->
+def findTestVocabulary = {
+    File sourceFile,
+    String reportedPath ->
 
-    def allowedPhrases = allowances.findAll { it.inFile == reportedPath }*.words
-    def applicableEntries = bannedEntries.findAll { !(it.words in allowedPhrases) }
+        def allowedPhrases = findAllowedPhrases(allowances, reportedPath)
+        def applicableEntries = bannedEntries.findAll { !(it.words in allowedPhrases) }
 
-    return findSpokenPhrases(readNameWords(sourceFile), applicableEntries).collect {
-        "${reportedPath}:${it.line}: production sources may not say \"${it.phrase.declared}\"".toString()
+        return findSpokenPhrases(readNameWords(sourceFile), applicableEntries)
+            .collect {
+                "${reportedPath}:${it.line}: production sources may not say \"${it.phrase.declared}\"".toString()
+            }
     }
-}
 
 def enforceNoTestVocabulary = tasks.register('enforceNoTestVocabulary') {
 
-    description = 'Fails the build when production sources use the vocabulary of a test suite (mock, fake, ' +
-        'stubbing, unit test).'
     group = 'verification'
+    description =
+        'Fails the build when production sources use the vocabulary of a test suite (mock, fake, ' +
+        'stubbing, unit test).'
 
     // Exempts one whole source set, named as its directory under src/: a tree that is test-adjacent without
     // being src/test, such as hand-written stubs mirroring a third party's API.
     ext.exemptSourceSet = { Map exemption ->
 
+        failOnUnknownDeclarationKeys(
+            'exemptSourceSet',
+            exemption,
+            ['name'])
+
         if (!exemption.name) {
 
-            throw new GradleException("exemptSourceSet needs 'name' (the directory under src/ that holds " +
+            throw new GradleException(
+                "exemptSourceSet needs 'name' (the directory under src/ that holds " +
                 "test-vocabulary sources); got: ${exemption}")
         }
 
@@ -155,45 +173,24 @@ def enforceNoTestVocabulary = tasks.register('enforceNoTestVocabulary') {
     // declares, since the tree is main by source set and a fixture only by package.
     ext.exemptPackage = { Map exemption ->
 
+        failOnUnknownDeclarationKeys(
+            'exemptPackage',
+            exemption,
+            ['root'])
+
         if (!exemption.root) {
 
-            throw new GradleException("exemptPackage needs 'root' (the package root that holds " +
+            throw new GradleException(
+                "exemptPackage needs 'root' (the package root that holds " +
                 "test-vocabulary sources); got: ${exemption}")
         }
 
         exemptPackages << exemption.root
     }
 
-    // Exempts one file from one banned entry. Declared in the build rather than as a marker comment in the
-    // file, so a reviewer reads it in the diff. The entry is spelt as the banned list declares it, phrases
-    // included ('tests can'); the path is project-relative.
-    ext.allowWord = { Map exemption ->
-
-        if (!exemption.word || !exemption.inFile) {
-
-            throw new GradleException("allowWord needs both 'word' (the entry being let through) and 'inFile' " +
-                "(the project-relative path it is allowed in); got: ${exemption}")
-        }
-
-        def allowed = readDeclaredPhrase('allowWord', exemption.word.toString())
-
-        allowances << [declared: allowed.declared, words: allowed.words, inFile: exemption.inFile.toString()]
-    }
-
-    // Several entries in one file: the shape a README documenting test-facing artefacts takes, stated once so a
-    // reviewer sees one exemption instead of six.
-    ext.allowWords = { Map exemption ->
-
-        if (!exemption.words || !exemption.inFile) {
-
-            throw new GradleException("allowWords needs both 'words' (the entries being let through) and " +
-                "'inFile' (the project-relative path they are allowed in); got: ${exemption}")
-        }
-
-        readOneOrMany(exemption.words).each { word ->
-            allowWord word: word, inFile: exemption.inFile
-        }
-    }
+    // Exempts one file from a banned entry, spelt as the banned list declares it, phrases included
+    // ('tests can').
+    declareWordAllowances(it, allowances)
 
     // Exempt trees are left out of the inputs, so editing a test does not re-run a gate that never reads it.
     // Read when the tree is walked, so a declaration made after this registration still counts.
@@ -201,7 +198,11 @@ def enforceNoTestVocabulary = tasks.register('enforceNoTestVocabulary') {
         exclude { element -> isExemptPath(element.relativePath.segments as List) }
     }
 
-    def scannedSources = declareScannedFiles(it, productionSources, scannedFileIncludes, 'scannedSources')
+    def scannedSources = declareScannedFiles(
+        it,
+        productionSources,
+        scannedFileIncludes,
+        'scannedSources')
 
     declareRuleSnapshot(it, 'bannedEntries') { bannedEntries*.declared }
     declareRuleSnapshot(it, 'exemptSourceSets') { exemptSourceSets }
@@ -229,14 +230,12 @@ def enforceNoTestVocabulary = tasks.register('enforceNoTestVocabulary') {
             violations.addAll(findTestVocabulary(details.file, reportedPath))
         }
 
-        // An allowance that answers no rule is dead config: the word it was written for is loose again the
-        // moment the file or entry it meant comes back under another name.
         allowances.each { allowance ->
 
             def reason = findStrandedReason(allowance, scannedPaths)
 
             if (reason != null) {
-                violations << "${allowance.inFile}: allowWord ${reason}: \"${allowance.declared}\""
+                violations << describeStrandedAllowance(allowance, reason)
             }
         }
 

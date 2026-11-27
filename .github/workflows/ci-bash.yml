@@ -15,6 +15,9 @@ on:
 permissions:
   contents: read
 
+# No concurrency block here: the called workflow carries its own, which
+# cancels a pull request's superseded run. A second group here would only
+# duplicate it, and one named the same would deadlock against it.
 jobs:
   ci-bash:
     uses: Klark-Morrigan/Common-Automation/.github/workflows/ci-bash.yml@master

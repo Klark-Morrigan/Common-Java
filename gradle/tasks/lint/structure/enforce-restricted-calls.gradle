@@ -15,10 +15,9 @@
 //             instead: 'Seams.openGlobalHandle()'
 //     }
 //
-// 'toTypes' takes one type or a list. Left out, it closes the root to the call outright, so a
-// mistyped key enforces the rule everywhere rather than allowing the call everywhere. 'instead'
-// is optional and ends each finding: when the allowed seam lives in another build, the allowed
-// list is empty and says nothing about where to go.
+// 'toTypes' takes one type or a list. Left out, it closes the root to the call outright, and a
+// misspelt key is refused. 'instead' is optional and ends each finding: when the allowed seam lives
+// in another build, the allowed list is empty and says nothing about where to go.
 //
 // A type is named by the file it lives in, so nested and local classes ride with it. An entry
 // naming a type that no longer exists hides nothing: a renamed seam's call fails under its new name.
@@ -30,6 +29,13 @@
 apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, '../package-roots.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, '../source-scan.gradle')
+
+// What a declaration of this gate may name.
+def RESTRICT_CALL_KEYS = [
+    'call',
+    'under',
+    'toTypes',
+    'instead']
 
 // The type a source file declares, taken as the file's own name.
 def readDeclaredTypeName = { File sourceFile ->
@@ -47,51 +53,61 @@ def readCodeLines = { File sourceFile ->
 }
 
 // Reports one message per restricted call this file makes.
-def findRestrictedCalls = { File sourceFile, List restrictions ->
+def findRestrictedCalls = {
+    File sourceFile,
+    List restrictions ->
 
-    def found = []
-    def typeName = readDeclaredTypeName(sourceFile)
-    def codeLines = readCodeLines(sourceFile)
-    def declaredPackage = readDeclaredPackage(codeLines)
+        def found = []
+        def typeName = readDeclaredTypeName(sourceFile)
+        def codeLines = readCodeLines(sourceFile)
+        def declaredPackage = readDeclaredPackage(codeLines)
 
-    if (declaredPackage == null) {
-        return found
-    }
+        if (declaredPackage == null) {
+            return found
+        }
 
-    def applicableRestrictions = restrictions.findAll {
-        isAtOrUnderPackageRoot(declaredPackage, it.under) && !(typeName in it.toTypes)
-    }
+        def applicableRestrictions = restrictions.findAll {
+            isAtOrUnderPackageRoot(declaredPackage, it.under) && !(typeName in it.toTypes)
+        }
 
-    codeLines.eachWithIndex { codeLine, index ->
+        codeLines.eachWithIndex { codeLine, index ->
 
-        applicableRestrictions.each { restriction ->
+            applicableRestrictions.each { restriction ->
 
-            if (codeLine.contains(restriction.call)) {
+                if (codeLine.contains(restriction.call)) {
 
-                found << "${sourceFile}:${index + 1}: " +
-                    "${restriction.under} may call ${restriction.call} only in " +
-                    "${restriction.toTypes}: ${typeName}" +
-                    (restriction.instead ? " - instead: ${restriction.instead}" : '')
+                    found << "${sourceFile}:${index + 1}: " +
+                        "${restriction.under} may call ${restriction.call} only in " +
+                        "${restriction.toTypes}: ${typeName}" +
+                        (restriction.instead ? " - instead: ${restriction.instead}" : '')
+                }
             }
         }
-    }
 
-    return found
-}
+        return found
+    }
 
 def restrictions = []
 
 def enforceRestrictedCalls = tasks.register('enforceRestrictedCalls') { gate ->
 
     group = 'verification'
-    description = 'Fails the build when a package root makes a call outside ' +
+    description =
+        'Fails the build when a package root makes a call outside ' +
         'the types the consuming build restricted it to.'
 
     ext.restrictCall = { Map restriction ->
 
-        if (!restriction.call || !restriction.under) {
+        failOnUnknownDeclarationKeys(
+            'restrictCall',
+            restriction,
+            RESTRICT_CALL_KEYS)
 
-            throw new GradleException("restrictCall needs both 'call' (the " +
+        if (!restriction.call
+                || !restriction.under) {
+
+            throw new GradleException(
+                "restrictCall needs both 'call' (the " +
                 "literal call text being contained) and 'under' (the package " +
                 "root it is contained within); got: ${restriction}")
         }
@@ -100,24 +116,27 @@ def enforceRestrictedCalls = tasks.register('enforceRestrictedCalls') { gate ->
             call: restriction.call,
             under: restriction.under,
             // Sorted so the message and the rule snapshot do not turn on declaration order.
-            toTypes: readOneOrMany(restriction.toTypes).collect { it.toString() }.sort(),
+            toTypes: readOneOrMany(restriction.toTypes)
+                .collect { it.toString() }
+                .sort(),
             instead: restriction.instead ?: '',
         ]
     }
 
     // Every source set under src/, not main and test alone: a dev-tooling or fixture tree that may
     // make a contained call freely leaves the call uncontained.
-    def scannedSources = declareScannedFiles(gate, 'src', jvmSourceIncludes)
+    def scannedSources = declareScannedFiles(
+        gate,
+        'src',
+        jvmSourceIncludes)
 
     declareRuleSnapshot(gate, 'restrictions') {
         restrictions.collect { "${it.under} !- ${it.call} except ${it.toTypes} instead ${it.instead}" }
     }
 
-    doLast {
+    skipWithoutRules(gate, restrictions)
 
-        if (restrictions.isEmpty()) {
-            return
-        }
+    doLast {
 
         def violations = []
 

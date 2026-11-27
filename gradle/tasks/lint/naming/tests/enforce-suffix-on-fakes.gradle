@@ -11,15 +11,21 @@
 //      never clock), or '_FAKE' where the name is a constant (EMPTY_FAKE, never EMPTY) - a
 //      SCREAMING_SNAKE name being unable to end in a camel-case word. Flagged when such an
 //      assignment targets a name carrying neither spelling.
+
 apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, 'double-naming-scan.gradle')
 
 def enforceSuffixOnFakes = tasks.register('enforceSuffixOnFakes') {
-    description = 'Fails the build when test-double types or fake-holding ' +
-            'variables are not suffixed Fake.'
-    group = 'verification'
 
-    def scannedFiles = declareScannedFiles(it, testSourceRoots, jvmSourceIncludes)
+    group = 'verification'
+    description =
+        'Fails the build when test-double types or fake-holding ' +
+        'variables are not suffixed Fake.'
+
+    def scannedFiles = declareScannedFiles(
+        it,
+        findTestSourceRoots,
+        jvmSourceIncludes)
 
     doLast {
         def violations = findDoubleNamingViolations(

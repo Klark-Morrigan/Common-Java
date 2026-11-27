@@ -14,15 +14,21 @@
 // the extension fills ('@Mock', '@Spy', '@MockK', '@RelaxedMockK', '@SpyK'). A spy is held to the
 // same suffix: it is a generated subclass standing in for the real object, which is what the
 // suffix tells a reader.
+
 apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, 'double-naming-scan.gradle')
 
 def enforceSuffixOnMocks = tasks.register('enforceSuffixOnMocks') {
-    description = 'Fails the build when a variable holding a generated mock or spy is ' +
-            'not suffixed Mock.'
-    group = 'verification'
 
-    def scannedFiles = declareScannedFiles(it, testSourceRoots, jvmSourceIncludes)
+    group = 'verification'
+    description =
+        'Fails the build when a variable holding a generated mock or spy is ' +
+        'not suffixed Mock.'
+
+    def scannedFiles = declareScannedFiles(
+        it,
+        findTestSourceRoots,
+        jvmSourceIncludes)
 
     doLast {
         def violations = findDoubleNamingViolations(
@@ -36,7 +42,9 @@ def enforceSuffixOnMocks = tasks.register('enforceSuffixOnMocks') {
             typePattern: null,
             holderAnnotation: ~/@(?:[\w]+\.)*(?:Mock|Spy|MockK|RelaxedMockK|SpyK)\b(?:\s*\([^)]*\))?/)
 
-        failOnViolations('Mock naming convention violated', violations)
+        failOnViolations(
+            'Mock naming convention violated',
+            violations)
     }
 }
 

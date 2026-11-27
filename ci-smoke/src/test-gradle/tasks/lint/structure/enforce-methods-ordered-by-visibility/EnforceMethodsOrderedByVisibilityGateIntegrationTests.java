@@ -16,7 +16,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 class EnforceMethodsOrderedByVisibilityGateIntegrationTests {
 
     private static final GateUnderTest GATE =
-        new GateUnderTest("enforceMethodsOrderedByVisibility", "lint/structure/enforce-methods-ordered-by-visibility");
+        new GateUnderTest(
+            "enforceMethodsOrderedByVisibility",
+            "lint/structure/enforce-methods-ordered-by-visibility");
 
     @Nested
     class JavaLadder {
@@ -24,35 +26,56 @@ class EnforceMethodsOrderedByVisibilityGateIntegrationTests {
         @Test
         void passesWhenMethodsDescendTheLadderInJava(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
-                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "ordered-ladder-passes")
-                .runExpectingGateToPass();
+                .holdingJavaSample(
+                    GateProject.MAIN_JAVA_ROOT,
+                    "ordered-ladder-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
         @Test
         void failsWhenPublicSitsBelowPrivateInJava(@TempDir Path projectDir) {
 
-            var result = GateProject
-                .driving(GATE, projectDir)
-                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "public-below-private-fails")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "Sample.java:8: public method declared below a private method (line 5)";
 
-            assertThat(result.getOutput())
-                .contains("Sample.java:8: public method declared below a private method (line 5)");
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaSample(
+                    GateProject.MAIN_JAVA_ROOT,
+                    "public-below-private-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
         // Protected and package-private are the two middle rungs, ordered only against each other.
         @Test
         void failsWhenProtectedSitsBelowPackagePrivateInJava(@TempDir Path projectDir) {
 
-            var result = GateProject
-                .driving(GATE, projectDir)
-                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "protected-below-package-private-fails")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "Sample.java:5: protected method declared below a package-private (implicit) method";
 
-            assertThat(result.getOutput())
-                .contains("Sample.java:5: protected method declared below a package-private (implicit) method");
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaSample(
+                    GateProject.MAIN_JAVA_ROOT,
+                    "protected-below-package-private-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
         // An annotation with an argument list ahead of the modifiers would otherwise put its own '('
@@ -60,13 +83,21 @@ class EnforceMethodsOrderedByVisibilityGateIntegrationTests {
         @Test
         void failsWhenAnnotatedPublicSitsBelowAnnotatedPrivateInJava(@TempDir Path projectDir) {
 
-            var result = GateProject
-                .driving(GATE, projectDir)
-                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "annotated-public-below-annotated-private-fails")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "Sample.java:8: public method declared below a private method (line 5)";
 
-            assertThat(result.getOutput())
-                .contains("Sample.java:8: public method declared below a private method (line 5)");
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaSample(
+                    GateProject.MAIN_JAVA_ROOT,
+                    "annotated-public-below-annotated-private-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
         // A no-modifier method is package-private in a class but public in an interface. This
@@ -74,13 +105,21 @@ class EnforceMethodsOrderedByVisibilityGateIntegrationTests {
         @Test
         void failsWhenInterfaceImplicitPublicSitsBelowPrivateInJava(@TempDir Path projectDir) {
 
-            var result = GateProject
-                .driving(GATE, projectDir)
-                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "interface-implicit-public-below-private-fails")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "Sample.java:5: public (implicit) method declared below a private method";
 
-            assertThat(result.getOutput())
-                .contains("Sample.java:5: public (implicit) method declared below a private method");
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaSample(
+                    GateProject.MAIN_JAVA_ROOT,
+                    "interface-implicit-public-below-private-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
         // A public constructor below a private method, and an enum constant with an argument list,
@@ -88,10 +127,15 @@ class EnforceMethodsOrderedByVisibilityGateIntegrationTests {
         @Test
         void passesWhenConstructorsAndEnumConstantsSitBelowPrivateInJava(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
-                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "constructors-and-enum-constants-passes")
-                .runExpectingGateToPass();
+                .holdingJavaSample(
+                    GateProject.MAIN_JAVA_ROOT,
+                    "constructors-and-enum-constants-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
         // A field whose value wraps onto the next line puts a call shaped like a bare
@@ -99,10 +143,15 @@ class EnforceMethodsOrderedByVisibilityGateIntegrationTests {
         @Test
         void passesWhenFieldInitializersWrapInJava(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
-                .holdingJavaSample(GateProject.MAIN_JAVA_ROOT, "wrapped-field-initializers-passes")
-                .runExpectingGateToPass();
+                .holdingJavaSample(
+                    GateProject.MAIN_JAVA_ROOT,
+                    "wrapped-field-initializers-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
     }
 
@@ -112,48 +161,77 @@ class EnforceMethodsOrderedByVisibilityGateIntegrationTests {
         @Test
         void passesWhenMethodsDescendTheLadderInKotlin(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
-                .holdingKotlinSample(GateProject.MAIN_KOTLIN_ROOT, "ordered-ladder-passes")
-                .runExpectingGateToPass();
+                .holdingKotlinSample(
+                    GateProject.MAIN_KOTLIN_ROOT,
+                    "ordered-ladder-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
         // A bare Kotlin 'fun' is public, so it must not appear below a private one.
         @Test
         void failsWhenPublicSitsBelowPrivateInKotlin(@TempDir Path projectDir) {
 
-            var result = GateProject
-                .driving(GATE, projectDir)
-                .holdingKotlinSample(GateProject.MAIN_KOTLIN_ROOT, "public-below-private-fails")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "Sample.kt:8: public (implicit) method declared below a private method (line 5)";
 
-            assertThat(result.getOutput())
-                .contains("Sample.kt:8: public (implicit) method declared below a private method (line 5)");
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinSample(
+                    GateProject.MAIN_KOTLIN_ROOT,
+                    "public-below-private-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
         // Kotlin ranks internal above protected, the reverse of where Java's middle rungs sit.
         @Test
         void failsWhenInternalSitsBelowProtectedInKotlin(@TempDir Path projectDir) {
 
-            var result = GateProject
-                .driving(GATE, projectDir)
-                .holdingKotlinSample(GateProject.MAIN_KOTLIN_ROOT, "internal-below-protected-fails")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "Sample.kt:8: internal method declared below a protected method (line 5)";
 
-            assertThat(result.getOutput())
-                .contains("Sample.kt:8: internal method declared below a protected method (line 5)");
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinSample(
+                    GateProject.MAIN_KOTLIN_ROOT,
+                    "internal-below-protected-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
         @Test
         void failsWhenPublicSitsBelowPrivateInAnEnumClassInKotlin(@TempDir Path projectDir) {
 
-            var result = GateProject
-                .driving(GATE, projectDir)
-                .holdingKotlinSample(GateProject.MAIN_KOTLIN_ROOT, "enum-class-public-below-private-fails")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "Sample.kt:8: public (implicit) method declared below a private method (line 5)";
 
-            assertThat(result.getOutput())
-                .contains("Sample.kt:8: public (implicit) method declared below a private method (line 5)");
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinSample(
+                    GateProject.MAIN_KOTLIN_ROOT,
+                    "enum-class-public-below-private-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
         // A 'fun' nested in a method body sits deeper than the class body, and a 'fun' after '=' is
@@ -161,20 +239,28 @@ class EnforceMethodsOrderedByVisibilityGateIntegrationTests {
         @Test
         void passesWhenLocalFunctionsAndPropertyInitializersFollowPrivateInKotlin(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
-                .holdingKotlinSample(GateProject.MAIN_KOTLIN_ROOT, "local-functions-and-property-initializers-passes")
-                .runExpectingGateToPass();
+                .holdingKotlinSample(
+                    GateProject.MAIN_KOTLIN_ROOT,
+                    "local-functions-and-property-initializers-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
         @Test
         void passesWhenBodilessDeclarationsPrecedeATopLevelFunctionInKotlin(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
                 .holdingKotlinSample(
-                    GateProject.MAIN_KOTLIN_ROOT, "bodiless-declarations-before-top-level-function-passes")
-                .runExpectingGateToPass();
+                    GateProject.MAIN_KOTLIN_ROOT, "bodiless-declarations-before-top-level-function-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
     }
 
@@ -185,18 +271,26 @@ class EnforceMethodsOrderedByVisibilityGateIntegrationTests {
         @Test
         void passesWhenTheTestTreeIsOutOfOrder(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
-                .holdingJavaSample(GateProject.TEST_JAVA_ROOT, "public-below-private-fails")
-                .runExpectingGateToPass();
+                .holdingJavaSample(
+                    GateProject.TEST_JAVA_ROOT,
+                    "public-below-private-fails");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
         @Test
         void passesWhenThereIsNoMainTree(@TempDir Path projectDir) {
 
-            GateProject
-                .driving(GATE, projectDir)
-                .runExpectingGateToPass();
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir);
+
+            // ACT
+            project.runExpectingGateToPass();
         }
     }
 }

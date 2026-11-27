@@ -20,6 +20,10 @@ apply from: new File(buildscript.sourceFile.parentFile, '../lint-gate.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, '../package-roots.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, '../source-scan.gradle')
 
+// What a declaration of this gate may name, and what a layer named as a map in 'of' may.
+def FORBID_IMPORT_KEYS = ['under', 'exactly', 'except', 'of']
+def FORBIDDEN_LAYER_KEYS = ['under', 'except']
+
 // An import, static or not, aliased or not. The captured name stops before Java's ';' and Kotlin's
 // 'as Alias', and keeps an on-demand import's star, which still reads as being under its package.
 def importDeclarationPattern = ~/^\s*import\s+(?:static\s+)?([\w.*]+)/
@@ -35,49 +39,49 @@ def isClosedByEdge = { String declaredPackage, Map edge ->
 // Reports one message per import in this file that its own package is closed to.
 //
 // Lines are read with comments and literals gone, so a commented-out import or one spelt inside a
-// raw string is not judged. Imports cannot follow a type declaration, so the scan stops at the first.
+// raw string is not judged. The package and the imports all precede the first type declaration, so
+// the scan stops there: the line declaring the type is the last one read.
 def findForbiddenImports = { File sourceFile, List forbiddenEdges ->
 
     def forbidden = []
-    def declaredPackage = readDeclaredPackage(sourceFile.readLines(sourceEncoding))
+    def headerLines = []
 
+    for (stripped in readStrippedLines(sourceFile)) {
+
+        headerLines << stripped.text
+
+        if (classDeclarationPattern.matcher(stripped.text).find()) {
+            break
+        }
+    }
+
+    def declaredPackage = readDeclaredPackage(headerLines)
     if (declaredPackage == null) {
         return forbidden
     }
 
     def applicableEdges = forbiddenEdges.findAll { isClosedByEdge(declaredPackage, it) }
 
-    if (applicableEdges.isEmpty()) {
-        return forbidden
-    }
+    headerLines.eachWithIndex {
+        String line,
+        int index ->
 
-    def hasReachedTypeDeclaration = false
+            def matcher = importDeclarationPattern.matcher(line)
+            if (!matcher.find()) {
+                return
+            }
 
-    eachStrippedLine(sourceFile) { String line, int lineNumber ->
+            def importedName = matcher.group(1)
 
-        if (hasReachedTypeDeclaration) {
-            return
-        }
+            applicableEdges.each { edge ->
 
-        hasReachedTypeDeclaration = classDeclarationPattern.matcher(line).find()
+                if (isInsideLayer(importedName, edge.forbiddenRoot, edge.forbiddenExceptedRoots)) {
 
-        def matcher = importDeclarationPattern.matcher(line)
-
-        if (!matcher.find()) {
-            return
-        }
-
-        def importedName = matcher.group(1)
-
-        applicableEdges.each { edge ->
-
-            if (isInsideLayer(importedName, edge.forbiddenRoot, edge.forbiddenExceptedRoots)) {
-
-                forbidden << "${sourceFile}:${lineNumber}: " +
-                    "${edge.closedSideLabel} may not import ${edge.forbiddenSideLabel}: ${importedName}"
+                    forbidden << "${sourceFile}:${index + 1}: " +
+                        "${edge.closedSideLabel} may not import ${edge.forbiddenSideLabel}: ${importedName}"
+                }
             }
         }
-    }
 
     return forbidden
 }
@@ -90,48 +94,69 @@ def readForbiddenLayer = { Object entry ->
         return [root: entry.toString(), exceptedRoots: []]
     }
 
-    if (!entry.under || entry.exactly) {
+    if (!entry.under
+            || entry.exactly) {
 
         throw new GradleException("forbidImport 'of' names a package root, or a " +
             "layer as [under: root, except: subtrees]; got: ${entry}")
     }
 
+    failOnUnknownDeclarationKeys(
+        "forbidImport 'of' layer",
+        entry,
+        FORBIDDEN_LAYER_KEYS)
+
     def root = entry.under.toString()
 
-    return [root: root, exceptedRoots: readExceptedRoots('forbidImport', entry, root)]
+    return [
+        root: root,
+        exceptedRoots: readExceptedRoots('forbidImport', entry, root)]
 }
 
 def forbiddenEdges = []
-
 def enforcePackageLayering = tasks.register('enforcePackageLayering') { gate ->
 
     group = 'verification'
-    description = 'Fails the build when a package root imports one the ' +
+    description =
+        'Fails the build when a package root imports one the ' +
         'consuming build declared it closed to.'
 
     ext.forbidImport = { Map edge ->
 
+        failOnUnknownDeclarationKeys(
+            'forbidImport',
+            edge,
+            FORBID_IMPORT_KEYS)
+
         // Checked before the missing-half check, so naming both widths is reported as the
         // contradiction it is.
-        if (edge.under && edge.exactly) {
+        if (edge.under
+                && edge.exactly) {
 
-            throw new GradleException("forbidImport closes a package root one " +
+            throw new GradleException(
+                "forbidImport closes a package root one " +
                 "way or the other: 'under' for it and everything beneath " +
                 "it, or 'exactly' for that one package - not both; " +
                 "got: ${edge}")
         }
 
-        def closedRoot = edge.under ?: edge.exactly
+        def closedRoot = edge
+            .under
+            ?: edge.exactly
 
         if (!closedRoot || !edge.of) {
 
-            throw new GradleException("forbidImport needs the package root " +
+            throw new GradleException(
+                "forbidImport needs the package root " +
                 "that is closed - 'under' for it and everything beneath " +
                 "it, or 'exactly' for that one package - and 'of' (the " +
                 "package root it may not import); got: ${edge}")
         }
 
-        def exceptedRoots = readExceptedRoots('forbidImport', edge, closedRoot)
+        def exceptedRoots = readExceptedRoots(
+            'forbidImport',
+            edge,
+            closedRoot)
 
         // The label carries the width into every message and the rule snapshot: each width is a
         // different rule over the same pair of roots.
@@ -157,17 +182,18 @@ def enforcePackageLayering = tasks.register('enforcePackageLayering') { gate ->
 
     // Every source set under src/, test code included: a suite reaching across the line for a real
     // type inverts the same arrow production code would.
-    def scannedSources = declareScannedFiles(gate, 'src', jvmSourceIncludes)
+    def scannedSources = declareScannedFiles(
+        gate,
+        'src',
+        jvmSourceIncludes)
 
     declareRuleSnapshot(gate, 'forbiddenEdges') {
         forbiddenEdges.collect { "${it.closedSideLabel} !-> ${it.forbiddenSideLabel}" }
     }
 
-    doLast {
+    skipWithoutRules(gate, forbiddenEdges)
 
-        if (forbiddenEdges.isEmpty()) {
-            return
-        }
+    doLast {
 
         def violations = []
 

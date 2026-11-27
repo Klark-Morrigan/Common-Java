@@ -11,7 +11,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 class EnforceSuffixOnFakesGateIntegrationTests {
 
     private static final GateUnderTest GATE =
-        new GateUnderTest("enforceSuffixOnFakes", "lint/naming/tests/enforce-suffix-on-fakes");
+        new GateUnderTest(
+            "enforceSuffixOnFakes",
+            "lint/naming/tests/enforce-suffix-on-fakes");
 
     // The second root the gate reads: test code shared across suites, where most fakes live.
 
@@ -21,25 +23,37 @@ class EnforceSuffixOnFakesGateIntegrationTests {
         @Test
         void failsWhenTypeIsPrefixedRatherThanSuffixedInJava(@TempDir Path projectDir) {
 
-            var result = GateProject
-                .driving(GATE, projectDir)
-                .holdingJavaTestSample("fake-type-is-prefixed-fails")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "Sample.java:1: test-double type 'FakeRepository' must be suffixed 'Fake'";
 
-            assertThat(result.getOutput())
-                .contains("Sample.java:1: test-double type 'FakeRepository' must be suffixed 'Fake'");
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("fake-type-is-prefixed-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
         @Test
         void failsWhenTypeIsPrefixedRatherThanSuffixedInKotlin(@TempDir Path projectDir) {
 
-            var result = GateProject
-                .driving(GATE, projectDir)
-                .holdingKotlinTestSample("fake-type-is-prefixed-fails")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "Sample.kt:1: test-double type 'FakeRepository' must be suffixed 'Fake'";
 
-            assertThat(result.getOutput())
-                .contains("Sample.kt:1: test-double type 'FakeRepository' must be suffixed 'Fake'");
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("fake-type-is-prefixed-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
         // A suite over a fake is named for what it covers, so it holds the fake's whole name with
@@ -47,19 +61,25 @@ class EnforceSuffixOnFakesGateIntegrationTests {
         @Test
         void passesWhenTypeIsASuiteOverAFakeInJava(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
-                .holdingJavaTestSample("fake-suite-over-a-double-passes")
-                .runExpectingGateToPass();
+                .holdingJavaTestSample("fake-suite-over-a-double-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
         @Test
         void passesWhenTypeIsASuiteOverAFakeInKotlin(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
-                .holdingKotlinTestSample("fake-suite-over-a-double-passes")
-                .runExpectingGateToPass();
+                .holdingKotlinTestSample("fake-suite-over-a-double-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
         // A suite over a fake spelled in the singular is misnamed, but as a suite: that finding is
@@ -67,10 +87,13 @@ class EnforceSuffixOnFakesGateIntegrationTests {
         @Test
         void passesWhenASuiteOverAFakeEndsInTheSingularInJava(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
-                .holdingJavaTestSample("fake-singular-suite-over-a-double-passes")
-                .runExpectingGateToPass();
+                .holdingJavaTestSample("fake-singular-suite-over-a-double-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
     }
 
@@ -80,56 +103,80 @@ class EnforceSuffixOnFakesGateIntegrationTests {
         @Test
         void passesWhenTypesAndVariablesAreSuffixedInJava(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
-                .holdingJavaTestSample("fake-variables-are-suffixed-passes")
-                .runExpectingGateToPass();
+                .holdingJavaTestSample("fake-variables-are-suffixed-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
         @Test
         void passesWhenTypesAndVariablesAreSuffixedInKotlin(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
-                .holdingKotlinTestSample("fake-variables-are-suffixed-passes")
-                .runExpectingGateToPass();
+                .holdingKotlinTestSample("fake-variables-are-suffixed-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
         @Test
         void failsWhenVariableIsBareNamedInJava(@TempDir Path projectDir) {
 
-            var result = GateProject
-                .driving(GATE, projectDir)
-                .holdingJavaTestSample("fake-variable-is-bare-named-fails")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "Sample.java:3: variable 'clock' holds a fake and must be suffixed 'Fake'";
 
-            assertThat(result.getOutput())
-                .contains("Sample.java:3: variable 'clock' holds a fake and must be suffixed 'Fake'");
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("fake-variable-is-bare-named-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
         @Test
         void failsWhenVariableIsBareNamedInKotlin(@TempDir Path projectDir) {
 
-            var result = GateProject
-                .driving(GATE, projectDir)
-                .holdingKotlinTestSample("fake-variable-is-bare-named-fails")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "Sample.kt:3: variable 'clock' holds a fake and must be suffixed 'Fake'";
 
-            assertThat(result.getOutput())
-                .contains("Sample.kt:3: variable 'clock' holds a fake and must be suffixed 'Fake'");
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("fake-variable-is-bare-named-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
         // A type annotation puts the type, not the holder, before '='.
         @Test
         void failsWhenTypedVariableIsBareNamedInKotlin(@TempDir Path projectDir) {
 
-            var result = GateProject
-                .driving(GATE, projectDir)
-                .holdingKotlinTestSample("fake-typed-variable-is-bare-named-fails")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "Sample.kt:2: variable 'clock' holds a fake";
 
-            assertThat(result.getOutput())
-                .contains("Sample.kt:2: variable 'clock' holds a fake");
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("fake-typed-variable-is-bare-named-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
         // The constant spelling belongs to a constant's name; a camel-case holder tacking it on is
@@ -137,25 +184,37 @@ class EnforceSuffixOnFakesGateIntegrationTests {
         @Test
         void failsWhenCamelCaseVariableCarriesTheConstantSuffixInJava(@TempDir Path projectDir) {
 
-            var result = GateProject
-                .driving(GATE, projectDir)
-                .holdingJavaTestSample("fake-camel-variable-carries-the-constant-suffix-fails")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "Sample.java:3: variable 'clock_FAKE' holds a fake";
 
-            assertThat(result.getOutput())
-                .contains("Sample.java:3: variable 'clock_FAKE' holds a fake");
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("fake-camel-variable-carries-the-constant-suffix-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
         @Test
         void failsWhenCamelCaseVariableCarriesTheConstantSuffixInKotlin(@TempDir Path projectDir) {
 
-            var result = GateProject
-                .driving(GATE, projectDir)
-                .holdingKotlinTestSample("fake-camel-variable-carries-the-constant-suffix-fails")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "Sample.kt:3: variable 'clock_FAKE' holds a fake";
 
-            assertThat(result.getOutput())
-                .contains("Sample.kt:3: variable 'clock_FAKE' holds a fake");
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("fake-camel-variable-carries-the-constant-suffix-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
     }
 
@@ -167,43 +226,61 @@ class EnforceSuffixOnFakesGateIntegrationTests {
         @Test
         void passesWhenConstantCarriesTheConstantSuffixInJava(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
-                .holdingJavaTestSample("fake-constant-carries-the-constant-suffix-passes")
-                .runExpectingGateToPass();
+                .holdingJavaTestSample("fake-constant-carries-the-constant-suffix-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
         @Test
         void passesWhenConstantCarriesTheConstantSuffixInKotlin(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
-                .holdingKotlinTestSample("fake-constant-carries-the-constant-suffix-passes")
-                .runExpectingGateToPass();
+                .holdingKotlinTestSample("fake-constant-carries-the-constant-suffix-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
         @Test
         void failsWhenConstantIsBareNamedInJava(@TempDir Path projectDir) {
 
-            var result = GateProject
-                .driving(GATE, projectDir)
-                .holdingJavaTestSample("fake-constant-is-bare-named-fails")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "Sample.java:3: variable 'EMPTY' holds a fake";
 
-            assertThat(result.getOutput())
-                .contains("Sample.java:3: variable 'EMPTY' holds a fake");
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaTestSample("fake-constant-is-bare-named-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
         @Test
         void failsWhenConstantIsBareNamedInKotlin(@TempDir Path projectDir) {
 
-            var result = GateProject
-                .driving(GATE, projectDir)
-                .holdingKotlinTestSample("fake-constant-is-bare-named-fails")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "Sample.kt:3: variable 'EMPTY' holds a fake";
 
-            assertThat(result.getOutput())
-                .contains("Sample.kt:3: variable 'EMPTY' holds a fake");
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingKotlinTestSample("fake-constant-is-bare-named-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
     }
 
@@ -216,38 +293,50 @@ class EnforceSuffixOnFakesGateIntegrationTests {
         @Test
         void passesWhenFakeIsANamedArgumentAcrossLinesInKotlin(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
-                .holdingKotlinTestSample("fake-named-argument-across-lines-passes")
-                .runExpectingGateToPass();
+                .holdingKotlinTestSample("fake-named-argument-across-lines-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
         @Test
         void passesWhenFakeIsANamedArgumentOnOneLineInKotlin(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
-                .holdingKotlinTestSample("fake-named-argument-on-one-line-passes")
-                .runExpectingGateToPass();
+                .holdingKotlinTestSample("fake-named-argument-on-one-line-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
         // Inside an apply block the name is a production property, not the test's to rename.
         @Test
         void passesWhenFakeIsSetOnAnAppliedPropertyInKotlin(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
-                .holdingKotlinTestSample("fake-applied-property-passes")
-                .runExpectingGateToPass();
+                .holdingKotlinTestSample("fake-applied-property-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
 
         @Test
         void passesWhenBareHoldersAndPrefixedTypesSitInCommentsInJava(@TempDir Path projectDir) {
 
-            GateProject
+            // ARRANGE
+            var project = GateProject
                 .driving(GATE, projectDir)
-                .holdingJavaTestSample("fake-commented-out-double-passes")
-                .runExpectingGateToPass();
+                .holdingJavaTestSample("fake-commented-out-double-passes");
+
+            // ACT
+            project.runExpectingGateToPass();
         }
     }
 
@@ -257,21 +346,32 @@ class EnforceSuffixOnFakesGateIntegrationTests {
         @Test
         void failsWhenTypeIsPrefixedInTestFixtures(@TempDir Path projectDir) {
 
-            var result = GateProject
-                .driving(GATE, projectDir)
-                .holdingJavaSample(GateProject.TEST_FIXTURES_JAVA_ROOT, "fake-type-is-prefixed-fails")
-                .runExpectingGateToFail();
+            // ARRANGE
+            var expectedMessage = "Sample.java:1: test-double type 'FakeRepository'";
 
-            assertThat(result.getOutput())
-                .contains("Sample.java:1: test-double type 'FakeRepository'");
+            var project = GateProject
+                .driving(GATE, projectDir)
+                .holdingJavaSample(
+                    GateProject.TEST_FIXTURES_JAVA_ROOT,
+                    "fake-type-is-prefixed-fails");
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
         }
 
         @Test
         void passesWhenThereIsNoTestTree(@TempDir Path projectDir) {
 
-            GateProject
-                .driving(GATE, projectDir)
-                .runExpectingGateToPass();
+            // ARRANGE
+            var project = GateProject
+                .driving(GATE, projectDir);
+
+            // ACT
+            project.runExpectingGateToPass();
         }
     }
 }

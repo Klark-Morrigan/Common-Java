@@ -36,18 +36,111 @@ ext.splitIntoNameWords = { String text ->
 // rule as the text it is matched against, so `NationalBorder`, `national
 // border` and `national-border` declare the one phrase. An entry with no words
 // in it could never match, so it is refused where it is written.
-ext.readDeclaredPhrase = { String declaringCall, String declared ->
+ext.readDeclaredPhrase = {
+    String declaringCall,
+    String declared ->
 
-    def words = splitIntoNameWords(declared)
+        def words = splitIntoNameWords(declared)
+        if (words.isEmpty()) {
 
-    if (words.isEmpty()) {
-
-        throw new GradleException("${declaringCall} names a word with no letters " +
-            "in it, which can never match; got: '${declared}'")
+            throw new GradleException(
+                "${declaringCall} names a word with no letters " +
+                "in it, which can never match; got: '${declared}'")
+        }
+        return [
+            declared: declared,
+            words: words]
     }
 
-    return [declared: declared, words: words]
+// Gives a vocabulary gate its two allowance declarations, which append to
+// allowances one [declared, words, inFile] per word. Declared in the build
+// rather than as a marker in the file, so an exemption is a line a reviewer
+// reads in the diff. The path is project-relative, as on disk.
+//
+// allowWord lets one file say one word or phrase. allowWords lets one file say
+// several: the shape a README explaining a rule takes, which has to name every
+// word the rule bans, stated once so a reviewer sees one exemption.
+ext.declareWordAllowances = { Task gate, List allowances ->
+
+    def addAllowance = {
+        String declaringCall,
+        Object word,
+        Object inFile ->
+
+            def phrase = readDeclaredPhrase(declaringCall, word.toString())
+
+            allowances << [
+                declared: phrase.declared,
+                words: phrase.words,
+                inFile: inFile.toString()]
+        }
+
+    gate.ext.allowWord = { Map exemption ->
+
+        failOnUnknownDeclarationKeys(
+            'allowWord',
+            exemption,
+            ['word', 'inFile'])
+
+        if (!exemption.word
+                || !exemption.inFile) {
+
+            throw new GradleException(
+                "allowWord needs both 'word' (the word or phrase " +
+                "being let through) and 'inFile' (the project-relative path it is " +
+                "allowed in); got: ${exemption}")
+        }
+
+        addAllowance(
+            'allowWord',
+            exemption.word,
+            exemption.inFile)
+    }
+
+    gate.ext.allowWords = { Map exemption ->
+
+        failOnUnknownDeclarationKeys(
+            'allowWords',
+            exemption,
+            ['words', 'inFile'])
+
+        if (!exemption.words
+                || !exemption.inFile) {
+
+            throw new GradleException(
+                "allowWords needs both 'words' (the words or " +
+                "phrases being let through) and 'inFile' (the project-relative path " +
+                "they are allowed in); got: ${exemption}")
+        }
+
+        readOneOrMany(exemption.words).each {
+            addAllowance(
+                'allowWords',
+                it,
+                exemption.inFile) }
+    }
 }
+
+// The phrases the allowances let one file say, each as its words.
+ext.findAllowedPhrases = {
+    List allowances,
+    String reportedPath ->
+
+        return allowances
+            .findAll { it.inFile == reportedPath }
+            *.words
+    }
+
+// The finding for an allowance that answers no rule: dead config, since the word
+// it was written for is loose again the moment the file or rule it meant comes
+// back under another name.
+ext.describeStrandedAllowance = {
+    Map allowance,
+    String reason ->
+
+        return "${allowance.inFile}: allowWord ${reason}: \"${allowance.declared}\""
+            .toString()
+    }
 
 // Every word the file says, in reading order, each paired with the line it sits
 // on. Collected across the whole file rather than per line so a phrase that
@@ -58,7 +151,8 @@ ext.readNameWords = { File sourceFile ->
 
     sourceFile.eachLine(sourceEncoding) { line, lineNumber ->
 
-        splitIntoNameWords(line).each { words << [text: it, line: lineNumber] }
+        splitIntoNameWords(line)
+            .each { words << [text: it, line: lineNumber] }
     }
 
     return words
@@ -70,30 +164,33 @@ ext.readNameWords = { File sourceFile ->
 //
 // The phrases are indexed by their first word, so each position in the file
 // is compared only against the phrases that could start there.
-ext.findSpokenPhrases = { List words, List phrases ->
+ext.findSpokenPhrases = {
+    List words,
+    List phrases ->
 
-    def found = []
-    def phrasesByFirstWord = phrases.groupBy { it.words.first() }
+        def found = []
+        def phrasesByFirstWord = phrases.groupBy { it.words.first() }
 
-    words.eachWithIndex { word, start ->
+        words.eachWithIndex {
+            word,
+            start ->
 
-        phrasesByFirstWord[word.text].each { phrase ->
+                phrasesByFirstWord[word.text].each { phrase ->
 
-            def end = start + phrase.words.size()
+                    def end = start + phrase.words.size()
+                    if (end > words.size()) {
+                        return
+                    }
 
-            if (end > words.size()) {
-                return
+                    def isSpoken = (1..<phrase.words.size()).every { offset ->
+                        words[start + offset].text == phrase.words[offset]
+                    }
+
+                    if (isSpoken) {
+                        found << [phrase: phrase, line: word.line]
+                    }
+                }
             }
 
-            def isSpoken = (1..<phrase.words.size()).every { offset ->
-                words[start + offset].text == phrase.words[offset]
-            }
-
-            if (isSpoken) {
-                found << [phrase: phrase, line: word.line]
-            }
-        }
+        return found
     }
-
-    return found
-}

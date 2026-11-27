@@ -33,62 +33,88 @@ class EnforceFinalClassesGateIntegrationTests {
 
     private static final String NOTHING_DECLARED = "";
 
-    private static final String THE_APP_ROOT = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "requireFinal under: 'example.app'");
+    private static final String THE_APP_ROOT =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "requireFinal under: 'example.app'");
 
-    private static final String THE_APP_ROOT_LESS_ITS_PUBLISHED_ONE = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "requireFinal under: 'example.app', except: 'example.app.api'");
+    private static final String THE_APP_ROOT_LESS_ITS_PUBLISHED_ONE =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "requireFinal under: 'example.app', except: 'example.app.api'");
 
     private static final String PUBLISHED_ROOT_REASON = "only example.app.api is published to build on";
 
-    private static final String THE_APP_ROOT_WITH_ITS_REASON = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "requireFinal under: 'example.app', reason: '" + PUBLISHED_ROOT_REASON + "'");
+    private static final String THE_APP_ROOT_WITH_ITS_REASON =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "requireFinal under: 'example.app', reason: '" +
+                PUBLISHED_ROOT_REASON +
+                "'");
 
-    private static final String THE_APP_ROOT_IN_MAIN = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "requireFinal under: 'example.app', inSourceSets: 'main'");
+    private static final String THE_APP_ROOT_IN_MAIN =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "requireFinal under: 'example.app', inSourceSets: 'main'");
 
     // Both rules hold every class under the inner root.
-    private static final String THE_APP_ROOT_TWICE = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "requireFinal under: 'example'",
-        "requireFinal under: 'example.app'");
+    private static final String THE_APP_ROOT_TWICE =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "requireFinal under: 'example'",
+            "requireFinal under: 'example.app'");
 
-    private static final String THE_APP_ROOT_IN_A_MISSPELT_SOURCE_SET = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "requireFinal under: 'example.app', inSourceSets: ['mian']");
+    private static final String THE_APP_ROOT_IN_A_MISSPELT_SOURCE_SET =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "requireFinal under: 'example.app', inSourceSets: ['mian']");
 
     // The shape a misspelt or forgotten 'under:' takes.
-    private static final String A_RULE_WITH_NO_ROOT = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "requireFinal inSourceSets: ['main']");
+    private static final String A_RULE_WITH_NO_ROOT =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "requireFinal inSourceSets: ['main']");
 
-    private static final String AN_EXCEPTION_OUTSIDE_THE_ROOT = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "requireFinal under: 'example.app', except: 'example.other'");
+    private static final String AN_EXCEPTION_OUTSIDE_THE_ROOT =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "requireFinal under: 'example.app', except: 'example.other'");
 
-    private static final String AN_ALLOWANCE_WITH_NO_REASON = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "requireFinal under: 'example.app'",
-        "allowExtendableClass type: 'example.app.OpenClass'");
+    private static final String AN_ALLOWANCE_WITH_NO_REASON =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "requireFinal under: 'example.app'",
+            "allowExtendableClass type: 'example.app.OpenClass'");
 
-    private static final String THE_APP_ROOT_ALLOWING_THE_OPEN_CLASS = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "requireFinal under: 'example.app'",
-        "allowExtendableClass type: 'example.app.OpenClass', reason: 'its siblings extend it'");
+    private static final String THE_APP_ROOT_ALLOWING_THE_OPEN_CLASS =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "requireFinal under: 'example.app'",
+            "allowExtendableClass type: 'example.app.OpenClass', reason: 'its siblings extend it'");
 
-    private static final String THE_APP_ROOT_ALLOWING_THE_FINAL_CLASS = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "requireFinal under: 'example.app'",
-        "allowExtendableClass type: 'example.app.FinalClass', reason: 'its siblings extend it'");
+    private static final String THE_APP_ROOT_ALLOWING_THE_OPEN_CLASS_TWICE =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "requireFinal under: 'example.app'",
+            "allowExtendableClass type: 'example.app.OpenClass', reason: 'its siblings extend it'",
+            "allowExtendableClass type: 'example.app.OpenClass', reason: 'a plugin extends it'");
 
-    private static final String THE_APP_ROOT_ALLOWING_A_MISSING_CLASS = GateProject.buildConfigurationBlock(
-        EXTENSION,
-        "requireFinal under: 'example.app'",
-        "allowExtendableClass type: 'example.app.Gone', reason: 'its siblings extend it'");
+    private static final String A_RULE_WITH_A_MISSPELT_KEY =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "requireFinal under: 'example.app', inSourceSet: 'main'");
+
+    private static final String THE_APP_ROOT_ALLOWING_THE_FINAL_CLASS =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "requireFinal under: 'example.app'",
+            "allowExtendableClass type: 'example.app.FinalClass', reason: 'its siblings extend it'");
+
+    private static final String THE_APP_ROOT_ALLOWING_A_MISSING_CLASS =
+        GateProject.buildConfigurationBlock(
+            EXTENSION,
+            "requireFinal under: 'example.app'",
+            "allowExtendableClass type: 'example.app.Gone', reason: 'its siblings extend it'");
 
     // The class file the unreadable-class case poses, by the names the format gives each part. The
     // buffer is roomier than the file and trimmed to what was written.
@@ -115,6 +141,11 @@ class EnforceFinalClassesGateIntegrationTests {
 
     // No class-file version has defined this tag.
     private static final byte UNDEFINED_CONSTANT_TAG = (byte) 254;
+
+    // More than the text written after it, so the file ends inside the entry.
+    private static final short CUT_TEXT_STATED_LENGTH = 32;
+
+    private static final byte[] NOT_A_CLASS_FILE = new byte[0];
 
     @Nested
     class Declarations {
@@ -171,7 +202,8 @@ class EnforceFinalClassesGateIntegrationTests {
         void failsWhenARuleNamesASourceSetTheBuildDoesNotHave(@TempDir Path projectDir) {
 
             // ARRANGE
-            var expectedMessage = "requireFinal under 'example.app' names source set(s) [mian] this build does not have";
+            var expectedMessage =
+                "requireFinal under 'example.app' names source set(s) [mian] this build does not have";
 
             // ACT
             var actualResult = stageTheOpenClass(projectDir, THE_APP_ROOT_IN_A_MISSPELT_SOURCE_SET)
@@ -182,28 +214,64 @@ class EnforceFinalClassesGateIntegrationTests {
                 .contains(expectedMessage);
         }
 
+        // Every consumer inherits the gate, so one declaring nothing has it sit out rather than read the
+        // class trees for no rule.
         @Test
-        void passesWhenNothingIsDeclared(@TempDir Path projectDir) {
+        void sitsOutWhenNothingIsDeclared(@TempDir Path projectDir) {
 
             // ARRANGE
             var project = stageTheOpenClass(projectDir, NOTHING_DECLARED);
 
             // ACT
-            var actualResult = project.runExpectingGateToPass();
+            var actualResult = project.runExpectingGateToBeSkipped();
 
             // ASSERT
             assertThat(actualResult.getOutput())
                 .doesNotContain("is public and neither final nor abstract");
         }
 
+        // A misspelt key is otherwise dropped in silence: 'inSourceSet' would widen the rule to every tree.
+        @Test
+        void failsWhenARuleNamesAKeyItDoesNotTake(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var expectedMessage =
+                "requireFinal does not take 'inSourceSet'; it takes 'under', 'except', 'inSourceSets', 'reason'";
+
+            // ACT
+            var actualResult = stageTheOpenClass(projectDir, A_RULE_WITH_A_MISSPELT_KEY)
+                .runExpectingFailure();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
+
+        // A second allowance would replace the first one's reason, so the line a reviewer read would no
+        // longer be the one in force.
+        @Test
+        void failsWhenAClassIsAllowedTwice(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var expectedMessage = "allowExtendableClass declares 'example.app.OpenClass' a second time";
+
+            // ACT
+            var actualResult = stageTheOpenClass(projectDir, THE_APP_ROOT_ALLOWING_THE_OPEN_CLASS_TWICE)
+                .runExpectingFailure();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedMessage);
+        }
+
         // Were the rules not a task input, the second run would be UP-TO-DATE.
         @Test
-        void failsAgainAfterAPassingRunOnceARuleIsDeclared(@TempDir Path projectDir) {
+        void failsAgainAfterAPassingRunOnceARuleTightens(@TempDir Path projectDir) {
 
             // ARRANGE
             var expectedMessage = "example.app.OpenClass is public and neither final nor abstract";
 
-            stageTheOpenClass(projectDir, NOTHING_DECLARED)
+            stageTheOpenClass(projectDir, THE_APP_ROOT_ALLOWING_THE_OPEN_CLASS)
                 .runExpectingGateToPass();
 
             // ACT
@@ -224,9 +292,10 @@ class EnforceFinalClassesGateIntegrationTests {
         void failsOnAPublicClassThatIsNeitherFinalNorAbstract(@TempDir Path projectDir) {
 
             // ARRANGE
-            var expectedMessage = "src/main/java/example/app/OpenClass.java: example.app.OpenClass is public and " +
-                "neither final nor abstract, so code in another JAR can extend it. Mark it final, or declare it " +
-                "with allowExtendableClass and the reason it has to stay open";
+            var expectedMessage =
+                "src/main/java/example/app/OpenClass.java: example.app.OpenClass is public and " +
+                    "neither final nor abstract, so code in another JAR can extend it. Mark it final, " +
+                    "or declare it with allowExtendableClass and the reason it has to stay open";
 
             // ACT
             var actualResult = stageTheOpenClass(projectDir, THE_APP_ROOT)
@@ -243,8 +312,9 @@ class EnforceFinalClassesGateIntegrationTests {
         void headsTheFindingsWithTheGapTheGateCloses(@TempDir Path projectDir) {
 
             // ARRANGE
-            var expectedHeading = "Classes open to extension (Java leaves a class open unless it is marked final, " +
-                "and nothing but this gate reports one left open)";
+            var expectedHeading =
+                "Classes open to extension (Java leaves a class open unless it is " +
+                    "marked final, and nothing but this gate reports one left open)";
 
             // ACT
             var actualResult = stageTheOpenClass(projectDir, THE_APP_ROOT)
@@ -279,6 +349,7 @@ class EnforceFinalClassesGateIntegrationTests {
 
             // ARRANGE
             var expectedMessage = "example/app/Staged in java/staged is public and neither final nor abstract";
+
             var project = GateProject
                 .driving(GATE, projectDir)
                 .applyingTheJavaPlugin()
@@ -296,7 +367,8 @@ class EnforceFinalClassesGateIntegrationTests {
         }
 
         // An enum whose constant has a body is left unmarked final, and is still closed: its
-        // constructor is private to it.
+        // constructor is private to it. A nested class's own flags say public for a protected one and
+        // for one inside a package-private class, and neither is reachable from another JAR.
         @ParameterizedTest
         @CsvSource({
             "FinalClass, extension-closed-by-final",
@@ -304,8 +376,13 @@ class EnforceFinalClassesGateIntegrationTests {
             "Contract, extension-closed-as-interface",
             "Kind, extension-closed-as-enum-with-bodies",
             "Point, extension-closed-as-record",
-            "PackageClass, extension-closed-by-package-access"})
-        void passesOnAClassClosedToExtension(String className, String fixtureName, @TempDir Path projectDir) {
+            "PackageClass, extension-closed-by-package-access",
+            "Shell, extension-closed-as-protected-nested",
+            "Hideaway, extension-closed-nested-in-package-outer"})
+        void passesOnAClassClosedToExtension(
+                String className,
+                String fixtureName,
+                @TempDir Path projectDir) {
 
             // ARRANGE
             var project = GateProject
@@ -330,8 +407,10 @@ class EnforceFinalClassesGateIntegrationTests {
         void failsOnAPublicNestedClassThatIsNeitherFinalNorAbstract(@TempDir Path projectDir) {
 
             // ARRANGE
-            var expectedMessage = "src/main/java/example/app/Outer.java: example.app.Outer$Inner is public and " +
-                "neither final nor abstract";
+            var expectedMessage =
+                "src/main/java/example/app/Outer.java: example.app.Outer$Inner " +
+                    "is public and neither final nor abstract";
+
             var unexpectedName = "Outer$Hidden";
 
             var project = GateProject
@@ -420,7 +499,9 @@ class EnforceFinalClassesGateIntegrationTests {
                 .driving(GATE, projectDir)
                 .applyingTheJavaPlugin()
                 .configuringTheGate(THE_APP_ROOT_IN_MAIN)
-                .holdingFixture(GateProject.TEST_JAVA_ROOT + OPEN_CLASS_PATH, OPEN_CLASS_FIXTURE);
+                .holdingFixture(
+                    GateProject.TEST_JAVA_ROOT + OPEN_CLASS_PATH,
+                    OPEN_CLASS_FIXTURE);
 
             // ACT
             var actualResult = project.runExpectingGateToPass();
@@ -434,13 +515,17 @@ class EnforceFinalClassesGateIntegrationTests {
         void failsOnAnOpenTestClassWhenTheRuleHoldsEveryTree(@TempDir Path projectDir) {
 
             // ARRANGE
-            var expectedMessage = "src/test/java/example/app/OpenClass.java: example.app.OpenClass is public and " +
-                "neither final nor abstract";
+            var expectedMessage =
+                "src/test/java/example/app/OpenClass.java: example.app.OpenClass " +
+                    "is public and neither final nor abstract";
+
             var project = GateProject
                 .driving(GATE, projectDir)
                 .applyingTheJavaPlugin()
                 .configuringTheGate(THE_APP_ROOT)
-                .holdingFixture(GateProject.TEST_JAVA_ROOT + OPEN_CLASS_PATH, OPEN_CLASS_FIXTURE);
+                .holdingFixture(
+                    GateProject.TEST_JAVA_ROOT + OPEN_CLASS_PATH,
+                    OPEN_CLASS_FIXTURE);
 
             // ACT
             var actualResult = project.runExpectingGateToFail();
@@ -473,21 +558,30 @@ class EnforceFinalClassesGateIntegrationTests {
         void failsWhenTheAllowedClassIsFinal(@TempDir Path projectDir) {
 
             // ARRANGE
-            var expectedMessage = "example.app.FinalClass is allowed to be extended and is no public, non-final, " +
-                "concrete class any rule holds here, so the allowance exempts nothing";
+            var expectedHeading = "Allowances that exempt nothing:";
+
+            var expectedMessage =
+                "example.app.FinalClass is allowed to be extended and is no public, non-final, " +
+                    "concrete class any rule holds here, so the allowance exempts nothing";
+
+            var unexpectedHeading = "Classes open to extension";
 
             var project = GateProject
                 .driving(GATE, projectDir)
                 .applyingTheJavaPlugin()
                 .configuringTheGate(THE_APP_ROOT_ALLOWING_THE_FINAL_CLASS)
-                .holdingFixture(GateProject.MAIN_JAVA_ROOT + FINAL_CLASS_PATH, FINAL_CLASS_FIXTURE);
+                .holdingFixture(
+                    GateProject.MAIN_JAVA_ROOT + FINAL_CLASS_PATH,
+                    FINAL_CLASS_FIXTURE);
 
             // ACT
             var actualResult = project.runExpectingGateToFail();
 
             // ASSERT
             assertThat(actualResult.getOutput())
-                .contains(expectedMessage);
+                .contains(expectedHeading)
+                .contains(expectedMessage)
+                .doesNotContain(unexpectedHeading);
         }
 
         @Test
@@ -536,15 +630,14 @@ class EnforceFinalClassesGateIntegrationTests {
 
             // ARRANGE
             var expectedHeading = "Classes this gate could not read";
-            var expectedClassName = "example/app/Odd";
 
-            var project = GateProject
-                .driving(GATE, projectDir)
-                .applyingTheJavaPlugin()
-                .configuringTheGate(THE_APP_ROOT)
-                .holdingBytes(
-                    "build/classes/java/staged/example/app/Odd.class",
-                    buildClassFileCarryingAnUnknownTag());
+            var expectedReason =
+                "example/app/Odd in java/staged: its constant pool holds tag 254, which the walk does not know";
+
+            var project = stageClassFile(
+                projectDir,
+                "Odd",
+                buildClassFileCarryingAnUnknownTag());
 
             // ACT
             var actualResult = project.runExpectingGateToFail();
@@ -552,8 +645,80 @@ class EnforceFinalClassesGateIntegrationTests {
             // ASSERT
             assertThat(actualResult.getOutput())
                 .contains(expectedHeading)
-                .contains(expectedClassName);
+                .contains(expectedReason);
         }
+
+        // A file cut short inside its pool is reported as cut short, rather than blamed on a tag.
+        @Test
+        void failsWhenAClassFileEndsInsideItsConstantPool(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var expectedReason =
+                "example/app/Cut in java/staged: it ends before its access flags, so it was cut short";
+
+            var project = stageClassFile(
+                projectDir,
+                "Cut",
+                buildClassFileCutShortInItsPool());
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedReason);
+        }
+
+        // An empty file, or anything else written under a .class name, holds no class to judge.
+        @Test
+        void failsWhenAClassFileIsNoClassFile(@TempDir Path projectDir) {
+
+            // ARRANGE
+            var expectedReason =
+                "example/app/Empty in java/staged: it does not open with " +
+                    "the class-file magic number, so it is no class file";
+
+            var project = stageClassFile(projectDir, "Empty", NOT_A_CLASS_FILE);
+
+            // ACT
+            var actualResult = project.runExpectingGateToFail();
+
+            // ASSERT
+            assertThat(actualResult.getOutput())
+                .contains(expectedReason);
+        }
+    }
+
+    // Stages a class file into a tree no compile task owns, since Gradle clears a compile task's stale
+    // outputs. The gate takes the build's class output whole, so it is scanned all the same.
+    private static GateProject stageClassFile(Path projectDir, String simpleName, byte[] classFile) {
+
+        return GateProject
+            .driving(GATE, projectDir)
+            .applyingTheJavaPlugin()
+            .configuringTheGate(THE_APP_ROOT)
+            .holdingBytes(
+                "build/classes/java/staged/example/app/" + simpleName + ".class",
+                classFile);
+    }
+
+    // A header, a pool promising more entries than it holds, and one text entry whose bytes stop short
+    // of the length it states.
+    private static byte[] buildClassFileCutShortInItsPool() {
+
+        var classFile = ByteBuffer.allocate(CLASS_FILE_CAPACITY);
+
+        classFile.putInt(CLASS_FILE_MAGIC);
+        classFile.putShort(CLASS_FILE_MINOR_VERSION);
+        classFile.putShort(JAVA_17_MAJOR_VERSION);
+        classFile.putShort(POOL_ENTRY_COUNT);
+        classFile.put(CONSTANT_UTF8_TAG);
+        classFile.putShort(CUT_TEXT_STATED_LENGTH);
+        classFile.put("example".getBytes(StandardCharsets.UTF_8));
+
+        return Arrays.copyOf(
+            classFile.array(),
+            classFile.position());
     }
 
     // A header, a pool of two entries, one text constant, and a tag no class-file version has defined.
@@ -626,6 +791,8 @@ class EnforceFinalClassesGateIntegrationTests {
             .driving(GATE, projectDir)
             .applyingTheJavaPlugin()
             .configuringTheGate(declaration)
-            .holdingFixture(GateProject.MAIN_JAVA_ROOT + OPEN_CLASS_PATH, OPEN_CLASS_FIXTURE);
+            .holdingFixture(
+                GateProject.MAIN_JAVA_ROOT + OPEN_CLASS_PATH,
+                OPEN_CLASS_FIXTURE);
     }
 }

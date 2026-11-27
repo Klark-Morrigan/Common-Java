@@ -138,7 +138,7 @@ A gate is skipped as up to date while its inputs and rules are unchanged.
 | `enforceIdCasing` | every `.md` file, and Java and Kotlin comments under `src/` | prose spells the abbreviation `ID`, not `id` |
 | `enforceMethodsOrderedByVisibility` | Java and Kotlin under `src/main` | methods in a type run most-public-first |
 | `enforceNoForbiddenPhrases` | the `.md` files each rule names | prose does not say a phrase the build rules out of those files |
-| `enforceNoMagicLiteralsKotlin` | Kotlin in every source set but `test` | numbers are named constants |
+| `enforceNoMagicLiteralsKotlin` | Kotlin in every source set but the test trees | numbers are named constants |
 | `enforceNoTestVocabulary` | Java, Kotlin and `.md` under `src/`, test trees exempt | production sources do not use the words of a test suite |
 | `enforceNoTrailingWhitespace` | Java and Kotlin in the formatted source sets | no line ends in whitespace |
 | `enforcePackageLayering` | Java and Kotlin under `src/` | a package does not import a layer it is declared closed to |
@@ -152,7 +152,9 @@ A gate is skipped as up to date while its inputs and rules are unchanged.
 | `enforceTestNamesOmitGroup` | test trees | a test method's name does not repeat its `@Nested` group's |
 | `enforceTestsNested` | test trees | every test method sits inside a `@Nested` class JUnit runs |
 
-The test trees are `src/test` and `src/testFixtures`.
+The test trees are the directories under `src/` whose name says test at a word's start:
+`test`, `testFixtures`, and a tree a project adds, such as `integrationTest` or `test-gradle`.
+Checkstyle's magic-number suppression reads test code the same way.
 
 ### Declarations and allowances
 
@@ -162,9 +164,14 @@ Six gates check nothing until a consumer declares rules:
 Which package may reach which, which words or calls it may use, which classes must be final,
 and which phrases its documents may say,
 is a per-project fact this repo cannot know.
+With no rule declared, the gate is skipped,
+so it reads none of the tree it would scan.
 
 A declaration takes named arguments and states a whole rule in one call.
-A malformed declaration fails where it is written.
+A malformed declaration fails where it is written,
+and so does one naming a key it does not take:
+a misspelt key would otherwise be dropped in silence,
+widening a rule or closing what an allowance meant to open.
 Where a gate offers allowances or exemptions,
 each is a line in the build that a reviewer reads in the diff,
 never an inline marker in the source.
@@ -256,7 +263,7 @@ declare the rule only where the documents are.
 
 ### Test-tree gates
 
-These gates read `src/test` and `src/testFixtures`.
+These gates read the [test trees](#lint-gates).
 
 - `enforceCamelCaseTestNames` reports any snake_case name that opens a call,
   which covers test methods and helpers alike.
@@ -277,7 +284,8 @@ These gates read `src/test` and `src/testFixtures`.
 
 ### Method order and Kotlin literals
 
-`enforceMethodsOrderedByVisibility` reads `src/main` only.
+`enforceMethodsOrderedByVisibility` reads `src/main` only:
+the tree a JAR ships from, not test code or a tooling tree beside it.
 Within a type, methods descend the visibility ladder:
 `public`, `protected`, package-private, `private` in Java,
 and `public`, `internal`, `protected`, `private` in Kotlin.
@@ -287,7 +295,7 @@ Constructors, enum constants and top-level Kotlin functions are not ranked.
 
 `enforceNoMagicLiteralsKotlin` runs the detekt CLI with [gradle/detekt.yml](gradle/detekt.yml),
 which enables only `MagicNumber` and turns config validation on.
-It reads the Kotlin of every source set except `test`, and is skipped when there is none.
+It reads the Kotlin of every source set except the test trees, and is skipped when there is none.
 Java's magic numbers are Checkstyle's.
 
 ### Test vocabulary
@@ -299,8 +307,7 @@ and phrases like `unit test` and `test harness`.
 See [the script](gradle/tasks/lint/naming/enforce-no-test-vocabulary.gradle) for the list.
 Words are matched as in [package vocabulary](#package-vocabulary).
 
-It reads every tree under `src/` except the test trees,
-which are `test` and `testFixtures` by default.
+It reads every tree under `src/` except the [test trees](#lint-gates).
 A consumer declares only exemptions:
 
 ```groovy
@@ -375,6 +382,9 @@ a record or a Kotlin class is final with no `final` written, and a Kotlin `open`
 A finding is a class that is public and neither final, abstract, an interface, an enum, an annotation nor synthetic.
 An enum is passed even when a constant's body leaves it unmarked final, its constructor being private to it.
 A nested class carries its own flags, so a final outer class closes nothing nested in it.
+Those flags cannot say protected or private, so a nested class is judged by the modifiers its `InnerClasses` record keeps:
+a public class nested in a package-private one reaches no other JAR,
+and a protected one is reachable only through a subclass of an outer class that can be extended.
 
 A failure opens on why the gate exists,
 since its reader is usually someone who left the keyword off by accident and sees no harm in it.
@@ -390,9 +400,12 @@ The finding ends with the two ways to settle it:
 mark the class final, or allow it with a reason.
 
 An allowance whose class is not an open public class any rule holds fails the build,
-as does one naming a class nothing compiles.
+as does one naming a class nothing compiles, under a heading of its own,
+since the fix is to delete the line.
 Allowances are judged only once a rule has read a class.
-A class the gate cannot parse fails the build ahead of any finding.
+A second allowance for one class fails where it is written.
+A class the gate cannot parse fails the build ahead of any finding, with the reason:
+not a class file, cut short, or a constant-pool tag the walk does not know.
 The gate depends on every compile task, Kotlin's included.
 
 ### Package layering
@@ -527,12 +540,13 @@ enforceReferencedTypes {
   A source set the build does not have fails the build.
 - `reason:` ends each finding as the clause after "X references T, which".
 
-A type allowance that nothing compiled names fails the build.
+A type allowance that nothing compiled names fails the build, under a heading of its own.
 Package allowances are not judged this way.
 Classes compiled into the namespace itself are exempt.
 A finding names the class and the type, with no line number.
-A class the gate cannot parse fails the build ahead of any finding;
-the fix is a constant-pool tag added to [class-file-scan.gradle](gradle/tasks/lint/class-file-scan.gradle).
+A class the gate cannot parse fails the build ahead of any finding, with the reason.
+For a constant-pool tag the walk does not know,
+the fix is the tag added to [class-file-scan.gradle](gradle/tasks/lint/class-file-scan.gradle).
 
 The gate depends on every compile task, Kotlin's included.
 
@@ -546,11 +560,13 @@ since its suite applies it alone.
 | Script | Provides |
 | --- | --- |
 | [tasks/source-text.gradle](gradle/tasks/source-text.gradle) | `jvmSourceIncludes` and `sourceEncoding`, shared by the gates and the formatter |
-| [tasks/lint/lint-gate.gradle](gradle/tasks/lint/lint-gate.gradle) | `installLintGate`, `failOnViolations`, `declareScannedFiles`, `declareRuleSnapshot`, `readOneOrMany` |
-| [tasks/lint/source-scan.gradle](gradle/tasks/lint/source-scan.gradle) | lines stripped of comments and literals, whether each held a comment, and the class and `@Nested` group each line sits in |
+| [tasks/lint/lint-gate.gradle](gradle/tasks/lint/lint-gate.gradle) | `installLintGate`, `skipWithoutRules`, `failOnViolations` and `failOnViolationSections`, `failOnUnknownDeclarationKeys`, `declareScannedFiles`, `declareRuleSnapshot`, `readOneOrMany` |
+| [tasks/lint/authored-files.gradle](gradle/tasks/lint/authored-files.gradle) | the authored files under a directory, less `authoredScanExcludedDirectoryNames` |
+| [tasks/lint/source-scan.gradle](gradle/tasks/lint/source-scan.gradle) | lines stripped of comments and literals, read once per file per build, with where each comment runs, and the class and `@Nested` group each line sits in |
+| [tasks/lint/test-sources.gradle](gradle/tasks/lint/test-sources.gradle) | the test trees, the JUnit test annotations, and the suite suffix |
 | [tasks/lint/package-roots.gradle](gradle/tasks/lint/package-roots.gradle) | package declarations, package roots, and layers with `except` |
-| [tasks/lint/class-file-scan.gradle](gradle/tasks/lint/class-file-scan.gradle) | a class file's text constants, access flags and recorded source file name, the class and tree a file under `build/classes` holds, the source file it was compiled from, and the wiring that reads those trees after compilation |
-| [tasks/lint/word-scan.gradle](gradle/tasks/lint/word-scan.gradle) | text parted into words, and where a declared phrase is said |
+| [tasks/lint/class-file-scan.gradle](gradle/tasks/lint/class-file-scan.gradle) | a class file's text constants and access flags, and on request its recorded source file name and nested-class modifiers; the class and tree a file under `build/classes` holds, the source file it was compiled from, and the wiring that reads those trees after compilation |
+| [tasks/lint/word-scan.gradle](gradle/tasks/lint/word-scan.gradle) | text parted into words, where a declared phrase is said, and the `allowWord` and `allowWords` declarations |
 | [tasks/lint/markdown-scan.gradle](gradle/tasks/lint/markdown-scan.gradle) | the authored `.md` tree, the lines outside fenced blocks, and those lines' prose with code spans blanked |
 | [tasks/format/formatted-source-sets.gradle](gradle/tasks/format/formatted-source-sets.gradle) | the source sets less `formatterExcludedSourceSets` |
 | [tasks/lint/formatting/formatted-source-line-gate.gradle](gradle/tasks/lint/formatting/formatted-source-line-gate.gradle) | the line-by-line body of the three formatting gates |
@@ -575,7 +591,8 @@ awtFontFamiliesRequired = 1
 ```
 
 The probe then runs before that project's `test` task,
-and fails with the environment written out when the machine offers fewer families.
+and fails with the environment written out when the machine offers fewer families,
+or lists fonts it cannot measure text in.
 Run `gradlew reportAwtEnvironment` directly on any runner in doubt.
 
 The probe runs in the build JVM, not the test JVM.
@@ -630,10 +647,14 @@ Java and Kotlin both build through `gradlew`, so one workflow serves both.
 ```yaml
 jobs:
   gradle:
-    uses: Klark-Morrigan/Common-Java/.github/workflows/_ci-gradle.yml@master
+    uses: Klark-Morrigan/Common-Java/.github/workflows/_ci-gradle.yml@v0
     with:
       gradle-tasks: test jar
 ```
+
+`@v0` follows the latest `v0.x.y` release, which `publish-version-tags.sh` moves on each release.
+Pin an exact tag such as `@v0.16.0` to take changes only when you choose to,
+or `@master` to take every merge as it lands.
 
 | Input | Type | Default | Purpose |
 | --- | --- | --- | --- |
@@ -653,12 +674,17 @@ jobs:
 - The workflow grants `github.token` `contents: read` only.
 - A self-hosted runner's workspace is cleaned before checkout.
   The pinned actions need Node 24 on the runner.
-- Gradle runs with `--no-daemon --console=plain --warning-mode all`.
+- `gradle/actions/setup-gradle`, pinned at v5, restores and saves Gradle's caches,
+  and checks every wrapper JAR against Gradle's published checksums.
+  v6 is not used: its caching is closed source under terms of use that upgrading accepts.
+  A self-hosted runner, which keeps its Gradle home between jobs, skips the cache.
+- Gradle runs with `--no-daemon --console=plain --warning-mode all --build-cache`.
 - Test reports upload as `test-reports`, or `test-reports-<suffix>`, even when the build fails,
   and are kept for 7 days.
 
 This repo's own [ci-gradle.yml](.github/workflows/ci-gradle.yml) calls the workflow to run `build` in `ci-smoke/`.
 A manual run may override the runner.
+A newer push to a pull request cancels that pull request's older run; a manual run is never cancelled.
 
 ## Local scripts and hooks
 
@@ -666,7 +692,8 @@ Run `./scripts/setup-hooks.sh` once per clone.
 It points git at `.githooks/`.
 The pre-commit hook then runs Common-Automation's shared fixes on staged files:
 the executable bit, and trailing whitespace in Markdown and Gradle scripts.
-It skips the fixes when Common-Automation is not checked out.
+It finds Common-Automation as the shims below do,
+and stops the commit with a message naming the missing path when it is not checked out.
 
 | Script | Does |
 | --- | --- |
@@ -679,9 +706,11 @@ It skips the fixes when Common-Automation is not checked out.
 | `run-tests-bash.sh` | the bats half alone |
 | `publish-version-tags.sh [vX.Y.Z]` | tags `origin/master` with `vX.Y.Z` and the floating `vX`; prompts when the version is omitted |
 
-Each `.sh` has a `.bat` launcher for an Explorer double-click.
+Each `.sh` has a `.bat` launcher for an Explorer double-click,
+which keeps the window open on a failure so its message can be read.
 The shims find Common-Automation through `COMMON_AUTOMATION_ROOT`,
 which defaults to the `Common-Automation` folder beside this repo.
+A shim whose Common-Automation script is missing names the path it looked in and how to set the variable.
 They work on the repo `CONSUMER_REPO_PATH` names, which defaults to Common-Java.
 `publish-version-tags.sh` always tags this repo.
 
@@ -701,12 +730,19 @@ Its `testGradle` task runs a TestKit suite per script:
 each suite applies its one script to a throwaway project and drives a real build.
 A suite and its `.txt` fixtures sit at the script's own path under `ci-smoke/src/test-gradle/tasks/`.
 
+A helper that registers no task, such as `cause-chain.gradle`, may have a suite too,
+which declares a task of its own to drive the helper through.
+The suites run in parallel forks, at most four.
+
 Two checks guard the suites themselves:
 
 - `verifyEveryGateHasASuite` fails when a script that registers a task has no suite at its path.
-- `verifyConventionsWireEveryGate` fails when `java-conventions.gradle` leaves a lint gate out of `check`.
+- `verifyConventionsWireEveryGate` fails when `java-conventions.gradle` leaves a lint gate out of `test` or `check`.
 
-Both run with `check`, as does `testGradle`.
+All three run with `check` and with `coverage`.
+
+The shell scripts have bats suites beside them, as `<script>.bats`.
+`run-tests-bash.sh` runs them in the pinned image CI uses.
 
 ## Consuming with a domain layer
 

@@ -23,6 +23,7 @@
 // the line the name is written on.
 apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, '../../source-scan.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../../test-sources.gradle')
 
 // An identifier carrying an underscore that opens a call. The lookbehind refuses to start
 // mid-identifier or after a '.', since a qualified call names a method its own declaration answers
@@ -37,25 +38,31 @@ def enforceCamelCaseTestNames = tasks.register('enforceCamelCaseTestNames') {
 
     group = 'verification'
 
-    def scannedFiles = declareScannedFiles(it, testSourceRoots, jvmSourceIncludes)
+    def scannedFiles = declareScannedFiles(
+        it,
+        findTestSourceRoots,
+        jvmSourceIncludes)
 
     doLast {
 
         def violations = []
 
-        scannedFiles.each { sourceFile ->
+        scannedFiles
+            .each { sourceFile ->
 
-            eachStrippedLine(sourceFile) { text, lineNumber ->
+                eachStrippedLine(sourceFile) {
+                    text,
+                    lineNumber ->
 
-                def matcher = snakeCallName.matcher(text)
+                        def matcher = snakeCallName.matcher(text)
 
-                while (matcher.find()) {
+                        while (matcher.find()) {
 
-                    violations << "${sourceFile}:${lineNumber}: test method " +
-                        "'${matcher.group(1)}' must be named in camelCase"
-                }
+                            violations << "${sourceFile}:${lineNumber}: test method " +
+                                "'${matcher.group(1)}' must be named in camelCase"
+                        }
+                    }
             }
-        }
 
         failOnViolations('Test-method naming convention violated', violations)
     }

@@ -21,26 +21,41 @@ setup() {
 
 @test "exports Common-Java itself when no consumer is named" {
 
+    # ARRANGE
+    expectedRepoPath="${COMMON_JAVA_ROOT}"
+
+    # ACT
     run bash -c 'set -euo pipefail; source "$1"; printenv CONSUMER_REPO_PATH' _ "${IMPORT}"
 
+    # ASSERT
     [ "${status}" -eq 0 ]
-    [ "${output}" = "${COMMON_JAVA_ROOT}" ]
+    [ "${output}" = "${expectedRepoPath}" ]
 }
 
 @test "keeps the consumer CONSUMER_REPO_PATH names" {
 
+    # ARRANGE
+    expectedRepoPath='/work/consumer'
+
+    # ACT
     CONSUMER_REPO_PATH=/work/consumer \
         run bash -c 'set -euo pipefail; source "$1"; printenv CONSUMER_REPO_PATH' _ "${IMPORT}"
 
+    # ASSERT
     [ "${status}" -eq 0 ]
-    [ "${output}" = "/work/consumer" ]
+    [ "${output}" = "${expectedRepoPath}" ]
 }
 
 @test "sets common_java_root to the repo the import sits in, whatever the consumer" {
 
+    # ARRANGE
+    expectedRoot="${COMMON_JAVA_ROOT}"
+
+    # ACT
     CONSUMER_REPO_PATH=/work/consumer \
         run bash -c 'set -euo pipefail; source "$1"; printf "%s" "${common_java_root}"' _ "${IMPORT}"
 
+    # ASSERT
     [ "${status}" -eq 0 ]
-    [ "${output}" = "${COMMON_JAVA_ROOT}" ]
+    [ "${output}" = "${expectedRoot}" ]
 }

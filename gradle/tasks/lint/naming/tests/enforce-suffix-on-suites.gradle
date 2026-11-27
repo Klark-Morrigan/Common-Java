@@ -11,8 +11,10 @@
 // @Nested group is named for the method it covers and carries no suffix. Which class is outermost
 // needs the class scopes source-scan.gradle reads, as enforceTestsNested does: a declaration with
 // no class open around it opens the outermost one.
+
 apply from: new File(buildscript.sourceFile.parentFile, '../../lint-gate.gradle')
 apply from: new File(buildscript.sourceFile.parentFile, '../../source-scan.gradle')
+apply from: new File(buildscript.sourceFile.parentFile, '../../test-sources.gradle')
 
 // Every suite in one source file not named for its suffix, each reported once however many tests
 // it holds.
@@ -27,8 +29,8 @@ def findMisnamedSuites = { File sourceFile ->
     scanClassScopes(sourceFile) { line ->
 
         def declared = line.declaredClass
-
-        if (declared != null && line.enclosingClass == null) {
+        if (declared != null
+                && line.enclosingClass == null) {
 
             outermost = [name: declared.name, number: line.number]
             isReported = false
@@ -64,13 +66,19 @@ def enforceSuffixOnSuites = tasks.register('enforceSuffixOnSuites') {
     description = 'Fails the build when a class holding tests is not suffixed Tests.'
     group = 'verification'
 
-    def scannedFiles = declareScannedFiles(it, testSourceRoots, jvmSourceIncludes)
+    def scannedFiles = declareScannedFiles(
+        it,
+        findTestSourceRoots,
+        jvmSourceIncludes)
 
     doLast {
 
-        def violations = scannedFiles.collectMany { sourceFile -> findMisnamedSuites(sourceFile) }
+        def violations = scannedFiles
+            .collectMany { sourceFile -> findMisnamedSuites(sourceFile) }
 
-        failOnViolations('Suite naming convention violated', violations)
+        failOnViolations(
+            'Suite naming convention violated',
+            violations)
     }
 }
 
